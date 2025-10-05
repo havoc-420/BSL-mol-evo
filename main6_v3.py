@@ -215,7 +215,6 @@ def calculate_evolutionary_similarity(smiles1: str, smiles2: str, verbose=False)
 
 # --- 3. 验证 ---
 # if __name__ == '__main__':
-    # 原始测试代码被注释掉了，因为我们没有相应的数据文件
     # from tqdm import tqdm
     # df = pd.read_csv("/home/data1/lk/project/mol_tree_v2/similarity/full_cleaned_pcqm4mv2.csv")
     # smiles_library = df['smiles']
@@ -227,10 +226,7 @@ def calculate_evolutionary_similarity(smiles1: str, smiles2: str, verbose=False)
     
     # 真实场景中，可以用joblib或multiprocessing来并行化这一步
     # all_paths = [MoleculeEvolver(s).generate_path() for s in tqdm(smiles_library)]
-    
-    
     # print(f"路径生成总耗时: {time.time() - t_start_path:.4f} 秒")
-
     # print("\n--- 启动快速相似度批量计算 ---")
     
     # # 1. 初始化计算器
