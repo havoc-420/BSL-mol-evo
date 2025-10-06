@@ -48,7 +48,7 @@ def parse_atom_list(atom_str):
     # 去重并排序
     return sorted(list(set(atom_list)))
 
-def extract_smiles_with_atom_count(root_dir, atom_count, output_file, validate_smiles=False):
+def extract_smiles_with_atom_count(root_dir, atom_count, output_file, validate_smiles=False, heavy_atoms_only=False):
     """
     从QM9数据集中提取具有指定原子数的分子特征
     
@@ -58,6 +58,7 @@ def extract_smiles_with_atom_count(root_dir, atom_count, output_file, validate_s
                                   如果是列表，则提取多个原子数的分子
         output_file (str): 输出CSV文件路径
         validate_smiles (bool): 是否使用RDKit验证并重新生成SMILES
+        heavy_atoms_only (bool): 是否只计算非氢原子（重原子）数量
     """
     try:
         # 检查是否安装了必要的库
@@ -89,11 +90,20 @@ def extract_smiles_with_atom_count(root_dir, atom_count, output_file, validate_s
         
         if atom_count is not None:
             if isinstance(atom_count, list):
-                print(f"开始提取具有 {', '.join(map(str, atom_count))} 个原子的分子...")
+                if heavy_atoms_only:
+                    print(f"开始提取具有 {', '.join(map(str, atom_count))} 个重原子的分子...")
+                else:
+                    print(f"开始提取具有 {', '.join(map(str, atom_count))} 个原子的分子...")
             else:
-                print(f"开始提取具有 {atom_count} 个原子的分子...")
+                if heavy_atoms_only:
+                    print(f"开始提取具有 {atom_count} 个重原子的分子...")
+                else:
+                    print(f"开始提取具有 {atom_count} 个原子的分子...")
         else:
-            print(f"开始提取所有分子...")
+            if heavy_atoms_only:
+                print(f"开始提取所有分子（按重原子计数）...")
+            else:
+                print(f"开始提取所有分子...")
         
         # 存储符合条件的分子
         molecules = []
@@ -153,10 +163,11 @@ def extract_smiles_with_atom_count(root_dir, atom_count, output_file, validate_s
         # 遍历数据集，查找具有指定原子数的分子
         for i, data in enumerate(dataset):
             try:
-                num_atoms = data.num_nodes  # 默认使用数据集中的原子数
+                num_atoms = data.num_nodes  # 默认使用数据集中的原子数（包括氢原子）
+                valid_molecule = True  # 假设分子是有效的
                 
                 # 如果RDKit可用且需要验证SMILES，尝试验证
-                if RDKIT_AVAILABLE and validate_smiles:
+                if RDKIT_AVAILABLE and (validate_smiles or heavy_atoms_only):
                     # 临时启用RDKit警告以检查严重错误
                     lg.setLevel(RDLogger.WARNING)
                     mol = Chem.MolFromSmiles(data.smiles)
@@ -164,14 +175,25 @@ def extract_smiles_with_atom_count(root_dir, atom_count, output_file, validate_s
                     lg.setLevel(RDLogger.CRITICAL)
                     
                     if mol is not None:
-                        # 使用RDKit的GetNumAtoms方法，只计算重原子（不包括氢原子）
-                        num_atoms = mol.GetNumAtoms()
+                        # 根据heavy_atoms_only参数决定如何计算原子数
+                        if heavy_atoms_only:
+                            # 只计算重原子（非氢原子）
+                            num_atoms = mol.GetNumHeavyAtoms()
+                        elif validate_smiles:
+                            # 计算所有原子（包括氢原子）
+                            num_atoms = mol.GetNumAtoms()
                         
                         # 检查价态是否合理
                         if has_invalid_valence(mol):
                             # 如果价态不合理，跳过该分子
-                            continue
-                    # 如果mol为None，仍然使用data.num_nodes，因为QM9数据集中的数据通常是有效的
+                            valid_molecule = False
+                    else:
+                        # 如果RDKit无法解析SMILES，跳过该分子
+                        valid_molecule = False
+                
+                # 如果分子无效，则跳过
+                if not valid_molecule:
+                    continue
                 
                 # 如果指定了原子数，则只提取匹配的分子；否则提取所有分子
                 if atom_count is None or \
@@ -199,9 +221,12 @@ def extract_smiles_with_atom_count(root_dir, atom_count, output_file, validate_s
                     # 显示进度
                     if atom_count is not None and (len(molecules) % 100 == 0):
                         if isinstance(atom_count, list):
-                            print(f"已找到 {len(molecules)} 个具有指定原子数的分子")
+                            print(f"已找到 {len(molecules)} 个符合要求的分子")
                         else:
-                            print(f"已找到 {len(molecules)} 个具有 {atom_count} 个原子的分子")
+                            if heavy_atoms_only:
+                                print(f"已找到 {len(molecules)} 个具有 {atom_count} 个重原子的分子")
+                            else:
+                                print(f"已找到 {len(molecules)} 个具有 {atom_count} 个原子的分子")
                     elif atom_count is None and ((i + 1) % 10000 == 0):
                         print(f"已处理 {i + 1}/{len(dataset)} 个分子")
             except Exception as e:
@@ -210,9 +235,12 @@ def extract_smiles_with_atom_count(root_dir, atom_count, output_file, validate_s
         
         if atom_count is not None:
             if isinstance(atom_count, list):
-                print(f"共找到 {len(molecules)} 个具有指定原子数的分子")
+                print(f"共找到 {len(molecules)} 个符合要求的分子")
             else:
-                print(f"共找到 {len(molecules)} 个具有 {atom_count} 个原子的分子")
+                if heavy_atoms_only:
+                    print(f"共找到 {len(molecules)} 个具有 {atom_count} 个重原子的分子")
+                else:
+                    print(f"共找到 {len(molecules)} 个具有 {atom_count} 个原子的分子")
         else:
             print(f"共处理 {len(molecules)} 个分子")
         
@@ -232,9 +260,15 @@ def extract_smiles_with_atom_count(root_dir, atom_count, output_file, validate_s
                 base_name = os.path.splitext(output_file)[0]
                 if '_atoms' in base_name:
                     dir_name = os.path.dirname(output_file)
-                    base_name = os.path.join(dir_name, f"qm9_smiles_{count}_atoms")
+                    if heavy_atoms_only:
+                        base_name = os.path.join(dir_name, f"qm9_smiles_heavy_{count}_atoms")
+                    else:
+                        base_name = os.path.join(dir_name, f"qm9_smiles_{count}_atoms")
                 else:
-                    base_name = f"{base_name}_{count}"
+                    if heavy_atoms_only:
+                        base_name = f"{base_name}_heavy_{count}"
+                    else:
+                        base_name = f"{base_name}_{count}"
                 separate_output_file = f"{base_name}.csv"
                 
                 # 保存到CSV文件
@@ -246,7 +280,10 @@ def extract_smiles_with_atom_count(root_dir, atom_count, output_file, validate_s
                     for mol in mols:
                         writer.writerow(mol)
                 
-                print(f"原子数为 {count} 的分子已保存到 {separate_output_file}")
+                if heavy_atoms_only:
+                    print(f"重原子数为 {count} 的分子已保存到 {separate_output_file}")
+                else:
+                    print(f"原子数为 {count} 的分子已保存到 {separate_output_file}")
                 print(f"有效分子数量: {len(mols)}")
         else:
             # 保存到CSV文件
@@ -375,6 +412,8 @@ def main():
                         help='输出CSV文件路径 (默认: data/qm9_smiles_{atom_count}_atoms.csv 或 data/qm9_smiles_all.csv)')
     parser.add_argument('--validate', action='store_true', 
                         help='是否使用RDKit验证并重新生成SMILES (更准确但较慢)')
+    parser.add_argument('--heavy-only', action='store_true',
+                        help='是否只计算重原子（非氢原子）数量 (默认: False，计算所有原子)')
     
     args = parser.parse_args()
     
@@ -398,13 +437,25 @@ def main():
             if isinstance(atom_count, list):
                 # 对于多个原子数，使用范围或列表形式命名
                 if len(atom_count) > 1:
-                    args.output = f'{output_dir}/qm9_smiles_atoms.csv'  # 基础文件名，实际会分别保存
+                    if args.heavy_only:
+                        args.output = f'{output_dir}/qm9_smiles_heavy_atoms.csv'  # 基础文件名，实际会分别保存
+                    else:
+                        args.output = f'{output_dir}/qm9_smiles_atoms.csv'  # 基础文件名，实际会分别保存
                 else:
-                    args.output = f'{output_dir}/qm9_smiles_{atom_count[0]}_atoms.csv'
+                    if args.heavy_only:
+                        args.output = f'{output_dir}/qm9_smiles_heavy_{atom_count[0]}_atoms.csv'
+                    else:
+                        args.output = f'{output_dir}/qm9_smiles_{atom_count[0]}_atoms.csv'
             else:
-                args.output = f'{output_dir}/qm9_smiles_{atom_count}_atoms.csv'
+                if args.heavy_only:
+                    args.output = f'{output_dir}/qm9_smiles_heavy_{atom_count}_atoms.csv'
+                else:
+                    args.output = f'{output_dir}/qm9_smiles_{atom_count}_atoms.csv'
         else:
-            args.output = f'{output_dir}/qm9_smiles_all.csv'
+            if args.heavy_only:
+                args.output = f'{output_dir}/qm9_smiles_heavy_all.csv'
+            else:
+                args.output = f'{output_dir}/qm9_smiles_all.csv'
     else:
         # 如果指定了输出路径，确保其目录存在
         output_path = Path(args.output)
@@ -422,15 +473,28 @@ def main():
     print(f"数据集目录: {args.dir}")
     if atom_count is not None:
         if isinstance(atom_count, list):
-            print(f"目标原子数: {', '.join(map(str, atom_count))}")
+            if args.heavy_only:
+                print(f"目标重原子数: {', '.join(map(str, atom_count))}")
+            else:
+                print(f"目标原子数: {', '.join(map(str, atom_count))}")
         else:
-            print(f"目标原子数: {atom_count}")
+            if args.heavy_only:
+                print(f"目标重原子数: {atom_count}")
+            else:
+                print(f"目标原子数: {atom_count}")
     else:
-        print(f"目标原子数: 所有")
+        if args.heavy_only:
+            print(f"目标重原子数: 所有")
+        else:
+            print(f"目标原子数: 所有")
     if args.validate:
         print(f"验证模式: 开启 (将使用RDKit重新生成SMILES)")
+    if args.heavy_only:
+        print(f"计数模式: 仅重原子（非氢原子）")
+    else:
+        print(f"计数模式: 所有原子（包括氢原子）")
     
-    extract_smiles_with_atom_count(args.dir, atom_count, args.output, validate_smiles=args.validate)
+    extract_smiles_with_atom_count(args.dir, atom_count, args.output, validate_smiles=args.validate, heavy_atoms_only=args.heavy_only)
 
 if __name__ == "__main__":
     main()
