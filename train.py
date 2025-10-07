@@ -12,9 +12,6 @@ import argparse
 import torch
 import pandas as pd
 import numpy as np
-from torch_geometric.data import Data
-from torch_geometric.loader import DataLoader
-from torch.utils.data import TensorDataset, Subset, random_split
 import torch.nn as nn
 import torch.optim as optim
 import random
@@ -29,11 +26,10 @@ model_data_dir = os.path.join(project_root, 'mol_evo', 'model-data')
 # 添加项目根目录到Python路径
 sys.path.insert(0, project_root)
 
-from core.gnn import (
-    MoleculeEvolutionTransformer,
-    prepare_evolution_data,
-    train_transformer_model
-)
+# 更新导入语句以使用新的模块结构
+from core.models.predictors import MoleculeEvolutionTransformer
+from core.data.processing import prepare_evolution_data
+from core.utils.training import train_transformer_model
 
 
 def split_data_indices(total_count, train_ratio=0.7, val_ratio=0.2, test_ratio=0.1, seed=42):
@@ -109,7 +105,7 @@ def train_transformer(data_file: str, max_pairs: int = None, epochs: int = 100):
     print("\n正在创建模型...")
     model = MoleculeEvolutionTransformer(
         node_feature_dim=2048,  # Morgan指纹维度
-        edge_feature_dim=18,    # 边特征维度
+        edge_feature_dim=30,    # 边特征维度（保持为30，与数据处理一致）
         hidden_dim=128,
         output_dim=2048         # 目标分子指纹维度
     )
