@@ -87,6 +87,7 @@ def find_one_step_pairs(heavy_n_df, heavy_m_df, n_atoms, m_atoms, max_pairs=None
                     # 分析进化操作
                     operation = analyze_evolution_operation(path_n, path_m)
                     
+                    # 按照指定顺序创建pair_data字典
                     pair_data = {
                         'smiles_from': smiles_n,
                         'smiles_to': smiles_m,
@@ -96,10 +97,10 @@ def find_one_step_pairs(heavy_n_df, heavy_m_df, n_atoms, m_atoms, max_pairs=None
                         'index_to': heavy_m_df.iloc[j].name,
                         'distance': distance,
                         'operation_type': operation['type'],
-                        'operation_detail': operation['detail'],
-                        'evolved_molecule': operation['evolved_molecule'],
                         'to_atom_symbol': operation['to_atom_symbol'],
-                        'to_atom_position': operation['to_atom_position']
+                        'to_atom_position': operation['to_atom_position'],
+                        'operation_detail': operation['detail'],
+                        'evolved_molecule': operation['evolved_molecule']
                     }
                     
                     pairs.append(pair_data)
@@ -143,12 +144,24 @@ def analyze_evolution_operation(path1, path2):
     if len(added_ops) == 1 and len(removed_ops) == 0:
         operation_type = "add"
         operation_detail = list(added_ops)[0]
+        # 检查是否是添加手性操作
+        if "指定手性(" in operation_detail or "指定顺反(" in operation_detail:
+            operation_type = "add_stereo"
     elif len(removed_ops) == 1 and len(added_ops) == 0:
         operation_type = "del"
         operation_detail = list(removed_ops)[0]
+        # 检查是否是删除手性操作
+        if "指定手性(" in operation_detail or "指定顺反(" in operation_detail:
+            operation_type = "del_stereo"
     elif len(added_ops) == 1 and len(removed_ops) == 1:
         operation_type = "replace"
         operation_detail = f"replace '{list(removed_ops)[0]}' with '{list(added_ops)[0]}'"
+        # 检查是否是替换手性操作
+        removed_op = list(removed_ops)[0]
+        added_op = list(added_ops)[0]
+        if ("指定手性(" in removed_op or "指定顺反(" in removed_op) and \
+           ("指定手性(" in added_op or "指定顺反(" in added_op):
+            operation_type = "replace_stereo"
     elif len(added_ops) > 1 and len(removed_ops) == 0:
         operation_type = "add_multi"
         operation_detail = "; ".join(list(added_ops))
@@ -242,6 +255,11 @@ def save_pairs_to_csv(pairs, output_file):
     existing_columns_to_remove = [col for col in columns_to_remove if col in df.columns]
     if existing_columns_to_remove:
         df = df.drop(columns=existing_columns_to_remove)
+    
+    # 重新排列列的顺序，将operation_detail和evolved_molecule移到最后
+    column_order = [col for col in df.columns if col not in ['operation_detail', 'evolved_molecule']]
+    column_order.extend(['operation_detail', 'evolved_molecule'])
+    df = df[column_order]
     
     # 保存到CSV文件
     df.to_csv(output_file, index=False, encoding='utf-8')
