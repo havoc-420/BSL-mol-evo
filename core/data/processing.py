@@ -119,59 +119,51 @@ def calculate_molecular_similarity(smiles1: str, smiles2: str) -> float:
         return 0.0
 
 
-def prepare_edge_features(row: pd.Series, property_stats: Dict[str, Tuple[float, float]]) -> np.ndarray:
+def prepare_edge_features(row: pd.Series, property_stats: Dict[str, Tuple[float, float]] = None, 
+                         include_property_changes: bool = False) -> List[float]:
     """
-    准备边特征
-
+    准备边特征向量
+    
     Args:
-        row: 数据行
-        property_stats: 属性统计信息（均值和标准差）
-
+        row: CSV文件中的一行数据
+        property_stats: 属性统计信息（用于标准化）
+        include_property_changes: 是否包含属性变化特征
+        
     Returns:
         边特征向量
     """
-    # 原子类型特征
-    atom_features = atom_type_to_onehot(row['to_atom_symbol'])
-
-    # 操作类型特征
-    op_features = operation_type_to_onehot(row['operation_type'])
-
-    # 属性变化特征
+    # 原子类型特征（5维）
+    atom_features = atom_type_to_onehot(row['to_atom_symbol'] if 'to_atom_symbol' in row else '')
+    
+    # 操作类型特征（6维）
+    op_features = operation_type_to_onehot(row['operation_type'] if 'operation_type' in row else 'unknown')
+    
+    # 属性变化特征（15维，可选）
     property_changes = []
-    property_names = ['A_change', 'B_change', 'C_change', 'mu_change', 'alpha_change',
-                      'homo_change', 'lumo_change', 'gap_change', 'r2_change', 'zpve_change',
-                      'U0_change', 'U_change', 'H_change', 'G_change', 'Cv_change']
+    if include_property_changes:
+        property_names = ['A_change', 'B_change', 'C_change', 'mu_change', 'alpha_change',
+                          'homo_change', 'lumo_change', 'gap_change', 'r2_change', 'zpve_change',
+                          'U0_change', 'U_change', 'H_change', 'G_change', 'Cv_change']
 
-    for prop in property_names:
-        if prop in row and not pd.isna(row[prop]):
-            value = row[prop]
-            property_changes.append(value)
-        else:
-            property_changes.append(0.0)
-
-    # 位置敏感特征
-    position_features = []
-    if 'from_heavy_atoms' in row and 'to_heavy_atoms' in row:
-        position_features = [
-            row['from_heavy_atoms'],
-            row['to_heavy_atoms'],
-            row['to_heavy_atoms'] - row['from_heavy_atoms']  # 原子数变化
-        ]
-    else:
-        position_features = [0, 0, 0]
-
-    # 分子结构相似性特征
-    similarity_features = []
-    if 'smiles_from' in row and 'smiles_to' in row:
-        similarity = calculate_molecular_similarity(row['smiles_from'], row['smiles_to'])
-        similarity_features = [similarity]
-    else:
-        similarity_features = [0.0]
-
+        for prop in property_names:
+            if prop in row and not pd.isna(row[prop]):
+                value = row[prop]
+                # 标准化属性变化值
+                if property_stats and prop in property_stats:
+                    mean, std = property_stats[prop]
+                    if std > 0:
+                        value = (value - mean) / std
+                property_changes.append(value)
+            else:
+                property_changes.append(0.0)
+    
     # 组合所有特征
-    edge_features = atom_features + op_features + property_changes + position_features + similarity_features
-
-    return np.array(edge_features, dtype=np.float32)
+    if include_property_changes:
+        edge_features = atom_features + op_features + property_changes
+    else:
+        edge_features = atom_features + op_features
+    
+    return edge_features
 
 
 def load_qm9_properties() -> Dict[str, np.ndarray]:
@@ -293,74 +285,124 @@ def build_molecule_graph_with_properties(csv_file: str, max_molecules: int = Non
     return data, smiles_to_idx
 
 
-def build_molecule_graph_with_fingerprints(csv_file: str, max_molecules: int = None) -> Tuple[Data, Dict[str, int]]:
+def build_molecule_graph_with_fingerprints(csv_file: str, max_molecules: int = None) -> Tuple[Data, Dict[str, int], Dict[str, Tuple[float, float]]]:
     """
     从CSV文件构建分子进化图（使用Morgan指纹作为节点特征）
-    
+
     Args:
         csv_file: CSV文件路径
         max_molecules: 最大分子数（用于调试）
-        
+
     Returns:
-        图数据和SMILES到索引的映射
+        图数据、SMILES到索引的映射和属性统计信息
     """
     # 读取数据
     df = pd.read_csv(csv_file)
-    
+
     if max_molecules:
         df = df.head(max_molecules)
-    
+
     # 计算属性统计信息用于标准化
     property_names = ['A_change', 'B_change', 'C_change', 'mu_change', 'alpha_change',
                       'homo_change', 'lumo_change', 'gap_change', 'r2_change', 'zpve_change',
                       'U0_change', 'U_change', 'H_change', 'G_change', 'Cv_change']
-    
+
     property_stats = {}
     for prop in property_names:
         if prop in df.columns:
             mean = df[prop].mean()
             std = df[prop].std()
             property_stats[prop] = (mean, std)
-    
+
     # 收集所有唯一的SMILES
     all_smiles = set(df['smiles_from'].tolist() + df['smiles_to'].tolist())
     smiles_to_idx = {smiles: idx for idx, smiles in enumerate(all_smiles)}
-    
+
     # 构建节点特征 (使用Morgan指纹)
     num_nodes = len(all_smiles)
     node_features = []
-    
-    # 为每个SMILES构建特征
+
     for smiles in all_smiles:
-        fp = smiles_to_fingerprint(smiles)
-        node_features.append(fp)
-    
+        fingerprint = smiles_to_fingerprint(smiles)
+        node_features.append(fingerprint)
+
     node_features = torch.FloatTensor(np.array(node_features))
-    
+
     # 构建边索引和边特征
-    edge_indices = []
-    edge_features = []
-    
+    edge_index = []
+    edge_attr = []
+
     for _, row in df.iterrows():
-        src_idx = smiles_to_idx[row['smiles_from']]
-        dst_idx = smiles_to_idx[row['smiles_to']]
+        from_idx = smiles_to_idx[row['smiles_from']]
+        to_idx = smiles_to_idx[row['smiles_to']]
         
-        edge_indices.append([src_idx, dst_idx])
-        edge_feat = prepare_edge_features(row, property_stats)
-        edge_features.append(edge_feat)
-    
-    edge_index = torch.LongTensor(edge_indices).t().contiguous()
-    edge_attr = torch.FloatTensor(np.array(edge_features))
-    
+        # 添加有向边
+        edge_index.append([from_idx, to_idx])
+        
+        # 准备边特征（不含属性变化）
+        edge_feat = prepare_edge_features(row, property_stats, include_property_changes=False)
+        edge_attr.append(edge_feat)
+
+    edge_index = torch.LongTensor(edge_index).t().contiguous()
+    edge_attr = torch.FloatTensor(np.array(edge_attr))
+
     # 创建图数据对象
     data = Data(x=node_features, edge_index=edge_index, edge_attr=edge_attr)
-    
-    return data, smiles_to_idx
+
+    return data, smiles_to_idx, property_stats
 
 
-def prepare_evolution_data(csv_file: str, max_pairs: int = None):
+def prepare_property_change_targets(csv_file: str, property_stats: Dict[str, Tuple[float, float]], 
+                                  max_pairs: int = None) -> torch.Tensor:
     """
-    准备分子进化数据用于转换器模型训练
+    准备属性变化目标值
+    
+    Args:
+        csv_file: CSV文件路径
+        property_stats: 属性统计信息（均值和标准差）
+        max_pairs: 最大对数（用于调试）
+        
+    Returns:
+        标准化后的属性变化目标值
+    """
+    # 读取数据
+    df = pd.read_csv(csv_file)
+    
+    if max_pairs:
+        df = df.head(max_pairs)
+    
+    # 准备目标特征（15个属性变化值）
+    target_features = []
+    
+    property_names = ['A_change', 'B_change', 'C_change', 'mu_change', 'alpha_change',
+                      'homo_change', 'lumo_change', 'gap_change', 'r2_change', 'zpve_change',
+                      'U0_change', 'U_change', 'H_change', 'G_change', 'Cv_change']
+    
+    for _, row in df.iterrows():
+        properties = []
+        
+        for prop in property_names:
+            if prop in row and not pd.isna(row[prop]):
+                value = row[prop]
+                # 标准化属性变化值
+                if prop in property_stats:
+                    mean, std = property_stats[prop]
+                    if std > 0:
+                        value = (value - mean) / std
+                properties.append(value)
+            else:
+                properties.append(0.0)
+                
+        target_features.append(properties)
+    
+    target_features = torch.FloatTensor(np.array(target_features))
+    
+    return target_features
+
+
+def prepare_evolution_data(csv_file: str, max_pairs: int = None) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Dict[str, Tuple[float, float]]]:
+    """
+    准备分子进化数据
     
     Args:
         csv_file: CSV文件路径
@@ -398,7 +440,7 @@ def prepare_evolution_data(csv_file: str, max_pairs: int = None):
         source_features.append(source_fp)
         
         # 边特征
-        edge_feat = prepare_edge_features(row, property_stats)
+        edge_feat = prepare_edge_features(row, property_stats, include_property_changes=False)
         edge_features.append(edge_feat)
         
         # 目标分子特征

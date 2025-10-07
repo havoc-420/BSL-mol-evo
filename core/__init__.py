@@ -15,9 +15,6 @@ __all__ = [
     'BaseGNNModel',
     'MoleculeGNN',
     'EnhancedMoleculeGNN',
-    'MoleculeGNNWithFingerprint',
-    'MoleculeEvolutionPredictor',
-    'EnhancedMoleculeEvolutionPredictor',
     'MoleculeEvolutionPredictorWithFingerprint',
     'MoleculeEvolutionTransformer',
     

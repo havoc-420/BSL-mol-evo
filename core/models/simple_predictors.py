@@ -67,14 +67,14 @@ class MoleculeEvolutionTransformer(BaseModel):
     根据起始分子特征、原子和操作类型预测目标分子属性变化
     """
     
-    def __init__(self, node_feature_dim: int = 2048, edge_feature_dim: int = 11,
+    def __init__(self, node_feature_dim: int = 2048, edge_feature_dim: int = 15,
                  hidden_dim: int = 128, output_dim: int = 15):
         """
         初始化转换器
 
         Args:
             node_feature_dim: 节点特征维度（默认2048，对应Morgan指纹）
-            edge_feature_dim: 边特征维度（11维）
+            edge_feature_dim: 边特征维度（15维）
             hidden_dim: 隐藏层维度
             output_dim: 输出维度（默认15，对应15个属性变化值）
         """

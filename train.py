@@ -12,6 +12,9 @@ import argparse
 import torch
 import pandas as pd
 import numpy as np
+from torch_geometric.data import Data
+from torch_geometric.loader import DataLoader
+from torch.utils.data import TensorDataset, Subset, random_split
 import torch.nn as nn
 import torch.optim as optim
 import random
@@ -27,9 +30,9 @@ model_data_dir = os.path.join(project_root, 'mol_evo', 'model-data')
 sys.path.insert(0, project_root)
 
 # 更新导入语句以使用新的模块结构
-from core.models.predictors import MoleculeEvolutionTransformer
-from core.data.processing import prepare_evolution_data
-from core.utils.training import train_transformer_model
+from mol_evo.core.models.simple_predictors import MoleculeEvolutionTransformer
+from mol_evo.core.data.processing import prepare_evolution_data, prepare_property_change_targets
+from mol_evo.core.utils.training import train_transformer_model
 
 
 def split_data_indices(total_count, train_ratio=0.7, val_ratio=0.2, test_ratio=0.1, seed=42):
@@ -90,12 +93,15 @@ def train_transformer(data_file: str, max_pairs: int = None, epochs: int = 100):
     
     # 加载数据
     print(f"正在加载数据: {data_file}")
-    source_features, edge_features, target_features, property_stats = prepare_evolution_data(data_file, max_pairs)
+    source_features, edge_features, _, property_stats = prepare_evolution_data(data_file, max_pairs)
+    
+    # 准备属性变化目标
+    target_features = prepare_property_change_targets(data_file, property_stats, max_pairs)
     
     print(f"数据加载完成:")
     print(f"  - 起始分子特征维度: {source_features.shape[1]}")
     print(f"  - 边特征维度: {edge_features.shape[1]}")
-    print(f"  - 目标分子特征维度: {target_features.shape[1]}")
+    print(f"  - 目标属性变化维度: {target_features.shape[1]}")
     print(f"  - 分子对数: {source_features.shape[0]}")
     
     # 划分数据集
@@ -105,9 +111,9 @@ def train_transformer(data_file: str, max_pairs: int = None, epochs: int = 100):
     print("\n正在创建模型...")
     model = MoleculeEvolutionTransformer(
         node_feature_dim=2048,  # Morgan指纹维度
-        edge_feature_dim=30,    # 边特征维度（保持为30，与数据处理一致）
+        edge_feature_dim=11,    # 边特征维度（更新为11，与数据处理一致）
         hidden_dim=128,
-        output_dim=2048         # 目标分子指纹维度
+        output_dim=15           # 属性变化维度
     )
     
     print(f"模型参数数量: {sum(p.numel() for p in model.parameters())}")

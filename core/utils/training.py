@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-模型训练工具
+训练工具函数
 """
 
 import torch
 import torch.nn as nn
-import numpy as np
+import torch.optim as optim
 from torch_geometric.data import Data
-from typing import List, Dict, Optional, Tuple
+from typing import List, Tuple, Dict
 
 
 def train_model_enhanced(model: nn.Module, data: Data, target_changes: torch.Tensor,
@@ -216,5 +216,77 @@ def train_transformer_model(model: nn.Module, source_features: torch.Tensor,
     # 恢复最佳模型
     if best_model_state is not None:
         model.load_state_dict(best_model_state)
+    
+    return train_losses, val_losses
+
+
+def train_gnn_model(model: nn.Module, data: Data, target_features: torch.Tensor,
+                   epochs: int = 100, lr: float = 0.001, 
+                   train_idx: List[int] = None, val_idx: List[int] = None) -> Tuple[List[float], List[float]]:
+    """
+    训练GNN模型
+    
+    Args:
+        model: GNN模型
+        data: 图数据
+        target_features: 目标特征
+        epochs: 训练轮数
+        lr: 学习率
+        train_idx: 训练集索引
+        val_idx: 验证集索引
+        
+    Returns:
+        训练损失和验证损失列表
+    """
+    # 设置设备
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"使用设备: {device}")
+    
+    # 将模型和数据移到设备上
+    model = model.to(device)
+    data = data.to(device)
+    target_features = target_features.to(device)
+    
+    # 定义优化器和损失函数
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+    criterion = nn.MSELoss()
+    
+    # 初始化损失记录
+    train_losses = []
+    val_losses = []
+    
+    # 训练循环
+    model.train()
+    for epoch in range(epochs):
+        optimizer.zero_grad()
+        
+        # 前向传播
+        predictions = model(data)
+        
+        # 计算训练损失
+        train_loss = criterion(predictions[train_idx], target_features[train_idx])
+        
+        # 反向传播
+        train_loss.backward()
+        optimizer.step()
+        
+        # 记录训练损失
+        train_losses.append(train_loss.item())
+        
+        # 验证阶段
+        if val_idx:
+            model.eval()
+            with torch.no_grad():
+                val_predictions = model(data)
+                val_loss = criterion(val_predictions[val_idx], target_features[val_idx])
+                val_losses.append(val_loss.item())
+            model.train()
+        
+        # 打印进度
+        if (epoch + 1) % 10 == 0:
+            if val_idx:
+                print(f"Epoch [{epoch+1}/{epochs}], Train Loss: {train_loss.item():.6f}, Val Loss: {val_loss.item():.6f}")
+            else:
+                print(f"Epoch [{epoch+1}/{epochs}], Train Loss: {train_loss.item():.6f}")
     
     return train_losses, val_losses
