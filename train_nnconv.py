@@ -13,14 +13,26 @@ import numpy as np
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 import torch.nn as nn
-import torch.optim as optim
 import random
 from datetime import datetime
 import json
 import matplotlib.pyplot as plt
 import logging
 
+""" BASE SETTINGS """
+
 BASE_DIR_NAME = "nnconv"
+
+# 定义模型参数字典
+model_params = {
+    "node_feature_dim": 2048,
+    "edge_feature_dim": 11,
+    "hidden_dim": 128,
+    "output_dim": 15,
+    "num_layers": 3
+}
+
+""" 设置项目根目录路径 """
 
 # 获取当前脚本所在目录
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -33,135 +45,21 @@ sys.path.insert(0, project_root)
 from mol_evo.core.models.nnconv_predictor import MoleculeEvolutionNNConvPredictor
 from mol_evo.core.data.processing import build_molecule_graph_with_fingerprints, prepare_property_change_targets
 from mol_evo.core.utils.training import train_gnn_model
-
-
-def setup_logger(model_dir):
-    """
-    设置日志记录器
-    
-    Args:
-        model_dir: 模型目录路径
-        
-    Returns:
-        配置好的logger实例
-    """
-    logger = logging.getLogger('nnconv_training')
-    logger.setLevel(logging.INFO)
-    
-    # 避免重复添加处理器
-    if not logger.handlers:
-        # 创建文件处理器
-        log_file = os.path.join(model_dir, "training.log")
-        file_handler = logging.FileHandler(log_file, encoding='utf-8')
-        file_handler.setLevel(logging.INFO)
-        
-        # 创建控制台处理器
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.INFO)
-        
-        # 创建格式器并添加到处理器
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        file_handler.setFormatter(formatter)
-        console_handler.setFormatter(formatter)
-        
-        # 添加处理器到logger
-        logger.addHandler(file_handler)
-        logger.addHandler(console_handler)
-    
-    return logger
-
-
-def inverse_standardize(predictions, property_stats):
-    """
-    反标准化预测结果
-    
-    Args:
-        predictions: 标准化的预测结果
-        property_stats: 属性统计信息（均值和标准差）
-        
-    Returns:
-        反标准化后的预测结果
-    """
-    # 属性名称顺序必须与处理时一致
-    property_names = ['A_change', 'B_change', 'C_change', 'mu_change', 'alpha_change',
-                      'homo_change', 'lumo_change', 'gap_change', 'r2_change', 'zpve_change',
-                      'U0_change', 'U_change', 'H_change', 'G_change', 'Cv_change']
-    
-    # 创建副本避免修改原始数据
-    inv_predictions = predictions.clone()
-    
-    # 对每个属性进行反标准化
-    for i, prop in enumerate(property_names):
-        if prop in property_stats:
-            mean, std = property_stats[prop]
-            if std > 0:
-                inv_predictions[:, i] = predictions[:, i] * std + mean
-    
-    return inv_predictions
-
-
-def split_data_indices(total_count: int, train_ratio: float = 0.7, 
-                      test_ratio: float = 0.1, val_ratio: float = 0.2, 
-                      seed: int = 42) -> tuple:
-    """
-    划分数据集索引
-    
-    Args:
-        total_count: 总数据量
-        train_ratio: 训练集比例
-        val_ratio: 验证集比例
-        test_ratio: 测试集比例
-        seed: 随机种子
-        
-    Returns:
-        训练集、验证集和测试集的索引
-    """
-    assert abs(train_ratio + val_ratio + test_ratio - 1.0) < 1e-6, "数据集划分比例之和必须为1"
-    
-    # 设置随机种子
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    
-    # 计算各数据集大小
-    train_size = int(total_count * train_ratio)
-    val_size = int(total_count * val_ratio)
-    test_size = total_count - train_size - val_size
-    
-    # 创建索引列表并打乱
-    indices = list(range(total_count))
-    np.random.shuffle(indices)
-    
-    # 划分索引
-    train_idx = indices[:train_size]
-    val_idx = indices[train_size:train_size + val_size]
-    test_idx = indices[train_size + val_size:]
-    
-    return train_idx, val_idx, test_idx
-
-
-def save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir):
-    """
-    将训练数据保存为JSON格式
-    
-    Args:
-        train_losses: 训练损失列表
-        val_losses: 验证损失列表
-        test_metrics: 测试指标字典
-        model_dir: 模型目录路径
-    """
-    # 构建训练数据字典
-    training_data = {
-        "test_metrics": test_metrics,
-        "train_losses": train_losses,
-        "val_losses": val_losses,
-    }
-    
-    # 保存为JSON文件
-    json_path = os.path.join(model_dir, "training_data.json")
-    with open(json_path, 'w', encoding='utf-8') as f:
-        json.dump(training_data, f, ensure_ascii=False, indent=2)
-
+from mol_evo.utils.training_utils import (
+    setup_logger, 
+    inverse_standardize, 
+    split_data_indices, 
+    save_training_data_as_json, 
+    plot_training_trends,
+    print_table_accuracy,
+    log_training_completion,
+    log_training_start,
+    log_data_construction,
+    log_dataset_split,
+    log_model_creation,
+    log_training_start_message,
+    log_original_scale_metrics
+)
 
 def plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir):
     """
@@ -236,54 +134,39 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100)
     
     # 保存模型
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    model_dir = os.path.join(project_root, 'mol_evo', 'model-data', f"training_{timestamp}")
+    model_dir = os.path.join(project_root, 'mol_evo', 'model-data', BASE_DIR_NAME, f"training_{timestamp}")
     os.makedirs(model_dir, exist_ok=True)
     
     # 设置日志记录器
     logger = setup_logger(model_dir)
-    logger.info("=" * 60)
-    logger.info("基于NNConv的分子进化预测器模型训练开始")
-    logger.info("=" * 60)
-    logger.info(f"数据文件: {data_file}")
-    logger.info(f"最大对数: {max_pairs}")
-    logger.info(f"训练轮数: {epochs}")
+    log_training_start(logger, data_file, max_pairs, epochs)
     
     # 构建图数据
-    logger.info(f"正在构建图数据: {data_file}")
     data, smiles_to_idx, property_stats = build_molecule_graph_with_fingerprints(data_file, max_pairs)
     
     # 准备属性变化目标
     target_features = prepare_property_change_targets(data_file, property_stats, max_pairs)
     
-    logger.info(f"数据构建完成:")
-    logger.info(f"  - 节点数: {data.num_nodes}")
-    logger.info(f"  - 边数: {data.num_edges}")
-    logger.info(f"  - 节点特征维度: {data.x.shape[1]}")
-    logger.info(f"  - 边特征维度: {data.edge_attr.shape[1]}")
-    logger.info(f"  - 目标属性变化维度: {target_features.shape[1]}")
+    log_data_construction(logger, data_file, data, target_features)
     
     # 划分数据集
     train_idx, val_idx, test_idx = split_data_indices(data.num_edges, 0.7, 0.2, 0.1)
     
-    logger.info(f"数据集划分完成:")
-    logger.info(f"  - 训练集: {len(train_idx)} ({len(train_idx)/data.num_edges*100:.1f}%)")
-    logger.info(f"  - 验证集: {len(val_idx)} ({len(val_idx)/data.num_edges*100:.1f}%)")
-    logger.info(f"  - 测试集: {len(test_idx)} ({len(test_idx)/data.num_edges*100:.1f}%)")
+    log_dataset_split(logger, data, train_idx, val_idx, test_idx)
     
-    # 创建模型
-    logger.info("正在创建模型...")
+    # INFO 创建模型
     model = MoleculeEvolutionNNConvPredictor(
-        node_feature_dim=2048,  # Morgan指纹维度
-        edge_feature_dim=11,    # 边特征维度（5原子类型 + 6操作类型）
-        hidden_dim=128,
-        output_dim=15,          # 属性变化维度
-        num_layers=3
+        node_feature_dim=model_params["node_feature_dim"],  # Morgan指纹维度
+        edge_feature_dim=model_params["edge_feature_dim"],    # 边特征维度（5原子类型 + 6操作类型）
+        hidden_dim=model_params["hidden_dim"],
+        output_dim=model_params["output_dim"],          # 属性变化维度
+        num_layers=model_params["num_layers"]
     )
     
-    logger.info(f"模型参数数量: {sum(p.numel() for p in model.parameters())}")
+    log_model_creation(logger, model)
     
     # 训练模型
-    logger.info(f"开始训练 ({epochs} 轮)...")
+    log_training_start_message(logger, epochs)
     train_losses, val_losses, val_r2s, val_maes = train_gnn_model(
         model, data, target_features,
         epochs=epochs, lr=0.001, train_idx=train_idx, val_idx=val_idx, logger=logger
@@ -301,104 +184,6 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100)
     property_names = ['A_change', 'B_change', 'C_change', 'mu_change', 'alpha_change',
                       'homo_change', 'lumo_change', 'gap_change', 'r2_change', 'zpve_change',
                       'U0_change', 'U_change', 'H_change', 'G_change', 'Cv_change']
-
-    def get_accuracy_color_code(accuracy):
-        """
-        根据准确率值返回相应的ANSI颜色代码
-        
-        Args:
-            accuracy: 准确率值 (0-1)
-            
-        Returns:
-            ANSI颜色代码字符串
-        """
-        if accuracy >= 0.9:
-            return '\033[32m'  # 绿色 - 优秀
-        elif accuracy >= 0.7:
-            return '\033[36m'  # 青色 - 良好
-        elif accuracy >= 0.5:
-            return '\033[33m'  # 黄色 - 一般
-        elif accuracy >= 0.3:
-            return '\033[35m'  # 紫色 - 较差
-        else:
-            return '\033[31m'  # 红色 - 很差
-    
-    def print_table_accuracy(accuracies, thresholds, property_names, logger=None):
-        """
-        以表格形式打印各维度阈值准确率，并添加颜色分区效果
-        先构建不带颜色的字符串确保对齐，再添加颜色
-        表格按横向展示形式，第一行为属性名称，后续每行显示一个阈值下所有属性的准确率
-
-        Args:
-            accuracies: 不同阈值下的准确率字典
-            thresholds: 阈值列表
-            property_names: 属性名称列表
-            logger: 日志记录器实例（可选）
-        """
-        # 定义列宽
-        col_width = 9
-        threshold_col_width = 12
-        
-        # 构建表头
-        header = "各维度阈值准确率:\n"
-        header += "Threshold".ljust(threshold_col_width)
-        for prop_name in property_names:
-            # 去除"_change"后缀并截取或填充属性名到固定宽度
-            clean_name = prop_name.replace("_change", "")
-            short_name = (clean_name[:col_width-1] if len(clean_name) >= col_width else clean_name).ljust(col_width)
-            header += short_name
-        header += "\n"
-        
-        # 构建分隔线
-        separator_length = threshold_col_width + len(property_names) * col_width
-        separator = "-" * separator_length + "\n"
-        
-        # 构建数据行
-        rows = ""
-        for threshold in thresholds:
-            row = f"@{threshold:.3f}".ljust(threshold_col_width)
-            for i in range(len(property_names)):
-                acc = accuracies[threshold][i]
-                formatted_acc = f"{acc:.4f}"
-                # 构建单元格，确保固定宽度
-                cell = formatted_acc.ljust(col_width)
-                row += cell
-            rows += row + "\n"
-        
-        # 组合完整表格
-        table_str = header + separator + rows
-        
-        # 打印到控制台（带颜色）
-        print("各维度阈值准确率:")
-        
-        # 表头
-        header_line = "Threshold".ljust(threshold_col_width)
-        for prop_name in property_names:
-            clean_name = prop_name.replace("_change", "")
-            short_name = (clean_name[:col_width-1] if len(clean_name) >= col_width else clean_name).ljust(col_width)
-            header_line += short_name
-        print(header_line)
-        
-        # 分隔线
-        print("-" * separator_length)
-        
-        # 数据行（带颜色）
-        for threshold in thresholds:
-            row = f"@{threshold:.3f}".ljust(threshold_col_width)
-            for i in range(len(property_names)):
-                acc = accuracies[threshold][i]
-                color_code = get_accuracy_color_code(acc)
-                formatted_acc = f"{acc:.4f}"
-                # 构建带颜色的单元格，确保固定宽度
-                colored_cell = f"{color_code}{formatted_acc}\033[0m"
-                # 手动计算并添加空格以保持对齐
-                padding = col_width - len(formatted_acc)
-                row += colored_cell + " " * padding
-            print(row)
-        
-        # 记录到日志（无颜色）
-        if logger:
-            logger.info(table_str.rstrip())
 
     # 测试阶段
     model.eval()
@@ -450,61 +235,45 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100)
         orig_rmse = torch.sqrt(orig_mse)
         orig_mae = torch.mean(torch.abs(original_predictions - original_targets))
         
-        logger.info(f"原始尺度评估指标:")
-        logger.info(f"  - MSE: {orig_mse.item():.6f}")
-        logger.info(f"  - RMSE: {orig_rmse.item():.6f}")
-        logger.info(f"  - MAE: {orig_mae.item():.6f}")
+        log_original_scale_metrics(logger, orig_mse, orig_rmse, orig_mae)
 
         # 使用表格形式展示各维度阈值准确率
         print_table_accuracy(dimension_accuracies, thresholds, property_names, logger)
-    # 保存模型
-    model_path = os.path.join(model_dir, "molecule_evolution_nnconv_predictor.pth")
-    torch.save(model.state_dict(), model_path)
-    
-    # 准备测试指标数据
-    test_metrics = {
-        "test_loss": test_loss.item(),
-        "rmse": rmse.item(),
-        "mae": mae.item(),
-        "r2": r2.item(),
-        "threshold_accs": threshold_accs,
-        "dimension_accuracies": {str(th): acc.tolist() for th, acc in dimension_accuracies.items()},
-        "original_scale_metrics": {
-            "mse": orig_mse.item(),
-            "rmse": orig_rmse.item(),
-            "mae": orig_mae.item()
-        },
-        "dataset_info": {
-            "train_size": len(train_idx),
-            "val_size": len(val_idx),
-            "test_size": len(test_idx)
+        
+        # 保存模型
+        model_path = os.path.join(model_dir, "molecule_evolution_nnconv_predictor.pth")
+        torch.save(model.state_dict(), model_path)
+        
+        # 准备测试指标数据
+        test_metrics = {
+            "test_loss": test_loss.item(),
+            "rmse": rmse.item(),
+            "mae": mae.item(),
+            "r2": r2.item(),
+            "threshold_accs": threshold_accs,
+            "dimension_accuracies": {str(th): acc.tolist() for th, acc in dimension_accuracies.items()},
+            "original_scale_metrics": {
+                "mse": orig_mse.item(),
+                "rmse": orig_rmse.item(),
+                "mae": orig_mae.item()
+            },
+            "dataset_info": {
+                "train_size": len(train_idx),
+                "val_size": len(val_idx),
+                "test_size": len(test_idx)
+            }
         }
-    }
-    
-    # 保存训练数据为JSON格式
-    save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir)
-    
-    # 生成训练趋势图
-    plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir)
-    
-    # 记录完整评估结果到日志
-    logger.info(f"训练完成:")
-    logger.info(f"  - 最终训练损失: {train_losses[-1]:.6f}")
-    logger.info(f"  - 最佳验证损失: {min(val_losses):.6f}")
-    logger.info(f"  - 测试损失 (MSE): {test_loss.item():.6f}")
-    logger.info(f"  - 测试RMSE: {rmse.item():.6f}")
-    logger.info(f"  - 测试MAE: {mae.item():.6f}")
-    logger.info(f"  - 测试R²: {r2.item():.6f}")
-    logger.info(f"  - 测试阈值准确率 (0.1, 所有维度): {threshold_accs['all_0.1']:.4f}")
-    logger.info(f"  - 测试阈值准确率 (0.1, 平均): {threshold_accs['mean_0.1']:.4f}")
-    logger.info(f"  - 测试阈值准确率 (0.05, 所有维度): {threshold_accs['all_0.05']:.4f}")
-    logger.info(f"  - 测试阈값准确率 (0.05, 平均): {threshold_accs['mean_0.05']:.4f}")
-    
-    logger.info(f"  - 原始尺度MSE: {orig_mse.item():.6f}")
-    logger.info(f"  - 原始尺度RMSE: {orig_rmse.item():.6f}")
-    logger.info(f"  - 原始尺度MAE: {orig_mae.item():.6f}")
-    logger.info(f"  - 模型已保存到: {model_path}")
-    return model, train_losses, val_losses
+        
+        # 保存训练数据为JSON格式
+        save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir, model_params)
+        
+        # 生成训练趋势图
+        plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir)
+        
+        # 记录完整评估结果到日志
+        log_training_completion(logger, train_losses, val_losses, test_loss, rmse, mae, r2,
+                               threshold_accs, orig_mse, orig_rmse, orig_mae, model_path)
+        return model, train_losses, val_losses
 
 
 def main():
@@ -521,9 +290,6 @@ def main():
         model, train_losses, val_losses = train_nnconv_model(
             args.data_file, args.max_pairs, args.epochs
         )
-        print("\n" + "=" * 60)
-        print("训练完成!")
-        print("=" * 60)
     except Exception as e:
         print(f"训练过程中发生错误: {e}")
         raise
