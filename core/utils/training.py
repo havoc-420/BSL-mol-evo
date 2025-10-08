@@ -9,7 +9,6 @@ import torch.nn as nn
 import torch.optim as optim
 from typing import List, Optional, Tuple
 from torch_geometric.data import Data
-import logging
 
 
 def calculate_metrics(predictions: torch.Tensor, targets: torch.Tensor) -> dict:
@@ -61,8 +60,7 @@ def calculate_metrics(predictions: torch.Tensor, targets: torch.Tensor) -> dict:
 
 def train_gnn_model(model: nn.Module, data: Data, target_features: torch.Tensor,
                    epochs: int = 100, lr: float = 0.001, 
-                   train_idx: List[int] = None, val_idx: List[int] = None,
-                   logger: Optional[logging.Logger] = None) -> Tuple[List[float], List[float]]:
+                   train_idx: List[int] = None, val_idx: List[int] = None, logger=None) -> Tuple[List[float], List[float]]:
     """
     训练GNN模型
     
@@ -74,20 +72,16 @@ def train_gnn_model(model: nn.Module, data: Data, target_features: torch.Tensor,
         lr: 学习率
         train_idx: 训练集索引
         val_idx: 验证集索引
-        logger: 日志记录器（可选）
+        logger: 日志记录器
         
     Returns:
-        train_losses: 训练损失列表
-        val_losses: 验证损失列表
+        训练损失和验证损失列表
     """
     # 设置设备
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    if logger:
-        logger.info(f"使用设备: {device}")
-    else:
-        print(f"使用设备: {device}")
+    print(f"使用设备: {device}")
     
-    # 将模型和数据移动到设备
+    # 将模型和数据移到设备上
     model = model.to(device)
     data = data.to(device)
     target_features = target_features.to(device)
@@ -99,6 +93,8 @@ def train_gnn_model(model: nn.Module, data: Data, target_features: torch.Tensor,
     # 初始化损失记录
     train_losses = []
     val_losses = []
+    val_r2s = []
+    val_maes = []
     
     # 训练循环
     model.train()
@@ -129,6 +125,8 @@ def train_gnn_model(model: nn.Module, data: Data, target_features: torch.Tensor,
                 # 计算验证集的额外评估指标
                 if (epoch + 1) % 10 == 0:
                     val_metrics = calculate_metrics(val_predictions[val_idx], target_features[val_idx])
+                    val_r2s.append(val_metrics['r2'])
+                    val_maes.append(val_metrics['mae'])
             model.train()
         else:
             val_loss = None
@@ -147,4 +145,4 @@ def train_gnn_model(model: nn.Module, data: Data, target_features: torch.Tensor,
             else:
                 print(message)
     
-    return train_losses, val_losses
+    return train_losses, val_losses, val_r2s, val_maes

@@ -20,6 +20,8 @@ import json
 import matplotlib.pyplot as plt
 import logging
 
+BASE_DIR_NAME = "nnconv"
+
 # 获取当前脚本所在目录
 script_dir = os.path.dirname(os.path.abspath(__file__))
 # 构建项目根目录路径
@@ -150,9 +152,9 @@ def save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir
     """
     # 构建训练数据字典
     training_data = {
+        "test_metrics": test_metrics,
         "train_losses": train_losses,
         "val_losses": val_losses,
-        "test_metrics": test_metrics
     }
     
     # 保存为JSON文件
@@ -161,34 +163,65 @@ def save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir
         json.dump(training_data, f, ensure_ascii=False, indent=2)
 
 
-def plot_training_trends(train_losses, val_losses, model_dir):
+def plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir):
     """
     绘制训练趋势图
     
     Args:
         train_losses: 训练损失列表
         val_losses: 验证损失列表
+        val_r2s: 验证R²值列表
+        val_maes: 验证MAE值列表
         model_dir: 模型目录路径
     """
-    # 创建图表
+    # 创建损失图表
     plt.figure(figsize=(10, 6))
     
     # 绘制训练和验证损失
     epochs = range(1, len(train_losses) + 1)
-    plt.plot(epochs, train_losses, 'o-', label='Training Loss', linewidth=2)
-    plt.plot(epochs, val_losses, 's-', label='Validation Loss', linewidth=2)
-    
-    # 设置图表属性
+    plt.plot(epochs, train_losses, 'o-', label='Training Loss', linewidth=2, markersize=3)
+    plt.plot(epochs, val_losses, 's-', label='Validation Loss', linewidth=2, markersize=3)
     plt.title('Training and Validation Loss Trends')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.legend()
     plt.grid(True, alpha=0.3)
     
-    # 保存图表
-    plot_path = os.path.join(model_dir, "training_trends.png")
-    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    # 调整布局并保存损失图表
+    plt.tight_layout()
+    loss_plot_path = os.path.join(model_dir, "loss_trends.png")
+    plt.savefig(loss_plot_path, dpi=300, bbox_inches='tight')
     plt.close()  # 关闭图表以释放内存
+    print(f"损失趋势图已保存: {loss_plot_path}")
+    
+    # 创建其他指标图表
+    plt.figure(figsize=(10, 5))
+    
+    # 绘制验证R2趋势
+    plt.subplot(1, 2, 1)
+    val_epochs = range(10, len(train_losses) + 1, 10)  # R2和MAE每10个epoch记录一次
+    plt.plot(val_epochs, val_r2s, 'o-', label='Validation R²', linewidth=2, markersize=3, color='green')
+    plt.title('Validation R² Trend')
+    plt.xlabel('Epoch')
+    plt.ylabel('R²')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    # 绘制验证MAE趋势
+    plt.subplot(1, 2, 2)
+    plt.plot(val_epochs, val_maes, 's-', label='Validation MAE', linewidth=2, markersize=3, color='red')
+    plt.title('Validation MAE Trend')
+    plt.xlabel('Epoch')
+    plt.ylabel('MAE')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    # 调整子图间距并保存其他指标图表
+    plt.tight_layout()
+    metrics_plot_path = os.path.join(model_dir, "metrics_trends.png")
+    plt.savefig(metrics_plot_path, dpi=300, bbox_inches='tight')
+    plt.close()  # 关闭图表以释放内存
+    print(f"指标趋势图已保存: {metrics_plot_path}")
 
 
 def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100):
@@ -200,9 +233,6 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100)
         max_pairs: 最大对数（用于调试）
         epochs: 训练轮数
     """
-    print("=" * 60)
-    print("基于NNConv的分子进化预测器模型训练")
-    print("=" * 60)
     
     # 保存模型
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -254,7 +284,7 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100)
     
     # 训练模型
     logger.info(f"开始训练 ({epochs} 轮)...")
-    train_losses, val_losses = train_gnn_model(
+    train_losses, val_losses, val_r2s, val_maes = train_gnn_model(
         model, data, target_features,
         epochs=epochs, lr=0.001, train_idx=train_idx, val_idx=val_idx, logger=logger
     )
@@ -293,8 +323,7 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100)
         else:
             return '\033[31m'  # 红色 - 很差
     
-    
-    def print_table_accuracy(accuracies, thresholds, property_names):
+    def print_table_accuracy(accuracies, thresholds, property_names, logger=None):
         """
         以表格形式打印各维度阈值准确率，并添加颜色分区效果
         先构建不带颜色的字符串确保对齐，再添加颜色
@@ -304,27 +333,56 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100)
             accuracies: 不同阈值下的准确率字典
             thresholds: 阈值列表
             property_names: 属性名称列表
+            logger: 日志记录器实例（可选）
         """
-        print("各维度阈值准确率:")
-
         # 定义列宽
         col_width = 9
         threshold_col_width = 12
-
+        
         # 构建表头
-        header = "Threshold".ljust(threshold_col_width)
+        header = "各维度阈值准确率:\n"
+        header += "Threshold".ljust(threshold_col_width)
         for prop_name in property_names:
             # 去除"_change"后缀并截取或填充属性名到固定宽度
             clean_name = prop_name.replace("_change", "")
             short_name = (clean_name[:col_width-1] if len(clean_name) >= col_width else clean_name).ljust(col_width)
             header += short_name
-        print(header)
-
-        # 打印分隔线
+        header += "\n"
+        
+        # 构建分隔线
         separator_length = threshold_col_width + len(property_names) * col_width
+        separator = "-" * separator_length + "\n"
+        
+        # 构建数据行
+        rows = ""
+        for threshold in thresholds:
+            row = f"@{threshold:.3f}".ljust(threshold_col_width)
+            for i in range(len(property_names)):
+                acc = accuracies[threshold][i]
+                formatted_acc = f"{acc:.4f}"
+                # 构建单元格，确保固定宽度
+                cell = formatted_acc.ljust(col_width)
+                row += cell
+            rows += row + "\n"
+        
+        # 组合完整表格
+        table_str = header + separator + rows
+        
+        # 打印到控制台（带颜色）
+        print("各维度阈值准确率:")
+        
+        # 表头
+        header_line = "Threshold".ljust(threshold_col_width)
+        for prop_name in property_names:
+            clean_name = prop_name.replace("_change", "")
+            short_name = (clean_name[:col_width-1] if len(clean_name) >= col_width else clean_name).ljust(col_width)
+            header_line += short_name
+        print(header_line)
+        
+        # 分隔线
         print("-" * separator_length)
-
-        # 逐行打印每个阈值下的准确率（带颜色）
+        
+        # 数据行（带颜色）
         for threshold in thresholds:
             row = f"@{threshold:.3f}".ljust(threshold_col_width)
             for i in range(len(property_names)):
@@ -337,6 +395,10 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100)
                 padding = col_width - len(formatted_acc)
                 row += colored_cell + " " * padding
             print(row)
+        
+        # 记录到日志（无颜色）
+        if logger:
+            logger.info(table_str.rstrip())
 
     # 测试阶段
     model.eval()
@@ -394,8 +456,7 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100)
         logger.info(f"  - MAE: {orig_mae.item():.6f}")
 
         # 使用表格形式展示各维度阈值准确率
-        print_table_accuracy(dimension_accuracies, thresholds, property_names)
-
+        print_table_accuracy(dimension_accuracies, thresholds, property_names, logger)
     # 保存模型
     model_path = os.path.join(model_dir, "molecule_evolution_nnconv_predictor.pth")
     torch.save(model.state_dict(), model_path)
@@ -424,7 +485,7 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100)
     save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir)
     
     # 生成训练趋势图
-    plot_training_trends(train_losses, val_losses, model_dir)
+    plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir)
     
     # 记录完整评估结果到日志
     logger.info(f"训练完成:")
@@ -434,41 +495,15 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100)
     logger.info(f"  - 测试RMSE: {rmse.item():.6f}")
     logger.info(f"  - 测试MAE: {mae.item():.6f}")
     logger.info(f"  - 测试R²: {r2.item():.6f}")
-    logger.info(f"  - 测试阈값准确率 (0.1, 所有维度): {threshold_accs['all_0.1']:.4f}")
-    logger.info(f"  - 测试阈값准确率 (0.1, 平均): {threshold_accs['mean_0.1']:.4f}")
-    logger.info(f"  - 测试阈값准确率 (0.05, 所有维度): {threshold_accs['all_0.05']:.4f}")
+    logger.info(f"  - 测试阈值准确率 (0.1, 所有维度): {threshold_accs['all_0.1']:.4f}")
+    logger.info(f"  - 测试阈值准确率 (0.1, 平均): {threshold_accs['mean_0.1']:.4f}")
+    logger.info(f"  - 测试阈值准确率 (0.05, 所有维度): {threshold_accs['all_0.05']:.4f}")
     logger.info(f"  - 测试阈값准确率 (0.05, 平均): {threshold_accs['mean_0.05']:.4f}")
     
     logger.info(f"  - 原始尺度MSE: {orig_mse.item():.6f}")
     logger.info(f"  - 原始尺度RMSE: {orig_rmse.item():.6f}")
     logger.info(f"  - 原始尺度MAE: {orig_mae.item():.6f}")
     logger.info(f"  - 模型已保存到: {model_path}")
-    
-    # 记录各维度准确率到日志
-    logger.info("各维度阈值准确率详情:")
-    for th in thresholds:
-        logger.info(f"  阈值 @{th}:")
-        for i, prop_name in enumerate(property_names):
-            logger.info(f"    {prop_name}: {dimension_accuracies[th][i]:.4f}")
-    
-    print(f"\n训练完成:")
-    print(f"  - 最终训练损失: {train_losses[-1]:.6f}")
-    print(f"  - 最佳验证损失: {min(val_losses):.6f}")
-    print(f"  - 测试损失 (MSE): {test_loss.item():.6f}")
-    print(f"  - 测试RMSE: {rmse.item():.6f}")
-    print(f"  - 测试MAE: {mae.item():.6f}")
-    print(f"  - 测试R²: {r2.item():.6f}")
-    print(f"  - 测试阈값准确率 (0.1, 所有维度): {threshold_accs['all_0.1']:.4f}")
-    print(f"  - 测试阈값准确率 (0.1, 平均): {threshold_accs['mean_0.1']:.4f}")
-    print(f"  - 测试阈값准确率 (0.05, 所有维度): {threshold_accs['all_0.05']:.4f}")
-    print(f"  - 测试阈값准确率 (0.05, 平均): {threshold_accs['mean_0.05']:.4f}")
-    
-    print(f"  - 原始尺度MSE: {orig_mse.item():.6f}")
-    print(f"  - 原始尺度RMSE: {orig_rmse.item():.6f}")
-    print(f"  - 原始尺度MAE: {orig_mae.item():.6f}")
-    print(f"  - 模型已保存到: {model_path}")
-    print(f"  - 完整日志已保存到: {os.path.join(model_dir, 'training.log')}")
-    
     return model, train_losses, val_losses
 
 
