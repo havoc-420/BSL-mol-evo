@@ -259,6 +259,14 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100)
         epochs=epochs, lr=0.001, train_idx=train_idx, val_idx=val_idx, logger=logger
     )
     
+    # 设置设备
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    # 将模型和数据移动到设备
+    model = model.to(device)
+    data = data.to(device)
+    target_features = target_features.to(device)
+    
     # 定义属性名称列表
     property_names = ['A_change', 'B_change', 'C_change', 'mu_change', 'alpha_change',
                       'homo_change', 'lumo_change', 'gap_change', 'r2_change', 'zpve_change',
