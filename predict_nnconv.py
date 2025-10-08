@@ -72,25 +72,25 @@ def find_model_files():
     return sorted(model_files)
 
 
-def select_model_interactively(model_files):
+def select_models_interactively(model_files):
     """
-    交互式选择模型
+    交互式选择模型（支持多选）
     
     Args:
         model_files: 模型文件列表
         
     Returns:
-        选择的模型文件路径
+        选择的模型文件路径列表
     """
     if not model_files:
         print("未找到任何模型文件")
-        return None
+        return []
     
     if len(model_files) == 1:
         print(f"找到一个模型文件: {os.path.basename(os.path.dirname(model_files[0]))}")
-        return model_files[0]
+        return [model_files[0]]
     
-    print("找到多个模型，请选择一个:")
+    print("找到多个模型，请选择一个或多个:")
     for i, model_file in enumerate(model_files):
         model_dir = os.path.dirname(model_file)
         model_name = os.path.basename(model_dir)
@@ -98,20 +98,26 @@ def select_model_interactively(model_files):
     
     while True:
         try:
-            choice = input(f"请选择模型 (1-{len(model_files)}) 或按回车选择最新模型: ").strip()
+            choice = input(f"请选择模型 (1-{len(model_files)})，多个选择用逗号分隔，或按回车选择最新模型: ").strip()
             if not choice:
                 # 选择最新的模型
                 latest_model = max(model_files, key=os.path.getctime)
                 print(f"选择最新模型: {os.path.basename(os.path.dirname(latest_model))}")
-                return latest_model
+                return [latest_model]
             
-            choice_idx = int(choice) - 1
-            if 0 <= choice_idx < len(model_files):
-                return model_files[choice_idx]
-            else:
-                print(f"请输入 1 到 {len(model_files)} 之间的数字")
+            # 解析选择
+            choices = [int(c.strip()) - 1 for c in choice.split(',')]
+            selected_models = []
+            for choice_idx in choices:
+                if 0 <= choice_idx < len(model_files):
+                    selected_models.append(model_files[choice_idx])
+                else:
+                    print(f"请输入 1 到 {len(model_files)} 之间的数字")
+                    raise ValueError("无效选择")
+            
+            return selected_models
         except ValueError:
-            print("请输入有效的数字")
+            print("请输入有效的数字，多个选择用逗号分隔")
 
 
 def load_property_stats(model_dir):
@@ -183,6 +189,31 @@ def prepare_single_prediction_data(smiles_from, smiles_to, to_atom_symbol, opera
     return data, property_stats
 
 
+def is_model_normalized(model_dir):
+    """
+    检查模型是否使用了标准化数据进行训练
+    
+    Args:
+        model_dir: 模型目录路径
+        
+    Returns:
+        bool: 如果模型使用了标准化数据则返回True，否则返回False
+    """
+    stats_file = os.path.join(model_dir, "training_data.json")
+    if os.path.exists(stats_file):
+        with open(stats_file, 'r') as f:
+            data = json.load(f)
+            # 检查训练参数中是否启用了标准化
+            if 'training_params' in data and 'normalize' in data['training_params']:
+                return data['training_params']['normalize']
+            # 默认情况下，检查是否有属性统计信息
+            elif 'property_stats' in data and data['property_stats']:
+                return True
+            else:
+                return False
+    return False
+
+
 def predict_property_changes(model_path, model_dir, smiles_from, smiles_to, to_atom_symbol, operation_type):
     """
     使用训练好的模型预测属性变化
@@ -227,8 +258,11 @@ def predict_property_changes(model_path, model_dir, smiles_from, smiles_to, to_a
                       'homo_change', 'lumo_change', 'gap_change', 'r2_change', 'zpve_change',
                       'U0_change', 'U_change', 'H_change', 'G_change', 'Cv_change']
     
-    # 如果有属性统计信息，进行反标准化
-    if property_stats:
+    # 检查模型是否使用了标准化
+    is_normalized = is_model_normalized(model_dir)
+    
+    if is_normalized and property_stats:
+        # 如果模型使用了标准化，则需要反标准化
         standardized_changes = {}
         original_changes = {}
         
@@ -242,11 +276,156 @@ def predict_property_changes(model_path, model_dir, smiles_from, smiles_to, to_a
                 original_changes[prop_name] = predicted_changes[i]
         
         return standardized_changes, original_changes
-    
-    # 如果没有统计信息，只返回标准化的预测值
-    standardized_changes = {prop_name: predicted_changes[i] 
+    else:
+        # 如果模型没有使用标准化，则直接返回预测值
+        original_changes = {prop_name: predicted_changes[i] 
                            for i, prop_name in enumerate(property_names)}
-    return standardized_changes, None
+        return None, original_changes  # 第一个返回值为None表示没有标准化值
+
+
+def compare_with_ground_truth(model_paths, model_dirs, csv_file, row_index):
+    """
+    与CSV文件中指定行的真实值进行对比（支持多模型）
+    
+    Args:
+        model_paths: 模型文件路径列表
+        model_dirs: 模型目录路径列表
+        csv_file: CSV文件路径
+        row_index: 行索引
+        
+    Returns:
+        预测值和真实值的对比
+    """
+    # 读取指定行的数据
+    df = pd.read_csv(csv_file)
+    if row_index >= len(df):
+        raise ValueError(f"行索引 {row_index} 超出范围，CSV文件共有 {len(df)} 行")
+    
+    row = df.iloc[row_index]
+    
+    # 获取真实值
+    property_names = ['A_change', 'B_change', 'C_change', 'mu_change', 'alpha_change',
+                      'homo_change', 'lumo_change', 'gap_change', 'r2_change', 'zpve_change',
+                      'U0_change', 'U_change', 'H_change', 'G_change', 'Cv_change']
+    
+    true_values = {prop: row[prop] for prop in property_names}
+    
+    # 对每个模型进行预测
+    predictions_list = []
+    for model_path, model_dir in zip(model_paths, model_dirs):
+        standardized_pred, original_pred = predict_property_changes(
+            model_path, model_dir,
+            row['smiles_from'], row['smiles_to'],
+            row['to_atom_symbol'], row['operation_type']
+        )
+        
+        # 使用原始尺度预测值
+        predictions_list.append(original_pred)
+    
+    return predictions_list, true_values, row
+
+
+def print_multi_model_comparison_results(predictions_list, true_values, row, model_dirs):
+    """
+    打印多模型预测值与真实值的对比结果
+    
+    Args:
+        predictions_list: 多个模型的预测值列表
+        true_values: 真实值字典
+        row: 数据行
+        model_dirs: 模型目录路径列表
+    """
+    print("\n多模型预测结果与真实值对比:")
+    print("=" * 100)
+    print(f"起始分子 SMILES: {row['smiles_from']}")
+    print(f"目标分子 SMILES: {row['smiles_to']}")
+    print(f"变化原子类型: {row['to_atom_symbol']}")
+    print(f"操作类型: {row['operation_type']}")
+    print(f"数据集行号: {row.name}")
+    print("=" * 100)
+    
+    # 表头
+    header = f"{'属性名称':<15}"
+    for model_dir in model_dirs:
+        model_name = os.path.basename(model_dir)
+        header += f"{model_name:<15}"
+    header += f"{'真实值':<15}"
+    print(header)
+    print("-" * 100)
+    
+    # 数据行
+    property_names = list(predictions_list[0].keys())
+    for prop in property_names:
+        prop_name = prop.replace("_change", "") if prop.endswith("_change") else prop
+        row_str = f"{prop_name:<15}"
+        for predictions in predictions_list:
+            pred_value = predictions[prop]
+            row_str += f"{pred_value:<15.4f}"
+        true_value = true_values[prop]
+        row_str += f"{true_value:<15.4f}"
+        print(row_str)
+    
+    # 计算每个模型的总体指标
+    print("-" * 100)
+    print(f"{'模型指标':<15}", end="")
+    for i in range(len(model_dirs)):
+        print(f"{'MSE':<5} {'RMSE':<5} {'MAE':<5}", end="")
+    print(f"{'':<15}")  # 真实值列为空
+    print("-" * 100)
+    
+    true_array = np.array(list(true_values.values()))
+    for i, predictions in enumerate(predictions_list):
+        pred_array = np.array(list(predictions.values()))
+        mse = np.mean((pred_array - true_array) ** 2)
+        rmse = np.sqrt(mse)
+        mae = np.mean(np.abs(pred_array - true_array))
+        print(f"{'':<15}{mse:<5.2f} {rmse:<5.2f} {mae:<5.2f}", end="")
+    print(f"{'':<15}")  # 真实值列为空
+
+
+def print_comparison_results(predicted_values, true_values, row, model_dir):
+    """
+    打印预测值与真实值的对比结果
+    
+    Args:
+        predicted_values: 预测值字典
+        true_values: 真实值字典
+        row: 数据行
+        model_dir: 模型目录路径
+    """
+    print("\n预测结果与真实值对比:")
+    print("=" * 80)
+    print(f"起始分子 SMILES: {row['smiles_from']}")
+    print(f"目标分子 SMILES: {row['smiles_to']}")
+    print(f"变化原子类型: {row['to_atom_symbol']}")
+    print(f"操作类型: {row['operation_type']}")
+    print(f"使用模型: {os.path.basename(model_dir)}")
+    print(f"数据集行号: {row.name}")
+    print("=" * 80)
+    
+    # 表头
+    print(f"{'属性名称':<15} {'预测值':<15} {'真实值':<15} {'差值':<15}")
+    print("-" * 80)
+    
+    # 数据行
+    for prop in predicted_values.keys():
+        pred_value = predicted_values[prop]
+        true_value = true_values[prop]
+        diff = pred_value - true_value
+        prop_name = prop.replace("_change", "") if prop.endswith("_change") else prop
+        print(f"{prop_name:<15} {pred_value:<15.4f} {true_value:<15.4f} {diff:<15.4f}")
+    
+    # 计算总体指标
+    pred_array = np.array(list(predicted_values.values()))
+    true_array = np.array(list(true_values.values()))
+    
+    mse = np.mean((pred_array - true_array) ** 2)
+    rmse = np.sqrt(mse)
+    mae = np.mean(np.abs(pred_array - true_array))
+    
+    print("-" * 80)
+    print(f"{'总体指标':<15} {'MSE':<15} {'RMSE':<15} {'MAE':<15}")
+    print(f"{'':<15} {mse:<15.4f} {rmse:<15.4f} {mae:<15.4f}")
 
 
 def batch_predict(model_path, model_dir, csv_file, num_samples=10, random_seed=42, logger=None):
@@ -300,11 +479,8 @@ def batch_predict(model_path, model_dir, csv_file, num_samples=10, random_seed=4
                 row['to_atom_symbol'], row['operation_type']
             )
             
-            # 使用原始尺度预测值或标准化预测值
-            if original_pred:
-                predictions_list.append(original_pred)
-            else:
-                predictions_list.append(standardized_pred)
+            # 使用原始尺度预测值
+            predictions_list.append(original_pred)
             
             if (idx + 1) % 10 == 0:
                 logger.info(f"已完成 {idx + 1}/{len(sampled_df)} 个样本的预测")
@@ -435,8 +611,10 @@ def main():
     parser.add_argument('--operation-type', type=str,
                        choices=['add', 'replace', 'del', 'add_multi', 'del_multi', 'complex'],
                        help='操作类型 (单次预测)')
-    parser.add_argument('--csv-file', type=str,
+    parser.add_argument('--csv-file', type=str, default='mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties.csv',
                        help='CSV文件路径 (批量预测)')
+    parser.add_argument('--row-index', type=int,
+                       help='CSV文件中的行索引，用于对比预测值和真实值')
     parser.add_argument('--num-samples', type=int, default=100,
                        help='批量预测的样本数量 (默认: 100)')
     parser.add_argument('--random-seed', type=int, default=42,
@@ -453,9 +631,10 @@ def main():
     
     # 检查是单次预测还是批量预测
     single_prediction = args.smiles_from and args.smiles_to and args.atom_symbol and args.operation_type
-    batch_prediction = args.csv_file
+    batch_prediction = args.csv_file and args.row_index is None
+    comparison_prediction = args.csv_file and args.row_index is not None
     
-    if not single_prediction and not batch_prediction:
+    if not single_prediction and not batch_prediction and not comparison_prediction:
         logger.error("请指定单次预测参数或批量预测参数")
         parser.print_help()
         return
@@ -464,23 +643,30 @@ def main():
         # 如果没有指定模型路径，则自动查找并选择
         if not args.model_path:
             model_files = find_model_files()
-            selected_model = select_model_interactively(model_files)
+            selected_models = select_models_interactively(model_files)
             
-            if not selected_model:
+            if not selected_models:
                 logger.warning("未选择模型，程序退出")
                 return
             
-            args.model_path = selected_model
-            args.model_dir = os.path.dirname(selected_model)
+            # 如果选择了多个模型且是对比预测，则进行多模型对比
+            if len(selected_models) > 1 and comparison_prediction:
+                model_paths = selected_models
+                model_dirs = [os.path.dirname(model_path) for model_path in model_paths]
+            else:
+                # 默认使用第一个选择的模型
+                args.model_path = selected_models[0]
+                args.model_dir = os.path.dirname(selected_models[0])
         elif not args.model_dir:
             # 如果指定了模型路径但没有指定模型目录
             args.model_dir = os.path.dirname(args.model_path)
         
         # 检查模型目录中是否包含训练数据
-        stats_file = os.path.join(args.model_dir, "training_data.json")
-        if not os.path.exists(stats_file):
-            logger.warning(f"模型目录中未找到训练数据文件 {stats_file}")
-            logger.warning("将无法进行反标准化以获得原始尺度的预测值")
+        if hasattr(args, 'model_dir') and args.model_dir:
+            stats_file = os.path.join(args.model_dir, "training_data.json")
+            if not os.path.exists(stats_file):
+                logger.warning(f"模型目录中未找到训练数据文件 {stats_file}")
+                logger.warning("将无法进行反标准化以获得原始尺度的预测值")
         
         # 执行单次预测
         if single_prediction:
@@ -499,17 +685,39 @@ def main():
             print(f"使用模型: {os.path.basename(args.model_dir)}")
             print("=" * 50)
             
-            print("\n标准化预测值:")
-            for prop, value in standardized_changes.items():
-                print(f"{prop:15s}: {value:8.4f}")
+            # 创建表格展示预测结果
+            print("\n预测结果汇总:")
+            # 表头
+            print(f"{'属性名称':<15} {'标准化值':<12} {'原始值':<12}")
+            print("-" * 45)
+            
+            # 表格数据行
+            for prop in original_changes.keys():
+                orig_value = original_changes[prop]
+                std_value = standardized_changes.get(prop, "N/A") if standardized_changes else "N/A"
+                prop_name = prop.replace("_change", "") if prop.endswith("_change") else prop
+                if standardized_changes:
+                    print(f"{prop_name:<15} {std_value:<12.4f} {orig_value:<12.4f}" if isinstance(std_value, (int, float)) else f"{prop_name:<15} {std_value:<12} {orig_value:<12.4f}")
+                else:
+                    print(f"{prop_name:<15} {'N/A':<12} {orig_value:<12.4f}")
                 
-            if original_changes:
-                print("\n原始尺度预测值:")
-                for prop, value in original_changes.items():
-                    print(f"{prop:15s}: {value:8.4f}")
+            if not standardized_changes:
+                print("\n注意: 模型未使用标准化数据进行训练")
+        
+        # 执行预测值与真实值对比（支持多模型）
+        elif comparison_prediction:
+            if 'model_paths' in locals():
+                # 多模型对比
+                predictions_list, true_values, row = compare_with_ground_truth(
+                    model_paths, model_dirs, args.csv_file, args.row_index
+                )
+                print_multi_model_comparison_results(predictions_list, true_values, row, model_dirs)
             else:
-                print("\n注意: 未找到属性统计信息，无法进行反标准化")
-                print("要获得原始尺度的预测值，请确保模型目录中包含完整的训练数据文件")
+                # 单模型对比
+                predicted_values, true_values, row = compare_with_ground_truth(
+                    [args.model_path], [args.model_dir], args.csv_file, args.row_index
+                )
+                print_comparison_results(predicted_values, true_values, row, args.model_dir)
         
         # 执行批量预测
         elif batch_prediction:

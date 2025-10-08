@@ -304,7 +304,7 @@ def print_table_accuracy(accuracies, thresholds, property_names, logger=None):
             logger.info(row)
 
 
-def log_training_completion(logger, train_losses, val_losses, test_loss, rmse, mae, r2, 
+def log_training_completion(logger, train_losses, val_losses, test_loss, rmse, mae, r2,
                            threshold_accs, orig_mse, orig_rmse, orig_mae, model_path):
     """
     记录训练完成信息
@@ -314,9 +314,9 @@ def log_training_completion(logger, train_losses, val_losses, test_loss, rmse, m
         train_losses: 训练损失列表
         val_losses: 验证损失列表
         test_loss: 测试损失
-        rmse: 均方根误差
-        mae: 平均绝对误差
-        r2: 决定系数
+        rmse: RMSE值
+        mae: MAE值
+        r2: R²值
         threshold_accs: 阈值准确率字典
         orig_mse: 原始尺度MSE
         orig_rmse: 原始尺度RMSE
@@ -325,7 +325,13 @@ def log_training_completion(logger, train_losses, val_losses, test_loss, rmse, m
     """
     logger.info("训练完成:")
     logger.info(f"  - 最终训练损失: {train_losses[-1]:.6f}")
-    logger.info(f"  - 最佳验证损失: {min(val_losses):.6f}")
+    
+    # 处理验证损失为空的情况
+    if val_losses and len(val_losses) > 0:
+        logger.info(f"  - 最佳验证损失: {min(val_losses):.6f}")
+    else:
+        logger.info("  - 最佳验证损失: 未记录")
+        
     logger.info(f"  - 测试损失 (MSE): {test_loss.item():.6f}")
     logger.info(f"  - 测试RMSE: {rmse.item():.6f}")
     logger.info(f"  - 测试MAE: {mae.item():.6f}")
@@ -334,12 +340,12 @@ def log_training_completion(logger, train_losses, val_losses, test_loss, rmse, m
     logger.info(f"  - 测试阈值准确率 (0.4, 平均): {threshold_accs['mean_0.4']:.4f}")
     logger.info(f"  - 测试阈值准确率 (0.3, 所有维度): {threshold_accs['all_0.3']:.4f}")
     logger.info(f"  - 测试阈值准确率 (0.3, 平均): {threshold_accs['mean_0.3']:.4f}")
-    logger.info(f"  - 测试阈值准确率 (0.2, 所有维度): {threshold_accs['all_0.2']:.4f}")
-    logger.info(f"  - 测试阈值准确率 (0.2, 平均): {threshold_accs['mean_0.2']:.4f}")
-    logger.info(f"  - 测试阈值准确率 (0.1, 所有维度): {threshold_accs['all_0.1']:.4f}")
-    logger.info(f"  - 测试阈值准确率 (0.1, 平均): {threshold_accs['mean_0.1']:.4f}")
-    logger.info(f"  - 测试阈值准确率 (0.05, 所有维度): {threshold_accs['all_0.05']:.4f}")
-    logger.info(f"  - 测试阈值准确率 (0.05, 平均): {threshold_accs['mean_0.05']:.4f}")
+    logger.info(f"  - 测试阈값准确率 (0.2, 所有维度): {threshold_accs['all_0.2']:.4f}")
+    logger.info(f"  - 测试阈값准确率 (0.2, 平均): {threshold_accs['mean_0.2']:.4f}")
+    logger.info(f"  - 测试阈값准确率 (0.1, 所有维度): {threshold_accs['all_0.1']:.4f}")
+    logger.info(f"  - 测试阈값准确率 (0.1, 平均): {threshold_accs['mean_0.1']:.4f}")
+    logger.info(f"  - 测试阈값准确率 (0.05, 所有维度): {threshold_accs['all_0.05']:.4f}")
+    logger.info(f"  - 测试阈값准确率 (0.05, 平均): {threshold_accs['mean_0.05']:.4f}")
     logger.info(f"  - 原始尺度MSE: {orig_mse.item():.6f}")
     logger.info(f"  - 原始尺度RMSE: {orig_rmse.item():.6f}")
     logger.info(f"  - 原始尺度MAE: {orig_mae.item():.6f}")

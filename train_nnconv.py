@@ -79,7 +79,16 @@ def plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir)
     # 绘制训练和验证损失
     epochs = range(1, len(train_losses) + 1)
     plt.plot(epochs, train_losses, 'o-', label='Training Loss', linewidth=1, markersize=1.5, alpha=0.7)
-    plt.plot(epochs, val_losses, 'o-', label='Validation Loss', linewidth=1, markersize=1.5, alpha=0.7)
+    
+    # 只有当val_losses不为空且长度与epochs相同时才绘制验证损失
+    if len(val_losses) > 0:
+        if len(val_losses) == len(epochs):
+            plt.plot(epochs, val_losses, 'o-', label='Validation Loss', linewidth=1, markersize=1.5, alpha=0.7)
+        else:
+            # 如果长度不匹配，则只截取前面部分进行绘制
+            val_epochs = range(1, len(val_losses) + 1)
+            plt.plot(val_epochs, val_losses, 'o-', label='Validation Loss', linewidth=1, markersize=1.5, alpha=0.7)
+    
     plt.title('Training and Validation Loss Trends')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
@@ -99,7 +108,16 @@ def plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir)
     # 绘制验证R2趋势
     plt.subplot(1, 2, 1)
     val_epochs = range(10, len(train_losses) + 1, 10)  # R2和MAE每10个epoch记录一次
-    plt.plot(val_epochs, val_r2s, 'o-', label='Validation R²', linewidth=2, markersize=1.5, color='green', alpha=0.7)
+    
+    # 只有当val_r2s不为空时才绘制
+    if len(val_r2s) > 0:
+        if len(val_r2s) == len(val_epochs):
+            plt.plot(val_epochs, val_r2s, 'o-', label='Validation R²', linewidth=2, markersize=1.5, color='green', alpha=0.7)
+        else:
+            # 处理长度不匹配的情况
+            actual_val_epochs = range(10, len(val_r2s) * 10 + 1, 10)
+            plt.plot(actual_val_epochs, val_r2s, 'o-', label='Validation R²', linewidth=2, markersize=1.5, color='green', alpha=0.7)
+    
     plt.title('Validation R² Trend')
     plt.xlabel('Epoch')
     plt.ylabel('R²')
@@ -108,7 +126,16 @@ def plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir)
     
     # 绘制验证MAE趋势
     plt.subplot(1, 2, 2)
-    plt.plot(val_epochs, val_maes, 's-', label='Validation MAE', linewidth=2, markersize=1.5, color='red', alpha=0.7)
+    
+    # 只有当val_maes不为空时才绘制
+    if len(val_maes) > 0:
+        if len(val_maes) == len(val_epochs):
+            plt.plot(val_epochs, val_maes, 's-', label='Validation MAE', linewidth=2, markersize=1.5, color='red', alpha=0.7)
+        else:
+            # 处理长度不匹配的情况
+            actual_val_epochs = range(10, len(val_maes) * 10 + 1, 10)
+            plt.plot(actual_val_epochs, val_maes, 's-', label='Validation MAE', linewidth=2, markersize=1.5, color='red', alpha=0.7)
+    
     plt.title('Validation MAE Trend')
     plt.xlabel('Epoch')
     plt.ylabel('MAE')
@@ -123,7 +150,48 @@ def plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir)
     print(f"指标趋势图已保存: {metrics_plot_path}")
 
 
-def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100, seed: int = 42):
+def prepare_property_change_targets_no_standardization(csv_file: str, max_pairs: int = None) -> torch.Tensor:
+    """
+    准备属性变化目标值（不进行标准化）
+    
+    Args:
+        csv_file: CSV文件路径
+        max_pairs: 最大对数（用于调试）
+        
+    Returns:
+        属性变化目标值（未标准化）
+    """
+    # 读取数据
+    df = pd.read_csv(csv_file)
+    
+    if max_pairs:
+        df = df.head(max_pairs)
+    
+    # 准备目标特征（15个属性变化值）
+    target_features = []
+    
+    property_names = ['A_change', 'B_change', 'C_change', 'mu_change', 'alpha_change',
+                      'homo_change', 'lumo_change', 'gap_change', 'r2_change', 'zpve_change',
+                      'U0_change', 'U_change', 'H_change', 'G_change', 'Cv_change']
+    
+    for _, row in df.iterrows():
+        properties = []
+        
+        for prop in property_names:
+            if prop in row and not pd.isna(row[prop]):
+                value = row[prop]
+                properties.append(value)
+            else:
+                properties.append(0.0)
+                
+        target_features.append(properties)
+    
+    target_features = torch.FloatTensor(np.array(target_features))
+    
+    return target_features
+
+
+def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100, seed: int = 42, normalize: bool = True):
     """
     训练基于NNConv的分子进化预测器模型
     
@@ -132,6 +200,7 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         max_pairs: 最大对数（用于调试）
         epochs: 训练轮数
         seed: 随机种子
+        normalize: 是否对属性进行标准化
     """
     
     # 保存模型
@@ -147,7 +216,12 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100,
     data, smiles_to_idx, property_stats = build_molecule_graph_with_fingerprints(data_file, max_pairs)
     
     # 准备属性变化目标
-    target_features = prepare_property_change_targets(data_file, property_stats, max_pairs)
+    if normalize:
+        target_features = prepare_property_change_targets(data_file, property_stats, max_pairs)
+    else:
+        target_features = prepare_property_change_targets_no_standardization(data_file, max_pairs)
+        # 创建空的属性统计信息，表示未进行标准化
+        property_stats = {}
     
     log_data_construction(logger, data_file, data, target_features)
     
@@ -228,16 +302,22 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100,
             # 保存各维度的准确率
             dimension_accuracies[th] = dim_correct.mean(dim=0).cpu().numpy()
         
-        # 反标准化预测结果和目标值以获得原始尺度的评估指标
-        original_predictions = inverse_standardize(test_predictions, property_stats)
-        original_targets = inverse_standardize(test_targets, property_stats)
-        
-        # 在原始尺度上计算评估指标
-        orig_mse = torch.mean((original_predictions - original_targets) ** 2)
-        orig_rmse = torch.sqrt(orig_mse)
-        orig_mae = torch.mean(torch.abs(original_predictions - original_targets))
-        
-        log_original_scale_metrics(logger, orig_mse, orig_rmse, orig_mae)
+        # 如果进行了标准化，则反标准化预测结果和目标值以获得原始尺度的评估指标
+        if normalize and property_stats:
+            original_predictions = inverse_standardize(test_predictions, property_stats)
+            original_targets = inverse_standardize(test_targets, property_stats)
+            
+            # 在原始尺度上计算评估指标
+            orig_mse = torch.mean((original_predictions - original_targets) ** 2)
+            orig_rmse = torch.sqrt(orig_mse)
+            orig_mae = torch.mean(torch.abs(original_predictions - original_targets))
+            
+            log_original_scale_metrics(logger, orig_mse, orig_rmse, orig_mae)
+        else:
+            # 如果没有标准化，则原始尺度的指标就是标准化后的指标
+            orig_mse = mse
+            orig_rmse = rmse
+            orig_mae = mae
 
         # 使用表格形式展示各维度阈值准确率
         print_table_accuracy(dimension_accuracies, thresholds, property_names, logger)
@@ -271,7 +351,8 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100,
             "data_file": data_file,
             "max_pairs": max_pairs,
             "epochs": epochs,
-            "seed": seed
+            "seed": seed,
+            "normalize": normalize
         }
         save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir, model_params, training_params, property_stats)
         
@@ -292,12 +373,14 @@ def main():
     parser.add_argument('--max-pairs', type=int, help='最大分子对数（用于调试）')
     parser.add_argument('--epochs', type=int, default=100, help='训练轮数')
     parser.add_argument('--seed', type=int, default=42, help='随机种子')
+    parser.add_argument('--no-normalize', action='store_true', 
+                       help='不进行属性标准化')
     
     args = parser.parse_args()
     
     try:
         model, train_losses, val_losses = train_nnconv_model(
-            args.data_file, args.max_pairs, args.epochs, args.seed
+            args.data_file, args.max_pairs, args.epochs, args.seed, not args.no_normalize
         )
     except Exception as e:
         print(f"训练过程中发生错误: {e}")
