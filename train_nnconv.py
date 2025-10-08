@@ -152,6 +152,77 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100)
         epochs=epochs, lr=0.001, train_idx=train_idx, val_idx=val_idx
     )
     
+    # 定义属性名称列表
+    property_names = ['A_change', 'B_change', 'C_change', 'mu_change', 'alpha_change',
+                      'homo_change', 'lumo_change', 'gap_change', 'r2_change', 'zpve_change',
+                      'U0_change', 'U_change', 'H_change', 'G_change', 'Cv_change']
+
+    def get_accuracy_color_code(accuracy):
+        """
+        根据准确率值返回相应的ANSI颜色代码
+        
+        Args:
+            accuracy: 准确率值 (0-1)
+            
+        Returns:
+            ANSI颜色代码字符串
+        """
+        if accuracy >= 0.9:
+            return '\033[32m'  # 绿色 - 优秀
+        elif accuracy >= 0.7:
+            return '\033[36m'  # 青色 - 良好
+        elif accuracy >= 0.5:
+            return '\033[33m'  # 黄色 - 一般
+        elif accuracy >= 0.3:
+            return '\033[35m'  # 紫色 - 较差
+        else:
+            return '\033[31m'  # 红色 - 很差
+    
+    
+    def print_table_accuracy(accuracies, thresholds, property_names):
+        """
+        以表格形式打印各维度阈值准确率，并添加颜色分区效果
+        先构建不带颜色的字符串确保对齐，再添加颜色
+        表格按横向展示形式，第一行为属性名称，后续每行显示一个阈值下所有属性的准确率
+
+        Args:
+            accuracies: 不同阈值下的准确率字典
+            thresholds: 阈值列表
+            property_names: 属性名称列表
+        """
+        print("各维度阈值准确率:")
+
+        # 定义列宽
+        col_width = 9
+        threshold_col_width = 12
+
+        # 构建表头
+        header = "Threshold".ljust(threshold_col_width)
+        for prop_name in property_names:
+            # 去除"_change"后缀并截取或填充属性名到固定宽度
+            clean_name = prop_name.replace("_change", "")
+            short_name = (clean_name[:col_width-1] if len(clean_name) >= col_width else clean_name).ljust(col_width)
+            header += short_name
+        print(header)
+
+        # 打印分隔线
+        separator_length = threshold_col_width + len(property_names) * col_width
+        print("-" * separator_length)
+
+        # 逐行打印每个阈值下的准确率（带颜色）
+        for threshold in thresholds:
+            row = f"@{threshold:.3f}".ljust(threshold_col_width)
+            for i in range(len(property_names)):
+                acc = accuracies[threshold][i]
+                color_code = get_accuracy_color_code(acc)
+                formatted_acc = f"{acc:.4f}"
+                # 构建带颜色的单元格，确保固定宽度
+                colored_cell = f"{color_code}{formatted_acc}\033[0m"
+                # 手动计算并添加空格以保持对齐
+                padding = col_width - len(formatted_acc)
+                row += colored_cell + " " * padding
+            print(row)
+
     # 测试阶段
     model.eval()
     with torch.no_grad():
@@ -179,11 +250,8 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100)
         thresholds = [0.1, 0.05]
         threshold_accs = {}
         
-        # 属性名称用于输出
-        property_names = ['A_change', 'B_change', 'C_change', 'mu_change', 'alpha_change',
-                          'homo_change', 'lumo_change', 'gap_change', 'r2_change', 'zpve_change',
-                          'U0_change', 'U_change', 'H_change', 'G_change', 'Cv_change']
-        
+        # 计算各维度阈值准确率
+        dimension_accuracies = {}
         for th in thresholds:
             # 计算所有维度同时满足阈值的样本比例
             all_dims_correct = (torch.abs(test_predictions - test_targets) < th).all(dim=1).float()
@@ -193,13 +261,8 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100)
             dim_correct = (torch.abs(test_predictions - test_targets) < th).float()
             threshold_accs[f'mean_{th}'] = dim_correct.mean().item()
             
-            # 按维度输出准确率
-            dim_accuracies = dim_correct.mean(dim=0).cpu().numpy()
-            print(f"  - 阈值 {th} 各维度准确率: {dim_accuracies.round(4)}")
-            
             # 保存各维度的准确率
-            for i, prop_name in enumerate(property_names):
-                threshold_accs[f'{prop_name}_{th}'] = dim_accuracies[i]
+            dimension_accuracies[th] = dim_correct.mean(dim=0).cpu().numpy()
         
         # 反标准化预测结果和目标值以获得原始尺度的评估指标
         original_predictions = inverse_standardize(test_predictions, property_stats)
@@ -214,6 +277,9 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100)
         print(f"  - MSE: {orig_mse.item():.6f}")
         print(f"  - RMSE: {orig_rmse.item():.6f}")
         print(f"  - MAE: {orig_mae.item():.6f}")
+
+        # 使用表格形式展示各维度阈值准确率
+        print_table_accuracy(dimension_accuracies, thresholds, property_names)
 
     # 保存模型
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -240,13 +306,18 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100)
         f.write(f"测试阙值准确率 (0.05, 平均): {threshold_accs['mean_0.05']:.4f}\n")
         
         # 添加各维度的准确率到日志
-        f.write(f"\n各维度阈值准确率 (0.1):\n")
+        f.write(f"\n各维度阈值准确率:\n")
+        f.write("Property".ljust(15))
+        for th in thresholds:
+            f.write(f"Acc@{th}".ljust(12))
+        f.write("\n")
+        f.write("-" * 39 + "\n")
+        
         for i, prop_name in enumerate(property_names):
-            f.write(f"  - {prop_name}: {threshold_accs[f'{prop_name}_0.1']:.4f}\n")
-            
-        f.write(f"\n各维度阙值准确率 (0.05):\n")
-        for i, prop_name in enumerate(property_names):
-            f.write(f"  - {prop_name}: {threshold_accs[f'{prop_name}_0.05']:.4f}\n")
+            row = prop_name.ljust(15)
+            for th in thresholds:
+                row += f"{dimension_accuracies[th][i]:.4f}".ljust(12)
+            f.write(row + "\n")
         
         f.write(f"原始尺度MSE: {orig_mse.item():.6f}\n")
         f.write(f"原始尺度RMSE: {orig_rmse.item():.6f}\n")
@@ -267,14 +338,7 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100)
     print(f"  - 测试阙值准确率 (0.05, 所有维度): {threshold_accs['all_0.05']:.4f}")
     print(f"  - 测试阙值准确率 (0.05, 平均): {threshold_accs['mean_0.05']:.4f}")
     
-    # 添加各维度的准确率到控制台输出
-    print(f"\n各维度阙值准确率 (0.1):")
-    for i, prop_name in enumerate(property_names):
-        print(f"  - {prop_name}: {threshold_accs[f'{prop_name}_0.1']:.4f}")
-        
-    print(f"\n各维度阙值准确率 (0.05):")
-    for i, prop_name in enumerate(property_names):
-        print(f"  - {prop_name}: {threshold_accs[f'{prop_name}_0.05']:.4f}")
+    # 表格已在前面统一打印，无需重复输出
     
     print(f"  - 原始尺度MSE: {orig_mse.item():.6f}")
     print(f"  - 原始尺度RMSE: {orig_rmse.item():.6f}")
