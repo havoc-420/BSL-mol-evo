@@ -7,9 +7,9 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 from torch_geometric.data import Data
-from .logger import TrainingLogger
+import logging
 
 
 def calculate_metrics(predictions: torch.Tensor, targets: torch.Tensor) -> dict:
@@ -61,7 +61,8 @@ def calculate_metrics(predictions: torch.Tensor, targets: torch.Tensor) -> dict:
 
 def train_gnn_model(model: nn.Module, data: Data, target_features: torch.Tensor,
                    epochs: int = 100, lr: float = 0.001, 
-                   train_idx: List[int] = None, val_idx: List[int] = None) -> Tuple[List[float], List[float]]:
+                   train_idx: List[int] = None, val_idx: List[int] = None,
+                   logger: Optional[logging.Logger] = None) -> Tuple[List[float], List[float]]:
     """
     训练GNN模型
     
@@ -73,15 +74,20 @@ def train_gnn_model(model: nn.Module, data: Data, target_features: torch.Tensor,
         lr: 学习率
         train_idx: 训练集索引
         val_idx: 验证集索引
+        logger: 日志记录器（可选）
         
     Returns:
-        训练损失和验证损失列表
+        train_losses: 训练损失列表
+        val_losses: 验证损失列表
     """
     # 设置设备
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"使用设备: {device}")
+    if logger:
+        logger.info(f"使用设备: {device}")
+    else:
+        print(f"使用设备: {device}")
     
-    # 将模型和数据移到设备上
+    # 将模型和数据移动到设备
     model = model.to(device)
     data = data.to(device)
     target_features = target_features.to(device)
@@ -93,9 +99,6 @@ def train_gnn_model(model: nn.Module, data: Data, target_features: torch.Tensor,
     # 初始化损失记录
     train_losses = []
     val_losses = []
-    
-    # 初始化训练日志记录器
-    logger = TrainingLogger("Training")
     
     # 训练循环
     model.train()
@@ -128,13 +131,20 @@ def train_gnn_model(model: nn.Module, data: Data, target_features: torch.Tensor,
                     val_metrics = calculate_metrics(val_predictions[val_idx], target_features[val_idx])
             model.train()
         else:
+            val_loss = None
             val_metrics = None
         
-        # 打印进度
+        # 每10个epoch输出一次信息
         if (epoch + 1) % 10 == 0:
-            if val_idx and val_metrics:
-                logger.log_progress(epoch + 1, epochs, train_loss.item(), val_loss.item(), val_metrics)
+            message = f"Epoch [{epoch+1}/{epochs}], Train Loss: {train_loss.item():.6f}"
+            if val_loss is not None:
+                message += f", Val Loss: {val_loss:.6f}"
+                if val_metrics:
+                    message += f", R²: {val_metrics['r2']:.4f}, MAE: {val_metrics['mae']:.4f}"
+            
+            if logger:
+                logger.info(message)
             else:
-                logger.log_progress(epoch + 1, epochs, train_loss.item())
+                print(message)
     
     return train_losses, val_losses
