@@ -61,6 +61,7 @@ from mol_evo.utils.training_utils import (
     log_original_scale_metrics
 )
 
+
 def plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir):
     """
     绘制训练趋势图
@@ -77,8 +78,8 @@ def plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir)
     
     # 绘制训练和验证损失
     epochs = range(1, len(train_losses) + 1)
-    plt.plot(epochs, train_losses, 'o-', label='Training Loss', linewidth=2, markersize=3)
-    plt.plot(epochs, val_losses, 's-', label='Validation Loss', linewidth=2, markersize=3)
+    plt.plot(epochs, train_losses, 'o-', label='Training Loss', linewidth=1, markersize=1.5, alpha=0.7)
+    plt.plot(epochs, val_losses, 'o-', label='Validation Loss', linewidth=1, markersize=1.5, alpha=0.7)
     plt.title('Training and Validation Loss Trends')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
@@ -98,7 +99,7 @@ def plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir)
     # 绘制验证R2趋势
     plt.subplot(1, 2, 1)
     val_epochs = range(10, len(train_losses) + 1, 10)  # R2和MAE每10个epoch记录一次
-    plt.plot(val_epochs, val_r2s, 'o-', label='Validation R²', linewidth=2, markersize=3, color='green')
+    plt.plot(val_epochs, val_r2s, 'o-', label='Validation R²', linewidth=2, markersize=1.5, color='green', alpha=0.7)
     plt.title('Validation R² Trend')
     plt.xlabel('Epoch')
     plt.ylabel('R²')
@@ -107,7 +108,7 @@ def plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir)
     
     # 绘制验证MAE趋势
     plt.subplot(1, 2, 2)
-    plt.plot(val_epochs, val_maes, 's-', label='Validation MAE', linewidth=2, markersize=3, color='red')
+    plt.plot(val_epochs, val_maes, 's-', label='Validation MAE', linewidth=2, markersize=1.5, color='red', alpha=0.7)
     plt.title('Validation MAE Trend')
     plt.xlabel('Epoch')
     plt.ylabel('MAE')
@@ -122,7 +123,7 @@ def plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir)
     print(f"指标趋势图已保存: {metrics_plot_path}")
 
 
-def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100):
+def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100, seed: int = 42):
     """
     训练基于NNConv的分子进化预测器模型
     
@@ -130,6 +131,7 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100)
         data_file: 数据文件路径
         max_pairs: 最大对数（用于调试）
         epochs: 训练轮数
+        seed: 随机种子
     """
     
     # 保存模型
@@ -150,7 +152,7 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100)
     log_data_construction(logger, data_file, data, target_features)
     
     # 划分数据集
-    train_idx, val_idx, test_idx = split_data_indices(data.num_edges, 0.7, 0.2, 0.1)
+    train_idx, val_idx, test_idx = split_data_indices(data.num_edges, 0.7, 0.2, 0.1, seed)
     
     log_dataset_split(logger, data, train_idx, val_idx, test_idx)
     
@@ -209,7 +211,7 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100)
         r2 = 1 - ss_res / ss_tot
         
         # 阈值准确率评估
-        thresholds = [0.1, 0.05]
+        thresholds = [0.4, 0.3, 0.2, 0.1, 0.05]
         threshold_accs = {}
         
         # 计算各维度阈值准确率
@@ -264,8 +266,14 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100)
             }
         }
         
-        # 保存训练数据为JSON格式，包含属性统计信息
-        save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir, model_params, property_stats)
+        # 保存训练数据为JSON格式，包含属性统计信息，包含训练参数
+        training_params = {
+            "data_file": data_file,
+            "max_pairs": max_pairs,
+            "epochs": epochs,
+            "seed": seed
+        }
+        save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir, model_params, training_params, property_stats)
         
         # 生成训练趋势图
         plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir)
@@ -283,12 +291,13 @@ def main():
                        help='数据文件路径')
     parser.add_argument('--max-pairs', type=int, help='最大分子对数（用于调试）')
     parser.add_argument('--epochs', type=int, default=100, help='训练轮数')
+    parser.add_argument('--seed', type=int, default=42, help='随机种子')
     
     args = parser.parse_args()
     
     try:
         model, train_losses, val_losses = train_nnconv_model(
-            args.data_file, args.max_pairs, args.epochs
+            args.data_file, args.max_pairs, args.epochs, args.seed
         )
     except Exception as e:
         print(f"训练过程中发生错误: {e}")

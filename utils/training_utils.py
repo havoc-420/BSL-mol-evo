@@ -50,33 +50,29 @@ def setup_logger(model_dir, logger_name='training'):
     return logger
 
 
-def inverse_standardize(predictions, property_stats):
+def inverse_standardize(data, stats_dict):
     """
-    反标准化预测结果
+    反标准化数据
     
     Args:
-        predictions: 标准化的预测结果
-        property_stats: 属性统计信息（均值和标准差）
+        data: 标准化后的数据
+        stats_dict: 包含均值和标准差的字典
         
     Returns:
-        反标准化后的预测结果
+        反标准化后的数据
     """
-    # 属性名称顺序必须与处理时一致
-    property_names = ['A_change', 'B_change', 'C_change', 'mu_change', 'alpha_change',
-                      'homo_change', 'lumo_change', 'gap_change', 'r2_change', 'zpve_change',
-                      'U0_change', 'U_change', 'H_change', 'G_change', 'Cv_change']
+    # 确保数据在正确的设备上
+    device = data.device
     
-    # 创建副本避免修改原始数据
-    inv_predictions = predictions.clone()
+    # 将统计数据移动到相同设备
+    # 修复：stats_dict[prop]是一个元组(mean, std)，而不是一个字典
+    means = torch.tensor([stats_dict[prop][0] for prop in stats_dict.keys() 
+                         if prop.endswith('_change')], device=device)
+    stds = torch.tensor([stats_dict[prop][1] for prop in stats_dict.keys() 
+                        if prop.endswith('_change')], device=device)
     
-    # 对每个属性进行反标准化
-    for i, prop in enumerate(property_names):
-        if prop in property_stats:
-            mean, std = property_stats[prop]
-            if std > 0:
-                inv_predictions[:, i] = predictions[:, i] * std + mean
-    
-    return inv_predictions
+    # 反标准化
+    return data * stds + means
 
 
 def split_data_indices(total_count: int, train_ratio: float = 0.7, 
@@ -141,7 +137,7 @@ def get_accuracy_color_code(accuracy):
         return '\033[31m'  # 红色 - 很差
 
 
-def save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir, model_params, property_stats=None):
+def save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir, model_params, training_params=None, property_stats=None):
     """
     将训练数据保存为JSON格式
     
@@ -151,6 +147,7 @@ def save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir
         test_metrics: 测试指标字典
         model_dir: 模型目录路径
         model_params: 模型参数字典
+        training_params: 训练参数字典（可选）
         property_stats: 属性统计信息（均值和标准差），可选
     """
     # 构建训练数据字典
@@ -160,6 +157,10 @@ def save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir
         "train_losses": train_losses,
         "val_losses": val_losses,
     }
+    
+    # 如果提供了训练参数，则添加到数据中
+    if training_params is not None:
+        training_data["training_params"] = training_params
     
     # 如果提供了属性统计信息，则添加到数据中
     if property_stats is not None:
@@ -329,6 +330,12 @@ def log_training_completion(logger, train_losses, val_losses, test_loss, rmse, m
     logger.info(f"  - 测试RMSE: {rmse.item():.6f}")
     logger.info(f"  - 测试MAE: {mae.item():.6f}")
     logger.info(f"  - 测试R²: {r2.item():.6f}")
+    logger.info(f"  - 测试阈值准确率 (0.4, 所有维度): {threshold_accs['all_0.4']:.4f}")
+    logger.info(f"  - 测试阈值准确率 (0.4, 平均): {threshold_accs['mean_0.4']:.4f}")
+    logger.info(f"  - 测试阈值准确率 (0.3, 所有维度): {threshold_accs['all_0.3']:.4f}")
+    logger.info(f"  - 测试阈值准确率 (0.3, 平均): {threshold_accs['mean_0.3']:.4f}")
+    logger.info(f"  - 测试阈值准确率 (0.2, 所有维度): {threshold_accs['all_0.2']:.4f}")
+    logger.info(f"  - 测试阈值准确率 (0.2, 平均): {threshold_accs['mean_0.2']:.4f}")
     logger.info(f"  - 测试阈值准确率 (0.1, 所有维度): {threshold_accs['all_0.1']:.4f}")
     logger.info(f"  - 测试阈值准确率 (0.1, 平均): {threshold_accs['mean_0.1']:.4f}")
     logger.info(f"  - 测试阈值准确率 (0.05, 所有维度): {threshold_accs['all_0.05']:.4f}")
