@@ -264,8 +264,8 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100)
             }
         }
         
-        # 保存训练数据为JSON格式
-        save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir, model_params)
+        # 保存训练数据为JSON格式，包含属性统计信息
+        save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir, model_params, property_stats)
         
         # 生成训练趋势图
         plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir)

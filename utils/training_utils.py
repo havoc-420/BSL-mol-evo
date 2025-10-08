@@ -141,7 +141,7 @@ def get_accuracy_color_code(accuracy):
         return '\033[31m'  # 红色 - 很差
 
 
-def save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir, model_params):
+def save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir, model_params, property_stats=None):
     """
     将训练数据保存为JSON格式
     
@@ -151,6 +151,7 @@ def save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir
         test_metrics: 测试指标字典
         model_dir: 模型目录路径
         model_params: 模型参数字典
+        property_stats: 属性统计信息（均值和标准差），可选
     """
     # 构建训练数据字典
     training_data = {
@@ -159,6 +160,10 @@ def save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir
         "train_losses": train_losses,
         "val_losses": val_losses,
     }
+    
+    # 如果提供了属性统计信息，则添加到数据中
+    if property_stats is not None:
+        training_data["property_stats"] = property_stats
     
     # 保存为JSON文件
     json_path = os.path.join(model_dir, "training_data.json")
