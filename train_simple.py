@@ -30,7 +30,7 @@ model_data_dir = os.path.join(project_root, 'mol_evo', 'model-data')
 sys.path.insert(0, project_root)
 
 # 更新导入语句以使用新的模块结构
-from mol_evo.core.models.simple_predictors import MoleculeEvolutionTransformer
+from mol_evo.core.models.simple import MoleculeEvolutionTransformer
 from mol_evo.core.data.processing import prepare_evolution_data, prepare_property_change_targets
 from mol_evo.core.utils.training import train_transformer_model
 

@@ -47,7 +47,7 @@ project_root = os.path.join(script_dir, '..')
 sys.path.insert(0, project_root)
 
 # 导入自定义模块
-from mol_evo.core.models.nnconv_predictor import MoleculeEvolutionNNConvPredictor
+from mol_evo.core.models.nnconv import MoleculeEvolutionNNConvPredictor
 from mol_evo.core.data.processing import build_molecule_graph_with_fingerprints, prepare_property_change_targets
 from mol_evo.core.utils.training import train_gnn_model
 from mol_evo.utils.training_utils import (

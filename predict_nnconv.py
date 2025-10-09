@@ -23,7 +23,7 @@ project_root = os.path.join(script_dir, '..')
 sys.path.insert(0, project_root)
 
 # 导入自定义模块
-from mol_evo.core.models.nnconv_predictor import MoleculeEvolutionNNConvPredictor
+from mol_evo.core.models.nnconv import MoleculeEvolutionNNConvPredictor
 from mol_evo.core.data.processing import (
     smiles_to_fingerprint, 
     prepare_edge_features
