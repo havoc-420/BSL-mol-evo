@@ -145,6 +145,51 @@ def load_property_stats(model_dir):
         return None
 
 
+def load_training_params(model_dir):
+    """
+    从模型目录加载训练参数
+    
+    Args:
+        model_dir: 模型目录路径
+        
+    Returns:
+        训练参数字典
+    """
+    stats_file = os.path.join(model_dir, "training_data.json")
+    if os.path.exists(stats_file):
+        with open(stats_file, 'r') as f:
+            data = json.load(f)
+            # 从训练数据中提取训练参数
+            if 'training_params' in data:
+                return data['training_params']
+            else:
+                print("警告: 训练数据中未找到训练参数")
+                return None
+    else:
+        print(f"警告: 未找到训练数据文件 {stats_file}")
+        return None
+
+
+def get_selected_properties(model_dir):
+    """
+    从模型目录获取选定的属性列表
+    
+    Args:
+        model_dir: 模型目录路径
+        
+    Returns:
+        选定的属性列表
+    """
+    training_params = load_training_params(model_dir)
+    if training_params and 'selected_properties' in training_params and training_params['selected_properties']:
+        return training_params['selected_properties']
+    else:
+        # 如果没有选定特定属性，则返回所有属性
+        return ['A_change', 'B_change', 'C_change', 'mu_change', 'alpha_change',
+                'homo_change', 'lumo_change', 'gap_change', 'r2_change', 'zpve_change',
+                'U0_change', 'U_change', 'H_change', 'G_change', 'Cv_change']
+
+
 def prepare_single_prediction_data(smiles_from, smiles_to, to_atom_symbol, operation_type, model_dir):
     """
     准备单个预测的数据
@@ -233,12 +278,15 @@ def predict_property_changes(model_path, model_dir, smiles_from, smiles_to, to_a
     data, property_stats = prepare_single_prediction_data(
         smiles_from, smiles_to, to_atom_symbol, operation_type, model_dir)
     
-    # 创建模型
+    # 获取选定的属性
+    selected_properties = get_selected_properties(model_dir)
+    
+    # 创建模型（使用选定属性的数量作为输出维度）
     model = MoleculeEvolutionNNConvPredictor(
         node_feature_dim=2048,    # Morgan指纹维度
         edge_feature_dim=11,      # 边特征维度（5原子类型 + 6操作类型）
         hidden_dim=128,
-        output_dim=15,            # 属性变化维度
+        output_dim=len(selected_properties),  # 根据选定属性数量设置输出维度
         num_layers=3
     )
     
@@ -253,11 +301,6 @@ def predict_property_changes(model_path, model_dir, smiles_from, smiles_to, to_a
     # 获取预测结果
     predicted_changes = predictions[0].numpy()
     
-    # 定义属性名称
-    property_names = ['A_change', 'B_change', 'C_change', 'mu_change', 'alpha_change',
-                      'homo_change', 'lumo_change', 'gap_change', 'r2_change', 'zpve_change',
-                      'U0_change', 'U_change', 'H_change', 'G_change', 'Cv_change']
-    
     # 检查模型是否使用了标准化
     is_normalized = is_model_normalized(model_dir)
     
@@ -266,7 +309,7 @@ def predict_property_changes(model_path, model_dir, smiles_from, smiles_to, to_a
         standardized_changes = {}
         original_changes = {}
         
-        for i, prop_name in enumerate(property_names):
+        for i, prop_name in enumerate(selected_properties):
             standardized_changes[prop_name] = predicted_changes[i]
             # 反标准化得到原始尺度的预测值
             if prop_name in property_stats:
@@ -279,7 +322,7 @@ def predict_property_changes(model_path, model_dir, smiles_from, smiles_to, to_a
     else:
         # 如果模型没有使用标准化，则直接返回预测值
         original_changes = {prop_name: predicted_changes[i] 
-                           for i, prop_name in enumerate(property_names)}
+                           for i, prop_name in enumerate(selected_properties)}
         return None, original_changes  # 第一个返回值为None表示没有标准化值
 
 
@@ -303,12 +346,15 @@ def compare_with_ground_truth(model_paths, model_dirs, csv_file, row_index):
     
     row = df.iloc[row_index]
     
-    # 获取真实值
-    property_names = ['A_change', 'B_change', 'C_change', 'mu_change', 'alpha_change',
-                      'homo_change', 'lumo_change', 'gap_change', 'r2_change', 'zpve_change',
-                      'U0_change', 'U_change', 'H_change', 'G_change', 'Cv_change']
+    # 获取第一个模型的选定属性（假设所有模型使用相同的属性集）
+    selected_properties = get_selected_properties(model_dirs[0]) if model_dirs else [
+        'A_change', 'B_change', 'C_change', 'mu_change', 'alpha_change',
+        'homo_change', 'lumo_change', 'gap_change', 'r2_change', 'zpve_change',
+        'U0_change', 'U_change', 'H_change', 'G_change', 'Cv_change'
+    ]
     
-    true_values = {prop: row[prop] for prop in property_names}
+    # 获取真实值（仅针对选定的属性）
+    true_values = {prop: row[prop] for prop in selected_properties}
     
     # 对每个模型进行预测
     predictions_list = []
@@ -344,6 +390,9 @@ def print_multi_model_comparison_results(predictions_list, true_values, row, mod
     print(f"数据集行号: {row.name}")
     print("=" * 100)
     
+    # 获取选定的属性（从第一个模型的预测结果中获取）
+    selected_properties = list(predictions_list[0].keys()) if predictions_list else []
+    
     # 表头
     header = f"{'属性名称':<15}"
     for model_dir in model_dirs:
@@ -354,8 +403,7 @@ def print_multi_model_comparison_results(predictions_list, true_values, row, mod
     print("-" * 100)
     
     # 数据行
-    property_names = list(predictions_list[0].keys())
-    for prop in property_names:
+    for prop in selected_properties:
         prop_name = prop.replace("_change", "") if prop.endswith("_change") else prop
         row_str = f"{prop_name:<15}"
         for predictions in predictions_list:
@@ -403,12 +451,15 @@ def print_comparison_results(predicted_values, true_values, row, model_dir):
     print(f"数据集行号: {row.name}")
     print("=" * 80)
     
+    # 获取选定的属性
+    selected_properties = list(predicted_values.keys())
+    
     # 表头
     print(f"{'属性名称':<15} {'预测值':<15} {'真实值':<15} {'差值':<15}")
     print("-" * 80)
     
     # 数据行
-    for prop in predicted_values.keys():
+    for prop in selected_properties:
         pred_value = predicted_values[prop]
         true_value = true_values[prop]
         diff = pred_value - true_value
@@ -455,10 +506,8 @@ def batch_predict(model_path, model_dir, csv_file, num_samples=10, random_seed=4
     # 获取属性统计信息用于反标准化
     property_stats = load_property_stats(model_dir)
     
-    # 定义属性名称
-    property_names = ['A_change', 'B_change', 'C_change', 'mu_change', 'alpha_change',
-                      'homo_change', 'lumo_change', 'gap_change', 'r2_change', 'zpve_change',
-                      'U0_change', 'U_change', 'H_change', 'G_change', 'Cv_change']
+    # 获取选定的属性
+    selected_properties = get_selected_properties(model_dir)
     
     # 存储预测结果和真实值
     predictions_list = []
@@ -468,8 +517,8 @@ def batch_predict(model_path, model_dir, csv_file, num_samples=10, random_seed=4
     
     for idx, row in sampled_df.iterrows():
         try:
-            # 获取真实值
-            true_changes = {prop: row[prop] for prop in property_names}
+            # 获取真实值（仅针对选定的属性）
+            true_changes = {prop: row[prop] for prop in selected_properties}
             targets_list.append(true_changes)
             
             # 进行预测
@@ -495,8 +544,8 @@ def batch_predict(model_path, model_dir, csv_file, num_samples=10, random_seed=4
         return None, None
     
     # 转换为数组便于计算
-    pred_array = np.array([[pred[prop] for prop in property_names] for pred in predictions_list])
-    target_array = np.array([[target[prop] for prop in property_names] for target in targets_list])
+    pred_array = np.array([[pred[prop] for prop in selected_properties] for pred in predictions_list])
+    target_array = np.array([[target[prop] for prop in selected_properties] for target in targets_list])
     
     # 计算各种误差指标
     mse = np.mean((pred_array - target_array) ** 2, axis=0)
@@ -525,7 +574,7 @@ def batch_predict(model_path, model_dir, csv_file, num_samples=10, random_seed=4
     
     # 创建误差统计字典
     error_stats = {
-        'property_names': property_names,
+        'property_names': selected_properties,
         'mse': mse,
         'rmse': rmse,
         'mae': mae,
@@ -585,12 +634,13 @@ def print_error_statistics(error_stats, logger=None):
                f"{pred_std[i]:<12.4f} {target_std[i]:<12.4f}")
         print(row)
     
-    # 平均值
-    print("-"*120)
-    avg_row = (f"{'平均':<12} {np.mean(mse):<12.4f} {np.mean(rmse):<12.4f} {np.mean(mae):<12.4f} "
-               f"{np.mean(r2):<12.4f} {np.mean(relative_error):<12.2f} {np.mean(pred_mean):<12.4f} "
-               f"{np.mean(target_mean):<12.4f} {np.mean(pred_std):<12.4f} {np.mean(target_std):<12.4f}")
-    print(avg_row)
+    # 平均值（仅当有多个属性时计算）
+    if len(property_names) > 1:
+        print("-"*120)
+        avg_row = (f"{'平均':<12} {np.mean(mse):<12.4f} {np.mean(rmse):<12.4f} {np.mean(mae):<12.4f} "
+                f"{np.mean(r2):<12.4f} {np.mean(relative_error):<12.2f} {np.mean(pred_mean):<12.4f} "
+                f"{np.mean(target_mean):<12.4f} {np.mean(pred_std):<12.4f} {np.mean(target_std):<12.4f}")
+        print(avg_row)
     
     if logger:
         logger.info("批量预测完成，误差统计结果已显示")
@@ -714,9 +764,11 @@ def main():
                 print_multi_model_comparison_results(predictions_list, true_values, row, model_dirs)
             else:
                 # 单模型对比
-                predicted_values, true_values, row = compare_with_ground_truth(
+                predictions_list, true_values, row = compare_with_ground_truth(
                     [args.model_path], [args.model_dir], args.csv_file, args.row_index
                 )
+                # 对于单模型，predictions_list应该只包含一个元素
+                predicted_values = predictions_list[0] if predictions_list else {}
                 print_comparison_results(predicted_values, true_values, row, args.model_dir)
         
         # 执行批量预测

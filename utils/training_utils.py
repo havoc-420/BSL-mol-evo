@@ -11,6 +11,7 @@ import torch
 import json
 import matplotlib.pyplot as plt
 import logging
+from typing import Dict, Tuple
 
 
 def setup_logger(model_dir, logger_name='training'):
@@ -50,29 +51,39 @@ def setup_logger(model_dir, logger_name='training'):
     return logger
 
 
-def inverse_standardize(data, stats_dict):
+def inverse_standardize(tensor: torch.Tensor, property_stats: dict) -> torch.Tensor:
     """
-    反标准化数据
+    反标准化张量
     
     Args:
-        data: 标准化后的数据
-        stats_dict: 包含均值和标准差的字典
+        tensor: 标准化后的张量
+        property_stats: 属性统计信息字典，格式为 {属性名: (均值, 标准差)}
         
     Returns:
-        反标准化后的数据
+        反标准化后的张量
     """
-    # 确保数据在正确的设备上
-    device = data.device
+    if not property_stats:
+        return tensor
     
-    # 将统计数据移动到相同设备
-    # 修复：stats_dict[prop]是一个元组(mean, std)，而不是一个字典
-    means = torch.tensor([stats_dict[prop][0] for prop in stats_dict.keys() 
-                         if prop.endswith('_change')], device=device)
-    stds = torch.tensor([stats_dict[prop][1] for prop in stats_dict.keys() 
-                        if prop.endswith('_change')], device=device)
+    # 创建一个新的张量用于存储反标准化结果
+    inverse_tensor = tensor.clone()
     
-    # 反标准化
-    return data * stds + means
+    # 获取属性名称列表（按字典顺序排列）
+    property_names = sorted(property_stats.keys())
+    
+    # 确保张量维度与属性数量匹配
+    if inverse_tensor.shape[1] != len(property_names):
+        raise ValueError(f"张量第二维度大小 {inverse_tensor.shape[1]} 与属性数量 {len(property_names)} 不匹配")
+    
+    # 对每个属性进行反标准化
+    for i, prop_name in enumerate(property_names):
+        if prop_name in property_stats:
+            mean, std = property_stats[prop_name]
+            # 只有当标准差大于0时才进行反标准化
+            if std > 0:
+                inverse_tensor[:, i] = tensor[:, i] * std + mean
+    
+    return inverse_tensor
 
 
 def split_data_indices(total_count: int, train_ratio: float = 0.7, 
@@ -314,9 +325,9 @@ def log_training_completion(logger, train_losses, val_losses, test_loss, rmse, m
         train_losses: 训练损失列表
         val_losses: 验证损失列表
         test_loss: 测试损失
-        rmse: RMSE值
-        mae: MAE值
-        r2: R²值
+        rmse: 测试RMSE
+        mae: 测试MAE
+        r2: 测试R²
         threshold_accs: 阈值准确率字典
         orig_mse: 原始尺度MSE
         orig_rmse: 原始尺度RMSE
@@ -325,30 +336,45 @@ def log_training_completion(logger, train_losses, val_losses, test_loss, rmse, m
     """
     logger.info("训练完成:")
     logger.info(f"  - 最终训练损失: {train_losses[-1]:.6f}")
-    
-    # 处理验证损失为空的情况
-    if val_losses and len(val_losses) > 0:
+    if val_losses:
         logger.info(f"  - 最佳验证损失: {min(val_losses):.6f}")
+    logger.info(f"  - 测试损失 (MSE): {test_loss:.6f}")
+    logger.info(f"  - 测试RMSE: {rmse:.6f}")
+    logger.info(f"  - 测试MAE: {mae:.6f}")
+    
+    # 检查r2是否为tensor类型
+    if torch.is_tensor(r2):
+        logger.info(f"  - 测试R²: {r2.item():.6f}")
     else:
-        logger.info("  - 最佳验证损失: 未记录")
+        logger.info(f"  - 测试R²: {r2:.6f}")
+    
+    logger.info(f"  - 测试阈值准确率 (0.4, 所有维度): {threshold_accs.get('all_0.4', 0):.4f}")
+    logger.info(f"  - 测试阈值准确率 (0.4, 平均): {threshold_accs.get('mean_0.4', 0):.4f}")
+    logger.info(f"  - 测试阈值准确率 (0.3, 所有维度): {threshold_accs.get('all_0.3', 0):.4f}")
+    logger.info(f"  - 测试阈值准确率 (0.3, 平均): {threshold_accs.get('mean_0.3', 0):.4f}")
+    logger.info(f"  - 测试阈值准确率 (0.2, 所有维度): {threshold_accs.get('all_0.2', 0):.4f}")
+    logger.info(f"  - 测试阈值准确率 (0.2, 平均): {threshold_accs.get('mean_0.2', 0):.4f}")
+    logger.info(f"  - 测试阈值准确率 (0.1, 所有维度): {threshold_accs.get('all_0.1', 0):.4f}")
+    logger.info(f"  - 测试阈值准确率 (0.1, 平均): {threshold_accs.get('mean_0.1', 0):.4f}")
+    logger.info(f"  - 测试阈值准确率 (0.05, 所有维度): {threshold_accs.get('all_0.05', 0):.4f}")
+    logger.info(f"  - 测试阈值准确率 (0.05, 平均): {threshold_accs.get('mean_0.05', 0):.4f}")
+    
+    # 检查原始尺度指标是否为tensor类型
+    if torch.is_tensor(orig_mse):
+        logger.info(f"  - 原始尺度MSE: {orig_mse.item():.6f}")
+    else:
+        logger.info(f"  - 原始尺度MSE: {orig_mse:.6f}")
         
-    logger.info(f"  - 测试损失 (MSE): {test_loss.item():.6f}")
-    logger.info(f"  - 测试RMSE: {rmse.item():.6f}")
-    logger.info(f"  - 测试MAE: {mae.item():.6f}")
-    logger.info(f"  - 测试R²: {r2.item():.6f}")
-    logger.info(f"  - 测试阈值准确率 (0.4, 所有维度): {threshold_accs['all_0.4']:.4f}")
-    logger.info(f"  - 测试阈值准确率 (0.4, 平均): {threshold_accs['mean_0.4']:.4f}")
-    logger.info(f"  - 测试阈值准确率 (0.3, 所有维度): {threshold_accs['all_0.3']:.4f}")
-    logger.info(f"  - 测试阈值准确率 (0.3, 平均): {threshold_accs['mean_0.3']:.4f}")
-    logger.info(f"  - 测试阈값准确率 (0.2, 所有维度): {threshold_accs['all_0.2']:.4f}")
-    logger.info(f"  - 测试阈값准确率 (0.2, 平均): {threshold_accs['mean_0.2']:.4f}")
-    logger.info(f"  - 测试阈값准确率 (0.1, 所有维度): {threshold_accs['all_0.1']:.4f}")
-    logger.info(f"  - 测试阈값准确率 (0.1, 平均): {threshold_accs['mean_0.1']:.4f}")
-    logger.info(f"  - 测试阈값准确率 (0.05, 所有维度): {threshold_accs['all_0.05']:.4f}")
-    logger.info(f"  - 测试阈값准确率 (0.05, 平均): {threshold_accs['mean_0.05']:.4f}")
-    logger.info(f"  - 原始尺度MSE: {orig_mse.item():.6f}")
-    logger.info(f"  - 原始尺度RMSE: {orig_rmse.item():.6f}")
-    logger.info(f"  - 原始尺度MAE: {orig_mae.item():.6f}")
+    if torch.is_tensor(orig_rmse):
+        logger.info(f"  - 原始尺度RMSE: {orig_rmse.item():.6f}")
+    else:
+        logger.info(f"  - 原始尺度RMSE: {orig_rmse:.6f}")
+        
+    if torch.is_tensor(orig_mae):
+        logger.info(f"  - 原始尺度MAE: {orig_mae.item():.6f}")
+    else:
+        logger.info(f"  - 原始尺度MAE: {orig_mae:.6f}")
+    
     logger.info(f"  - 模型已保存到: {model_path}")
 
 
@@ -439,7 +465,99 @@ def log_original_scale_metrics(logger, orig_mse, orig_rmse, orig_mae):
         orig_rmse: 原始尺度RMSE
         orig_mae: 原始尺度MAE
     """
-    logger.info(f"原始尺度评估指标:")
-    logger.info(f"  - MSE: {orig_mse.item():.6f}")
-    logger.info(f"  - RMSE: {orig_rmse.item():.6f}")
-    logger.info(f"  - MAE: {orig_mae.item():.6f}")
+    # 检查各项指标是否为tensor类型
+    mse_value = orig_mse.item() if torch.is_tensor(orig_mse) else orig_mse
+    rmse_value = orig_rmse.item() if torch.is_tensor(orig_rmse) else orig_rmse
+    mae_value = orig_mae.item() if torch.is_tensor(orig_mae) else orig_mae
+    
+    logger.info("原始尺度评估指标:")
+    logger.info(f"  - MSE: {mse_value:.6f}")
+    logger.info(f"  - RMSE: {rmse_value:.6f}")
+    logger.info(f"  - MAE: {mae_value:.6f}")
+
+
+def display_sample_data(data_file, data, target_features, train_idx, val_idx, property_names, num_samples=3):
+    """
+    以表格形式显示部分训练和验证数据样本用于查验
+    
+    Args:
+        data_file: 数据文件路径
+        data: 图数据
+        target_features: 目标特征
+        train_idx: 训练集索引
+        val_idx: 验证集索引
+        property_names: 属性名称列表
+        num_samples: 显示样本数量
+    """
+    import pandas as pd
+    
+    # 读取原始数据以获取SMILES信息
+    df = pd.read_csv(data_file)
+    
+    print(f"\n{'='*120}")
+    print("数据样本查验")
+    print(f"{'='*120}")
+    
+    # 显示训练样本
+    print(f"\n训练样本 (显示前 {num_samples} 个):")
+    print("-" * 120)
+    
+    # 表头
+    header = f"{'索引':<8} {'起始分子':<25} {'目标分子':<25} {'原子类型':<10} {'操作类型':<12}"
+    # 添加前5个属性列的表头
+    for prop_name in property_names[:5]:
+        short_name = prop_name[:10] if len(prop_name) > 10 else prop_name
+        header += f"{short_name:<12}"
+    if len(property_names) > 5:
+        header += f"{'...':<10}"
+    print(header)
+    print("-" * 120)
+    
+    # 数据行
+    for i in range(min(num_samples, len(train_idx))):
+        idx = train_idx[i]
+        if idx < len(df):
+            row = df.iloc[idx]
+            # 基本信息
+            data_row = f"{idx:<8} {row['smiles_from']:<25} {row['smiles_to']:<25} {row['to_atom_symbol']:<10} {row['operation_type']:<12}"
+            # 属性变化值（前5个）
+            for j, prop_name in enumerate(property_names[:5]):
+                if j < target_features.shape[1]:
+                    value = target_features[idx][j].item() if isinstance(target_features[idx][j], torch.Tensor) else target_features[idx][j]
+                    data_row += f"{value:<12.4f}"
+            if len(property_names) > 5:
+                data_row += f"{'...':<10}"
+            print(data_row)
+
+    # 显示验证样本
+    print(f"\n验证样本 (显示前 {num_samples} 个):")
+    print("-" * 120)
+    
+    # 表头
+    header = f"{'索引':<8} {'起始分子':<25} {'目标分子':<25} {'原子类型':<10} {'操作类型':<12}"
+    # 添加前5个属性列的表头
+    for prop_name in property_names[:5]:
+        short_name = prop_name[:10] if len(prop_name) > 10 else prop_name
+        header += f"{short_name:<12}"
+    if len(property_names) > 5:
+        header += f"{'...':<10}"
+    print(header)
+    print("-" * 120)
+    
+    # 数据行
+    for i in range(min(num_samples, len(val_idx))):
+        idx = val_idx[i]
+        if idx < len(df):
+            row = df.iloc[idx]
+            # 基本信息
+            data_row = f"{idx:<8} {row['smiles_from']:<25} {row['smiles_to']:<25} {row['to_atom_symbol']:<10} {row['operation_type']:<12}"
+            # 属性变化值（前5个）
+            for j, prop_name in enumerate(property_names[:5]):
+                if j < target_features.shape[1]:
+                    value = target_features[idx][j].item() if isinstance(target_features[idx][j], torch.Tensor) else target_features[idx][j]
+                    data_row += f"{value:<12.4f}"
+            if len(property_names) > 5:
+                data_row += f"{'...':<10}"
+            print(data_row)
+    
+    print(f"{'='*120}\n")

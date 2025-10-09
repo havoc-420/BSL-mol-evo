@@ -64,6 +64,8 @@ class MoleculeEvolutionNNConvPredictor(BaseGNNModel):
             nn.ReLU()
         )
         
+        self.output_dim = output_dim  # 显式保存输出维度
+        
         # 属性变化预测头
         self.property_predictor = nn.Sequential(
             nn.Linear(hidden_dim * 2 + hidden_dim, hidden_dim * 2),  # 拼接源节点、目标节点和边特征
@@ -71,7 +73,7 @@ class MoleculeEvolutionNNConvPredictor(BaseGNNModel):
             nn.Dropout(0.2),
             nn.Linear(hidden_dim * 2, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, output_dim)
+            nn.Linear(hidden_dim, self.output_dim)  # 使用实例变量
         )
         
         self.num_layers = num_layers

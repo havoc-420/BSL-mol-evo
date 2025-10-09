@@ -302,8 +302,6 @@ def build_molecule_graph_with_fingerprints(csv_file: str, max_molecules: int = N
     if max_molecules:
         df = df.head(max_molecules)
 
-    print(df)
-
     # 计算属性统计信息用于标准化
     property_names = ['A_change', 'B_change', 'C_change', 'mu_change', 'alpha_change',
                       'homo_change', 'lumo_change', 'gap_change', 'r2_change', 'zpve_change',
