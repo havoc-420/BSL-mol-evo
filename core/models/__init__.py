@@ -8,6 +8,9 @@ from .base import BaseModel, BaseGNNModel
 from .gnn import MoleculeGNN, EnhancedMoleculeGNN, MoleculeGNNWithFingerprint
 from .simple import MoleculeEvolutionPredictorWithFingerprint, MoleculeEvolutionTransformer
 from .nnconv import MoleculeEvolutionNNConvPredictor
+from .rgatconv import MoleculeEvolutionGATv2Predictor
+from .rgcnconv import MoleculeEvolutionRGCNPredictor
+from .transformerconv import MoleculeEvolutionTransformerPredictor
 
 __all__ = [
     'BaseModel',
@@ -17,5 +20,8 @@ __all__ = [
     'MoleculeGNNWithFingerprint',
     'MoleculeEvolutionPredictorWithFingerprint',
     'MoleculeEvolutionTransformer',
-    'MoleculeEvolutionNNConvPredictor'
+    'MoleculeEvolutionNNConvPredictor',
+    'MoleculeEvolutionGATv2Predictor',
+    'MoleculeEvolutionRGCNPredictor',
+    'MoleculeEvolutionTransformerPredictor'
 ]
