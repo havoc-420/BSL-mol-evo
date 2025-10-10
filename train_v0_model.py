@@ -41,7 +41,6 @@ try:
     from mol_evo.core.utils.molecule import MoleculeCache
     from mol_evo.core.data.processing import prepare_edge_features
     from mol_evo.utils.training_utils import (
-        setup_logger, 
         split_data_indices, 
         save_training_data_as_json, 
         plot_training_trends,
@@ -171,7 +170,7 @@ def build_molecule_evolution_dataset_v0(csv_file: str, max_pairs: int = None,
     else:
         print(message)
     
-    return from_data_list, to_data_list, edge_attrs, target_features
+    return from_data_list, to_data_list, edge_attrs, target_features, property_stats
 
 
 def prepare_single_property_targets(csv_file: str, property_name: str, 
@@ -253,9 +252,21 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
     
     # 构建图数据 - 使用新的数据处理方法
     logger.info(f"正在构建图数据: {data_file}")  # 默认输出到控制台和文件
-    from_data_list, to_data_list, edge_attrs, target_features = build_molecule_evolution_dataset_v0(
+    from_data_list, to_data_list, edge_attrs, target_features, property_stats = build_molecule_evolution_dataset_v0(
         data_file, max_pairs, TARGET_PROPERTY, logger)
     
+    # 输出训练集的头部信息（前几个样本示例）
+    logger.info("训练集样本示例 (头部数据):")
+    num_examples = min(3, len(from_data_list))  # 显示前3个样本或全部样本（如果少于3个）
+    for i in range(num_examples):
+        logger.info(f"  样本 {i+1}:")
+        logger.info(f"    起始分子节点数: {from_data_list[i].x.size(0)}")
+        logger.info(f"    起始分子边数: {from_data_list[i].edge_index.size(1)}")
+        logger.info(f"    目标分子节点数: {to_data_list[i].x.size(0)}")
+        logger.info(f"    目标分子边数: {to_data_list[i].edge_index.size(1)}")
+        logger.info(f"    边特征: {edge_attrs[i].tolist()}")
+        logger.info(f"    目标属性值: {target_features[i].item()}")
+
     # 直接记录数据构建信息，避免创建不必要的dummy_data对象
     logger.info("数据构建完成:")  # 默认输出到控制台和文件
     logger.info(f"  - 样本数: {len(from_data_list)}")  # 默认输出到控制台和文件
@@ -343,6 +354,19 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         
         optimizer.step()
+        
+        # 每100轮保存一次checkpoint
+        if (epoch + 1) % 100 == 0:
+            checkpoint_path = os.path.join(model_dir, f"checkpoint_epoch_{epoch+1}.pth")
+            torch.save({
+                'epoch': epoch + 1,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'train_loss': train_loss.item(),
+                'best_val_loss': best_val_loss,
+                'patience_counter': patience_counter,
+            }, checkpoint_path)
+            logger.info(f"已保存checkpoint: {checkpoint_path}")
         
         # 记录训练损失
         train_losses.append(train_loss.item())
@@ -507,7 +531,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
             "seed": seed,
             "target_property": TARGET_PROPERTY
         }
-        save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir, model_params, training_params)
+        save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir, model_params, training_params, property_stats)
         
         # 生成训练趋势图
         plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir)
