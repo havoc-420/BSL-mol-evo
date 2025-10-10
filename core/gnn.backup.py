@@ -14,13 +14,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import NNConv, GATConv, global_mean_pool, BatchNorm
 from torch_geometric.data import Data
-from torch_geometric.loader import DataLoader
 import pandas as pd
 import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit import DataStructs
-from typing import List, Tuple, Dict, Optional, Union
+from typing import List, Tuple, Dict
 
 
 class MoleculeGNN(nn.Module):

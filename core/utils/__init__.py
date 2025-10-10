@@ -5,7 +5,9 @@
 """
 
 from .training import train_gnn_model
+from .molecule import smile_to_graph_xyz
 
 __all__ = [
-    'train_gnn_model'
+    'train_gnn_model',
+    'smile_to_graph_xyz'
 ]

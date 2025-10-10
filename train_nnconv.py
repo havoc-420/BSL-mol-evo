@@ -10,14 +10,9 @@ import argparse
 import torch
 import pandas as pd
 import numpy as np
-from torch_geometric.data import Data
-from torch_geometric.loader import DataLoader
 import torch.nn as nn
-import random
 from datetime import datetime
-import json
 import matplotlib.pyplot as plt
-import logging
 
 """ BASE SETTINGS """
 
@@ -47,25 +42,28 @@ project_root = os.path.join(script_dir, '..')
 sys.path.insert(0, project_root)
 
 # 导入自定义模块
-from mol_evo.core.models.nnconv import MoleculeEvolutionNNConvPredictor
-from mol_evo.core.data.processing import build_molecule_graph_with_fingerprints, prepare_property_change_targets
-from mol_evo.core.utils.training import train_gnn_model
-from mol_evo.utils.training_utils import (
-    setup_logger, 
-    inverse_standardize, 
-    split_data_indices, 
-    save_training_data_as_json, 
-    plot_training_trends,
-    print_table_accuracy,
-    log_training_completion,
-    log_training_start,
-    log_data_construction,
-    log_dataset_split,
-    log_model_creation,
-    log_training_start_message,
-    log_original_scale_metrics,
-    display_sample_data
-)
+try: 
+    from mol_evo.core.models.v1.nnconv import MoleculeEvolutionNNConvPredictor
+    from mol_evo.core.data.processing import build_molecule_graph_with_fingerprints
+    from mol_evo.core.utils.training import train_gnn_model
+    from mol_evo.utils.training_utils import (
+        setup_logger, 
+        inverse_standardize, 
+        split_data_indices, 
+        save_training_data_as_json, 
+        plot_training_trends,
+        print_table_accuracy,
+        log_training_completion,
+        log_training_start,
+        log_data_construction,
+        log_dataset_split,
+        log_model_creation,
+        log_training_start_message,
+        log_original_scale_metrics,
+        display_sample_data
+    )
+except ImportError:
+    print("请确保已安装所需的依赖项。")
 
 
 def plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir):
@@ -326,7 +324,7 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100,
     # INFO 创建模型
     model = MoleculeEvolutionNNConvPredictor(
         node_feature_dim=model_params["node_feature_dim"],  # Morgan指纹维度
-        edge_feature_dim=model_params["edge_feature_dim"],    # 边特征维度（5原子类型 + 6操作类型）
+        edge_feature_dim=model_params["edge_feature_dim"],  # 边特征维度（5原子类型 + 6操作类型）
         hidden_dim=model_params["hidden_dim"],
         output_dim=model_params["output_dim"],          # 属性变化维度
         num_layers=model_params["num_layers"]

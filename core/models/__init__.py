@@ -4,13 +4,17 @@
 模型模块初始化文件
 """
 
-from .base import BaseModel, BaseGNNModel
-from .gnn import MoleculeGNN, EnhancedMoleculeGNN, MoleculeGNNWithFingerprint
-from .simple import MoleculeEvolutionPredictorWithFingerprint, MoleculeEvolutionTransformer
-from .nnconv import MoleculeEvolutionNNConvPredictor
-from .rgatconv import MoleculeEvolutionGATv2Predictor
-from .rgcnconv import MoleculeEvolutionRGCNPredictor
-from .transformerconv import MoleculeEvolutionTransformerPredictor
+# 从 v1 目录导入以保持向后兼容性
+from .v1.base import BaseModel, BaseGNNModel
+from .v1.gnn import MoleculeGNN, EnhancedMoleculeGNN, MoleculeGNNWithFingerprint
+from .v1.simple import MoleculeEvolutionPredictorWithFingerprint, MoleculeEvolutionTransformer
+from .v1.nnconv import MoleculeEvolutionNNConvPredictor
+from .v1.rgatconv import MoleculeEvolutionGATv2Predictor
+from .v1.rgcnconv import MoleculeEvolutionRGCNPredictor
+from .v1.transformerconv import MoleculeEvolutionTransformerPredictor
+
+# 从 v0 目录导入新实现的GCN模型
+from .v0 import MoleculeEvolutionGCNPredictor
 
 __all__ = [
     'BaseModel',
@@ -23,5 +27,6 @@ __all__ = [
     'MoleculeEvolutionNNConvPredictor',
     'MoleculeEvolutionGATv2Predictor',
     'MoleculeEvolutionRGCNPredictor',
-    'MoleculeEvolutionTransformerPredictor'
+    'MoleculeEvolutionTransformerPredictor',
+    'MoleculeEvolutionGCNPredictor'
 ]

@@ -7,7 +7,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 from torch_geometric.data import Data
 
 
