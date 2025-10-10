@@ -36,7 +36,7 @@ def setup_logger(model_dir, logger_name='training', console_output=True):
         file_handler.setLevel(logging.INFO)
         
         # 创建格式器并添加到处理器
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s')
         file_handler.setFormatter(formatter)
         
         # 添加文件处理器到logger
