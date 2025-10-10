@@ -41,7 +41,7 @@ def smiles_to_fingerprint(smiles: str, radius: int = 2, n_bits: int = 2048) -> n
             # 如果新API不可用，回退到旧API
             fingerprint = AllChem.GetMorganFingerprintAsBitVect(mol, radius, nBits=n_bits)
             return np.array(fingerprint)
-    except:
+    except Exception:
         return np.zeros(n_bits)
 
 
@@ -115,7 +115,7 @@ def calculate_molecular_similarity(smiles1: str, smiles2: str) -> float:
             fp2 = AllChem.GetMorganFingerprintAsBitVect(mol2, 2, nBits=1024)
 
         return DataStructs.TanimotoSimilarity(fp1, fp2)
-    except:
+    except Exception:
         return 0.0
 
 
@@ -137,6 +137,8 @@ def prepare_edge_features(row: pd.Series, property_stats: Dict[str, Tuple[float,
     
     # 操作类型特征（6维）
     op_features = operation_type_to_onehot(row['operation_type'] if 'operation_type' in row else 'unknown')
+
+    # TODO 还有一个 op-position 这个特征可以加上
     
     # 属性变化特征（15维，可选）
     property_changes = []
@@ -352,6 +354,74 @@ def build_molecule_graph_with_fingerprints(csv_file: str, max_molecules: int = N
     return data, smiles_to_idx, property_stats
 
 
+def build_molecule_evolution_dataset(csv_file: str, max_pairs: int = None, target_property: str = 'mu_change') -> Tuple[List[Data], List[Data], torch.Tensor, torch.Tensor]:
+    """
+    构建分子进化数据集，用于v0模型训练
+    
+    Args:
+        csv_file: CSV文件路径
+        max_pairs: 最大对数（用于调试）
+        target_property: 目标属性名称
+        
+    Returns:
+        起始分子数据列表、目标分子数据列表、边特征张量和目标属性张量
+    """
+    # 读取数据
+    df = pd.read_csv(csv_file)
+    
+    if max_pairs:
+        df = df.head(max_pairs)
+    
+    # 计算目标属性的统计信息
+    if target_property in df.columns:
+        mean = df[target_property].mean()
+        std = df[target_property].std()
+        property_stats = {target_property: (mean, std)}
+    else:
+        property_stats = {target_property: (0.0, 1.0)}
+    
+    # 准备目标属性值
+    target_features = []
+    for _, row in df.iterrows():
+        if target_property in row and not pd.isna(row[target_property]):
+            value = row[target_property]
+            # 标准化目标属性值
+            if target_property in property_stats:
+                mean, std = property_stats[target_property]
+                if std > 0:
+                    value = (value - mean) / std
+            target_features.append([value])
+        else:
+            target_features.append([0.0])
+    
+    target_features = torch.FloatTensor(np.array(target_features))
+    
+    # 构建分子数据列表
+    from_data_list = []
+    to_data_list = []
+    edge_attr_list = []
+    
+    for _, row in df.iterrows():
+        # 生成起始分子和目标分子的指纹
+        from_fp = smiles_to_fingerprint(row['smiles_from'])
+        to_fp = smiles_to_fingerprint(row['smiles_to'])
+        
+        # 创建Data对象
+        from_data = Data(x=torch.FloatTensor(from_fp).unsqueeze(0))
+        to_data = Data(x=torch.FloatTensor(to_fp).unsqueeze(0))
+        
+        from_data_list.append(from_data)
+        to_data_list.append(to_data)
+        
+        # 准备边特征
+        edge_feat = prepare_edge_features(row, property_stats, include_property_changes=False)
+        edge_attr_list.append(edge_feat)
+    
+    edge_attrs = torch.FloatTensor(np.array(edge_attr_list))
+    
+    return from_data_list, to_data_list, edge_attrs, target_features
+
+
 def prepare_property_change_targets(csv_file: str, property_stats: Dict[str, Tuple[float, float]], 
                                   max_pairs: int = None) -> torch.Tensor:
     """
@@ -398,110 +468,3 @@ def prepare_property_change_targets(csv_file: str, property_stats: Dict[str, Tup
     target_features = torch.FloatTensor(np.array(target_features))
     
     return target_features
-
-
-def prepare_evolution_data(csv_file: str, max_pairs: int = None) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Dict[str, Tuple[float, float]]]:
-    """
-    准备分子进化数据
-    
-    Args:
-        csv_file: CSV文件路径
-        max_pairs: 最大对数（用于调试）
-        
-    Returns:
-        起始分子特征、边特征、目标分子特征和属性统计信息
-    """
-    # 读取数据
-    df = pd.read_csv(csv_file)
-    
-    if max_pairs:
-        df = df.head(max_pairs)
-    
-    # 计算属性统计信息用于标准化
-    property_names = ['A_change', 'B_change', 'C_change', 'mu_change', 'alpha_change',
-                      'homo_change', 'lumo_change', 'gap_change', 'r2_change', 'zpve_change',
-                      'U0_change', 'U_change', 'H_change', 'G_change', 'Cv_change']
-    
-    property_stats = {}
-    for prop in property_names:
-        if prop in df.columns:
-            mean = df[prop].mean()
-            std = df[prop].std()
-            property_stats[prop] = (mean, std)
-    
-    # 准备特征
-    source_features = []
-    edge_features = []
-    target_features = []
-    
-    for _, row in df.iterrows():
-        # 起始分子特征
-        source_fp = smiles_to_fingerprint(row['smiles_from'])
-        source_features.append(source_fp)
-        
-        # 边特征
-        edge_feat = prepare_edge_features(row, property_stats, include_property_changes=False)
-        edge_features.append(edge_feat)
-        
-        # 目标分子特征
-        target_fp = smiles_to_fingerprint(row['smiles_to'])
-        target_features.append(target_fp)
-    
-    source_features = torch.FloatTensor(np.array(source_features))
-    edge_features = torch.FloatTensor(np.array(edge_features))
-    target_features = torch.FloatTensor(np.array(target_features))
-    
-    return source_features, edge_features, target_features, property_stats
-
-
-def split_data_by_molecules(df: pd.DataFrame, test_size: float = 0.2, val_size: float = 0.1) -> Tuple[List[int], List[int], List[int]]:
-    """
-    按分子分割数据，避免数据泄露
-
-    Args:
-        df: 数据DataFrame
-        test_size: 测试集比例
-        val_size: 验证集比例
-
-    Returns:
-        训练集、验证集、测试集索引
-    """
-    # 获取所有唯一的SMILES分子
-    all_smiles = set(df['smiles_from'].tolist() + df['smiles_to'].tolist())
-    all_smiles = list(all_smiles)
-
-    # 随机打乱分子
-    np.random.shuffle(all_smiles)
-
-    # 计算分割点
-    n_total = len(all_smiles)
-    n_test = int(n_total * test_size)
-    n_val = int(n_total * val_size)
-    n_train = n_total - n_test - n_val
-
-    # 分割分子
-    train_molecules = set(all_smiles[:n_train])
-    val_molecules = set(all_smiles[n_train:n_train + n_val])
-    test_molecules = set(all_smiles[n_train + n_val:])
-
-    # 根据分子分配数据索引
-    train_idx, val_idx, test_idx = [], [], []
-
-    for idx, row in df.iterrows():
-        from_smiles = row['smiles_from']
-        to_smiles = row['smiles_to']
-
-        # 如果起始分子和目标分子都在训练集，则分配到训练集
-        if from_smiles in train_molecules and to_smiles in train_molecules:
-            train_idx.append(idx)
-        # 如果起始分子和目标分子都在验证集，则分配到验证集
-        elif from_smiles in val_molecules and to_smiles in val_molecules:
-            val_idx.append(idx)
-        # 如果起始分子和目标分子都在测试集，则分配到测试集
-        elif from_smiles in test_molecules and to_smiles in test_molecules:
-            test_idx.append(idx)
-        # 否则分配到训练集（避免数据泄露）
-        else:
-            train_idx.append(idx)
-
-    return train_idx, val_idx, test_idx

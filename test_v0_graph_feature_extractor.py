@@ -55,7 +55,7 @@ def main():
     print(f"模型参数数量: {sum(p.numel() for p in model.parameters())}")
     
     # 创建PyG Data对象，包含edge_attr
-    graph_data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
+    graph_data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr, pos=pos)
     
     print("\n测试数据:")
     print(f"  节点数: {graph_data.x.size(0)}")

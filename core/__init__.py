@@ -27,8 +27,8 @@ __all__ = [
     'load_qm9_properties',
     'build_molecule_graph_with_properties',
     'build_molecule_graph_with_fingerprints',
-    'prepare_evolution_data',
-    'split_data_by_molecules',
+    'build_molecule_evolution_dataset',
+    
     
     # Training utilities
     'train_model_enhanced',

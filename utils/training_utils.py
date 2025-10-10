@@ -315,6 +315,46 @@ def print_table_accuracy(accuracies, thresholds, property_names, logger=None):
             logger.info(row)
 
 
+def log_threshold_accuracies(logger, threshold_accs):
+    """
+    记录阈值准确率信息
+    
+    Args:
+        logger: 日志记录器
+        threshold_accs: 阈值准确率字典
+    """
+    # 检查字典键的类型以确定数据结构
+    if not threshold_accs:
+        return
+    
+    # 获取第一个键来判断数据结构类型
+    first_key = next(iter(threshold_accs))
+    
+    # 如果键是字符串类型（如 'all_0.4', 'mean_0.3'）
+    if isinstance(first_key, str):
+        # 通过遍历字典的方式处理所有阈值准确率，提高通用性
+        for key, value in threshold_accs.items():
+            # 解析键名以获取阈值和类型信息
+            if key.startswith('all_'):
+                threshold = key[4:]  # 去掉'all_'前缀
+                display_name = '所有维度'
+            elif key.startswith('mean_'):
+                threshold = key[5:]  # 去掉'mean_'前缀
+                display_name = '平均'
+            else:
+                # 对于不符合命名规范的键，直接使用键名
+                logger.info(f"  - 测试阈值准确率 ({key}): {value:.4f}")
+                continue
+                
+            logger.info(f"  - 测试阈值准确率 ({threshold}, {display_name}): {value:.4f}")
+    
+    # 如果键是数值类型（如 0.4, 0.3），这是v0模型的数据结构
+    elif isinstance(first_key, (int, float)):
+        # 直接遍历键值对进行记录
+        for threshold, accuracy in threshold_accs.items():
+            logger.info(f"  - 测试阈值准确率 ({threshold}): {accuracy:.4f}")
+
+
 def log_training_completion(logger, train_losses, val_losses, test_loss, rmse, mae, r2,
                            threshold_accs, orig_mse, orig_rmse, orig_mae, model_path):
     """
@@ -348,32 +388,25 @@ def log_training_completion(logger, train_losses, val_losses, test_loss, rmse, m
     else:
         logger.info(f"  - 测试R²: {r2:.6f}")
     
-    logger.info(f"  - 测试阈值准确率 (0.4, 所有维度): {threshold_accs.get('all_0.4', 0):.4f}")
-    logger.info(f"  - 测试阈值准确率 (0.4, 平均): {threshold_accs.get('mean_0.4', 0):.4f}")
-    logger.info(f"  - 测试阈值准确率 (0.3, 所有维度): {threshold_accs.get('all_0.3', 0):.4f}")
-    logger.info(f"  - 测试阈值准确率 (0.3, 平均): {threshold_accs.get('mean_0.3', 0):.4f}")
-    logger.info(f"  - 测试阈值准确率 (0.2, 所有维度): {threshold_accs.get('all_0.2', 0):.4f}")
-    logger.info(f"  - 测试阈值准确率 (0.2, 平均): {threshold_accs.get('mean_0.2', 0):.4f}")
-    logger.info(f"  - 测试阈值准确率 (0.1, 所有维度): {threshold_accs.get('all_0.1', 0):.4f}")
-    logger.info(f"  - 测试阈值准确率 (0.1, 平均): {threshold_accs.get('mean_0.1', 0):.4f}")
-    logger.info(f"  - 测试阈值准确率 (0.05, 所有维度): {threshold_accs.get('all_0.05', 0):.4f}")
-    logger.info(f"  - 测试阈值准确率 (0.05, 平均): {threshold_accs.get('mean_0.05', 0):.4f}")
+    # 记录阈值准确率
+    log_threshold_accuracies(logger, threshold_accs)
     
-    # 检查原始尺度指标是否为tensor类型
-    if torch.is_tensor(orig_mse):
-        logger.info(f"  - 原始尺度MSE: {orig_mse.item():.6f}")
-    else:
-        logger.info(f"  - 原始尺度MSE: {orig_mse:.6f}")
-        
-    if torch.is_tensor(orig_rmse):
-        logger.info(f"  - 原始尺度RMSE: {orig_rmse.item():.6f}")
-    else:
-        logger.info(f"  - 原始尺度RMSE: {orig_rmse:.6f}")
-        
-    if torch.is_tensor(orig_mae):
-        logger.info(f"  - 原始尺度MAE: {orig_mae.item():.6f}")
-    else:
-        logger.info(f"  - 原始尺度MAE: {orig_mae:.6f}")
+    # 检查原始尺度指标是否为tensor类型或None
+    if orig_mse is not None:
+        if torch.is_tensor(orig_mse):
+            logger.info(f"  - 原始尺度MSE: {orig_mse.item():.6f}")
+        else:
+            logger.info(f"  - 原始尺度MSE: {orig_mse:.6f}")
+    if orig_rmse is not None:
+        if torch.is_tensor(orig_rmse):
+            logger.info(f"  - 原始尺度RMSE: {orig_rmse.item():.6f}")
+        else:
+            logger.info(f"  - 原始尺度RMSE: {orig_rmse:.6f}")
+    if orig_mae is not None:
+        if torch.is_tensor(orig_mae):
+            logger.info(f"  - 原始尺度MAE: {orig_mae.item():.6f}")
+        else:
+            logger.info(f"  - 原始尺度MAE: {orig_mae:.6f}")
     
     logger.info(f"  - 模型已保存到: {model_path}")
 
@@ -407,7 +440,7 @@ def log_data_construction(logger, data_file, data, target_features):
         target_features: 目标特征
     """
     logger.info(f"正在构建图数据: {data_file}")
-    logger.info(f"数据构建完成:")
+    logger.info("数据构建完成:")
     logger.info(f"  - 节点数: {data.num_nodes}")
     logger.info(f"  - 边数: {data.num_edges}")
     logger.info(f"  - 节点特征维度: {data.x.shape[1]}")

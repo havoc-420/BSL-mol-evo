@@ -104,9 +104,9 @@ class MoleculeEvolutionGCNPredictor(nn.Module):
         
         # 起始分子和目标分子特征提取器
         self.from_molecule_extractor = MoleculeFeatureExtractor(
-            node_feature_dim, hidden_dim, hidden_dim, num_layers)
+            node_feature_dim, hidden_dim, hidden_dim)
         self.to_molecule_extractor = MoleculeFeatureExtractor(
-            node_feature_dim, hidden_dim, hidden_dim, num_layers)
+            node_feature_dim, hidden_dim, hidden_dim)
         
         # 边特征编码器
         self.edge_encoder = nn.Sequential(
