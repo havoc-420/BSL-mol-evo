@@ -11,16 +11,16 @@ import torch
 import json
 import matplotlib.pyplot as plt
 import logging
-from typing import Dict, Tuple
 
 
-def setup_logger(model_dir, logger_name='training'):
+def setup_logger(model_dir, logger_name='training', console_output=True):
     """
     设置日志记录器
     
     Args:
         model_dir: 模型目录路径
         logger_name: 日志记录器名称
+        console_output: 是否在控制台输出日志
         
     Returns:
         配置好的logger实例
@@ -35,18 +35,19 @@ def setup_logger(model_dir, logger_name='training'):
         file_handler = logging.FileHandler(log_file, encoding='utf-8')
         file_handler.setLevel(logging.INFO)
         
-        # 创建控制台处理器
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.INFO)
-        
         # 创建格式器并添加到处理器
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         file_handler.setFormatter(formatter)
-        console_handler.setFormatter(formatter)
         
-        # 添加处理器到logger
+        # 添加文件处理器到logger
         logger.addHandler(file_handler)
-        logger.addHandler(console_handler)
+        
+        # 根据参数决定是否添加控制台处理器
+        if console_output:
+            console_handler = logging.StreamHandler()
+            console_handler.setLevel(logging.INFO)
+            console_handler.setFormatter(formatter)
+            logger.addHandler(console_handler)
     
     return logger
 
@@ -112,7 +113,7 @@ def split_data_indices(total_count: int, train_ratio: float = 0.7,
     # 计算各数据集大小
     train_size = int(total_count * train_ratio)
     val_size = int(total_count * val_ratio)
-    test_size = total_count - train_size - val_size
+    # test_size = total_count - train_size - val_size
     
     # 创建索引列表并打乱
     indices = list(range(total_count))
@@ -459,7 +460,7 @@ def log_dataset_split(logger, data, train_idx, val_idx, test_idx):
         val_idx: 验证集索引
         test_idx: 测试集索引
     """
-    logger.info(f"数据集划分完成:")
+    logger.info("数据集划分完成:")
     logger.info(f"  - 训练集: {len(train_idx)} ({len(train_idx)/data.num_edges*100:.1f}%)")
     logger.info(f"  - 验证集: {len(val_idx)} ({len(val_idx)/data.num_edges*100:.1f}%)")
     logger.info(f"  - 测试集: {len(test_idx)} ({len(test_idx)/data.num_edges*100:.1f}%)")

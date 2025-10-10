@@ -14,6 +14,7 @@ import numpy as np
 from torch_geometric.data import Data
 import torch.nn as nn
 from datetime import datetime
+from tqdm import tqdm
 
 """ BASE SETTINGS """
 
@@ -37,7 +38,7 @@ sys.path.insert(0, project_root)
 # 导入自定义模块
 try:
     from mol_evo.core.models.v0.gcn import MoleculeEvolutionGCNPredictor
-    from mol_evo.core.utils.molecule import MoleculeCache, smile_to_graph_xyz
+    from mol_evo.core.utils.molecule import MoleculeCache
     from mol_evo.core.data.processing import prepare_edge_features
     from mol_evo.utils.training_utils import (
         setup_logger, 
@@ -49,6 +50,7 @@ try:
         log_model_creation,
         log_training_start_message
     )
+    from mol_evo.utils.logger_utils import DualLogger
 except ImportError as e:
     print(f"无法导入所需的模块: {e}")
     exit(1)
@@ -227,6 +229,7 @@ def create_model(model_params: dict):
     return model
 
 
+
 def train_model(data_file: str, max_pairs: int = None, epochs: int = 100, 
                 seed: int = 42):
     """
@@ -244,31 +247,31 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
     model_dir = os.path.join(project_root, 'mol_evo', 'model-data', 'v0', f"training_{timestamp}")
     os.makedirs(model_dir, exist_ok=True)
     
-    # 设置日志记录器
-    logger = setup_logger(model_dir)
+    # 创建自定义的DualLogger实例
+    logger = DualLogger(model_dir)
     log_training_start(logger, data_file, max_pairs, epochs)
     
     # 构建图数据 - 使用新的数据处理方法
-    logger.info(f"正在构建图数据: {data_file}")
+    logger.info(f"正在构建图数据: {data_file}")  # 默认输出到控制台和文件
     from_data_list, to_data_list, edge_attrs, target_features = build_molecule_evolution_dataset_v0(
         data_file, max_pairs, TARGET_PROPERTY, logger)
     
     # 直接记录数据构建信息，避免创建不必要的dummy_data对象
-    logger.info("数据构建完成:")
-    logger.info(f"  - 样本数: {len(from_data_list)}")
-    logger.info(f"  - 节点特征维度: {model_params['node_feature_dim']}")
-    logger.info(f"  - 边特征维度: {edge_attrs.shape[1] if len(edge_attrs.shape) > 1 else 1}")
-    logger.info(f"  - 目标属性变化维度: {target_features.shape[1] if len(target_features.shape) > 1 else 1}")
+    logger.info("数据构建完成:")  # 默认输出到控制台和文件
+    logger.info(f"  - 样本数: {len(from_data_list)}")  # 默认输出到控制台和文件
+    logger.info(f"  - 节点特征维度: {model_params['node_feature_dim']}")  # 默认输出到控制台和文件
+    logger.info(f"  - 边特征维度: {edge_attrs.shape[1] if len(edge_attrs.shape) > 1 else 1}")  # 默认输出到控制台和文件
+    logger.info(f"  - 目标属性变化维度: {target_features.shape[1] if len(target_features.shape) > 1 else 1}")  # 默认输出到控制台和文件
     
     # 划分数据集
     train_idx, val_idx, test_idx = split_data_indices(len(from_data_list), 0.8, 0.1, 0.1, seed)
     
     # 直接记录数据集划分信息
     total_samples = len(train_idx) + len(val_idx) + len(test_idx)
-    logger.info("数据集划分完成:")
-    logger.info(f"  - 训练集: {len(train_idx)} ({len(train_idx)/total_samples*100:.1f}%)")
-    logger.info(f"  - 验证集: {len(val_idx)} ({len(val_idx)/total_samples*100:.1f}%)")
-    logger.info(f"  - 测试集: {len(test_idx)} ({len(test_idx)/total_samples*100:.1f}%)")
+    logger.info("数据集划分完成:")  # 默认输出到控制台和文件
+    logger.info(f"  - 训练集: {len(train_idx)} ({len(train_idx)/total_samples*100:.1f}%)")  # 默认输出到控制台和文件
+    logger.info(f"  - 验证集: {len(val_idx)} ({len(val_idx)/total_samples*100:.1f}%)")  # 默认输出到控制台和文件
+    logger.info(f"  - 测试集: {len(test_idx)} ({len(test_idx)/total_samples*100:.1f}%)")  # 默认输出到控制台和文件
     
     # 创建模型
     model = create_model(model_params)
@@ -277,10 +280,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
     # 设置设备
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     message = f"使用设备: {device}"
-    if logger:
-        logger.info(message)
-    else:
-        print(message)
+    logger.info(message)  # 默认输出到控制台和文件
     
     # 将模型移到设备上
     model = model.to(device)
@@ -307,7 +307,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
     
     # 训练循环
     model.train()
-    for epoch in range(epochs):
+    for epoch in tqdm(range(epochs), desc="Training Epochs"):
         optimizer.zero_grad()
         
         # 前向传播
@@ -333,10 +333,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         # 检查是否有NaN或inf值
         if torch.isnan(train_loss) or torch.isinf(train_loss):
             message = f"警告: 在第 {epoch+1} 轮检测到NaN或inf损失值，停止训练"
-            if logger:
-                logger.info(message)
-            else:
-                print(message)
+            logger.info(message)  # 默认输出到控制台和文件
             break
         
         # 反向传播
@@ -372,10 +369,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                 # 检查验证损失是否有NaN或inf
                 if torch.isnan(val_loss) or torch.isinf(val_loss):
                     message = f"警告: 在第 {epoch+1} 轮验证时检测到NaN或inf损失值"
-                    if logger:
-                        logger.info(message)
-                    else:
-                        print(message)
+                    logger.info(message)  # 默认输出到控制台和文件
                 
                 # 更新学习率调度器
                 scheduler.step(val_loss)
@@ -419,10 +413,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                 
             if patience_counter >= patience_limit:
                 message = f"早停机制触发，在第 {epoch+1} 轮停止训练"
-                if logger:
-                    logger.info(message)
-                else:
-                    print(message)
+                logger.info(message)  # 默认输出到控制台和文件
                 # 恢复最佳模型状态
                 model.load_state_dict(best_model_state)
                 break
@@ -435,10 +426,10 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                 if len(val_r2s) > 0:
                     message += f", R²: {val_r2s[-1]:.4f}, MAE: {val_maes[-1]:.4f}"
             
-            if logger:
-                logger.info(message)
-            else:
-                print(message)
+            # 详细训练信息只记录到文件，不在控制台显示
+            logger.info(message, to_console=False)
+            # 控制台只显示基本进度信息
+            tqdm.write(message)
     
     log_training_start_message(logger, epochs)
 
@@ -542,7 +533,6 @@ def main():
         model, train_losses, val_losses = train_model(
             args.data_file, args.max_pairs, args.epochs, args.seed
         )
-        print("模型训练完成!")
     except Exception as e:
         print(f"训练过程中发生错误: {e}")
         raise
