@@ -16,25 +16,29 @@ flowchart TD
     %% 分子特征提取模块
     subgraph feature_extractor[分子特征提取模块]
         subgraph from_mol_extractor[起始分子特征提取器]
-            from_gcn1[GCN Layer 1]:::processStyle
-            from_gcn2[GCN Layer 2]:::processStyle
+            from_gcn1[GCN Layer 1<br/>node_feature_dim → 128]:::processStyle
+            from_gcn2[GCN Layer 2<br/>128 → 256]:::processStyle
+            from_gcn3[GCN Layer 3<br/>256 → 256]:::processStyle
+            from_pool[Pool Layer<br/>Mean & Max Pooling]:::processStyle
         end
         
         subgraph to_mol_extractor[目标分子特征提取器]
-            to_gcn1[GCN Layer 1]:::processStyle
-            to_gcn2[GCN Layer 2]:::processStyle
+            to_gcn1[GCN Layer 1<br/>node_feature_dim → 128]:::processStyle
+            to_gcn2[GCN Layer 2<br/>128 → 256]:::processStyle
+            to_gcn3[GCN Layer 3<br/>256 → 256]:::processStyle
+            to_pool[Pool Layer<br/>Mean & Max Pooling]:::processStyle
         end
     end
     
     %% 边特征处理模块
     subgraph edge_processing[边特征处理模块]
-        edge_encoder[Edge Encoder<br/>Linear Layers]:::processStyle
+        edge_encoder[Edge Encoder<br/>15 → 64 → 128 → 128]:::processStyle
     end
     
     %% 特征融合与预测模块
     subgraph fusion_prediction[特征融合与预测模块]
-        concat[特征拼接<br/>Concatenation]:::processStyle
-        predictor[Predictor<br/>Linear Layers]:::processStyle
+        concat[特征拼接<br/>512 + 512 + 128 = 1152]:::processStyle
+        predictor[Predictor<br/>1152 → 512 → 256 → 128 → output]:::processStyle
     end
     
     %% 输出
@@ -46,10 +50,15 @@ flowchart TD
     input3 --> edge_encoder
     
     from_gcn1 --> from_gcn2
-    to_gcn1 --> to_gcn2
+    from_gcn2 --> from_gcn3
+    from_gcn3 --> from_pool
     
-    from_gcn2 --> concat
-    to_gcn2 --> concat
+    to_gcn1 --> to_gcn2
+    to_gcn2 --> to_gcn3
+    to_gcn3 --> to_pool
+    
+    from_pool --> concat
+    to_pool --> concat
     edge_encoder --> concat
     
     concat --> predictor
@@ -72,14 +81,15 @@ flowchart TD
 
 2. **分子特征提取模块**：
    - 使用两个独立的GCN网络分别处理起始分子和目标分子
-   - 每个GCN网络包含两层GCN层
+   - 每个GCN网络包含三层GCN层（node_feature_dim → 128 → 256 → 256）
+   - 使用Mean和Max池化操作，输出512维特征向量
 
 3. **边特征处理模块**：
-   - 使用线性网络对操作信息进行编码
+   - 使用多层线性网络对操作信息进行编码（15 → 64 → 128 → 128）
 
 4. **特征融合与预测模块**：
-   - 将起始分子特征、目标分子特征和边特征进行拼接
-   - 通过线性层预测属性变化
+   - 将起始分子特征（512维）、目标分子特征（512维）和边特征（128维）进行拼接得到1152维向量
+   - 通过多层感知机预测属性变化（1152 → 512 → 256 → 128 → output）
 
 5. **输出层**：
    - 输出预测的属性变化值
