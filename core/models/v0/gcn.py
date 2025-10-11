@@ -151,6 +151,8 @@ class MoleculeEvolutionGCNPredictor(nn.Module):
         Returns:
             属性变化预测值
         """
+        # import pdb; pdb.set_trace()
+
         # 提取起始分子特征
         from_features = self.from_molecule_extractor(from_data)
         

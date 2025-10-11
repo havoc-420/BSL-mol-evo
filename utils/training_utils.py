@@ -220,7 +220,8 @@ def plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir)
     
     # 绘制验证R2趋势
     plt.subplot(1, 2, 1)
-    val_epochs = range(10, len(train_losses) + 1, 10)  # R2和MAE每10个epoch记录一次
+    # 修正：根据实际的验证指标记录频率来设置epoch点
+    val_epochs = range(2, len(train_losses) + 1, 2)  # R2和MAE每2个epoch记录一次
     plt.plot(val_epochs, val_r2s, 'o-', label='Validation R²', linewidth=2, markersize=3, color='green')
     plt.title('Validation R² Trend')
     plt.xlabel('Epoch')
