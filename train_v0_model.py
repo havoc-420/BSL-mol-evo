@@ -50,6 +50,19 @@ try:
         log_training_start_message
     )
     from mol_evo.utils.logger_utils import DualLogger
+    from mol_evo.utils.logger_v0 import (
+        log_dataset_examples,
+        log_data_construction_info,
+        log_dataset_split_info,
+        log_device_info,
+        log_checkpoint_saved,
+        log_training_interrupted,
+        log_early_stopping,
+        log_epoch_progress,
+        log_training_metrics,
+        log_model_saved,
+        log_training_summary
+    )
 except ImportError as e:
     print(f"无法导入所需的模块: {e}")
     exit(1)
@@ -228,7 +241,6 @@ def create_model(model_params: dict):
     return model
 
 
-
 def train_model(data_file: str, max_pairs: int = None, epochs: int = 100, 
                 seed: int = 42):
     """
@@ -256,33 +268,16 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         data_file, max_pairs, TARGET_PROPERTY, logger)
     
     # 输出训练集的头部信息（前几个样本示例）
-    logger.info("训练集样本示例 (头部数据):")
-    num_examples = min(3, len(from_data_list))  # 显示前3个样本或全部样本（如果少于3个）
-    for i in range(num_examples):
-        logger.info(f"  样本 {i+1}:")
-        logger.info(f"    起始分子节点数: {from_data_list[i].x.size(0)}")
-        logger.info(f"    起始分子边数: {from_data_list[i].edge_index.size(1)}")
-        logger.info(f"    目标分子节点数: {to_data_list[i].x.size(0)}")
-        logger.info(f"    目标分子边数: {to_data_list[i].edge_index.size(1)}")
-        logger.info(f"    边特征: {edge_attrs[i].tolist()}")
-        logger.info(f"    目标属性值: {target_features[i].item()}")
+    log_dataset_examples(logger, from_data_list, to_data_list, edge_attrs, target_features)
 
     # 直接记录数据构建信息，避免创建不必要的dummy_data对象
-    logger.info("数据构建完成:")  # 默认输出到控制台和文件
-    logger.info(f"  - 样本数: {len(from_data_list)}")  # 默认输出到控制台和文件
-    logger.info(f"  - 节点特征维度: {model_params['node_feature_dim']}")  # 默认输出到控制台和文件
-    logger.info(f"  - 边特征维度: {edge_attrs.shape[1] if len(edge_attrs.shape) > 1 else 1}")  # 默认输出到控制台和文件
-    logger.info(f"  - 目标属性变化维度: {target_features.shape[1] if len(target_features.shape) > 1 else 1}")  # 默认输出到控制台和文件
+    log_data_construction_info(logger, from_data_list, model_params, edge_attrs, target_features)
     
     # 划分数据集
     train_idx, val_idx, test_idx = split_data_indices(len(from_data_list), 0.8, 0.1, 0.1, seed)
     
     # 直接记录数据集划分信息
-    total_samples = len(train_idx) + len(val_idx) + len(test_idx)
-    logger.info("数据集划分完成:")  # 默认输出到控制台和文件
-    logger.info(f"  - 训练集: {len(train_idx)} ({len(train_idx)/total_samples*100:.1f}%)")  # 默认输出到控制台和文件
-    logger.info(f"  - 验证集: {len(val_idx)} ({len(val_idx)/total_samples*100:.1f}%)")  # 默认输出到控制台和文件
-    logger.info(f"  - 测试集: {len(test_idx)} ({len(test_idx)/total_samples*100:.1f}%)")  # 默认输出到控制台和文件
+    log_dataset_split_info(logger, train_idx, val_idx, test_idx)
     
     # 创建模型
     model = create_model(model_params)
@@ -290,8 +285,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
     
     # 设置设备
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    message = f"使用设备: {device}"
-    logger.info(message)  # 默认输出到控制台和文件
+    log_device_info(logger, device)
     
     # 将模型移到设备上
     model = model.to(device)
@@ -343,8 +337,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         
         # 检查是否有NaN或inf值
         if torch.isnan(train_loss) or torch.isinf(train_loss):
-            message = f"警告: 在第 {epoch+1} 轮检测到NaN或inf损失值，停止训练"
-            logger.info(message)  # 默认输出到控制台和文件
+            log_training_interrupted(logger, epoch)
             break
         
         # 反向传播
@@ -366,7 +359,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                 'best_val_loss': best_val_loss,
                 'patience_counter': patience_counter,
             }, checkpoint_path)
-            logger.info(f"已保存checkpoint: {checkpoint_path}")
+            log_checkpoint_saved(logger, checkpoint_path)
         
         # 记录训练损失
         train_losses.append(train_loss.item())
@@ -392,8 +385,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                 
                 # 检查验证损失是否有NaN或inf
                 if torch.isnan(val_loss) or torch.isinf(val_loss):
-                    message = f"警告: 在第 {epoch+1} 轮验证时检测到NaN或inf损失值"
-                    logger.info(message)  # 默认输出到控制台和文件
+                    log_training_interrupted(logger, epoch, "NaN或inf验证损失值")
                 
                 # 更新学习率调度器
                 scheduler.step(val_loss)
@@ -436,23 +428,22 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                 patience_counter += 1
                 
             if patience_counter >= patience_limit:
-                message = f"早停机制触发，在第 {epoch+1} 轮停止训练"
-                logger.info(message)  # 默认输出到控制台和文件
+                log_early_stopping(logger, epoch)
                 # 恢复最佳模型状态
                 model.load_state_dict(best_model_state)
                 break
         
         # 每10个epoch输出一次信息
         if (epoch + 1) % 10 == 0:
+            val_r2 = val_r2s[-1] if val_r2s else None
+            val_mae = val_maes[-1] if val_maes else None
+            log_epoch_progress(logger, epoch, epochs, train_loss, val_loss, val_r2, val_mae)
+            # 控制台只显示基本进度信息
             message = f"Epoch [{epoch+1}/{epochs}], Train Loss: {train_loss.item():.6f}"
             if val_loss is not None:
                 message += f", Val Loss: {val_loss:.6f}"
-                if len(val_r2s) > 0:
-                    message += f", R²: {val_r2s[-1]:.4f}, MAE: {val_maes[-1]:.4f}"
-            
-            # 详细训练信息只记录到文件，不在控制台显示
-            logger.info(message, to_console=False)
-            # 控制台只显示基本进度信息
+                if val_r2 is not None and val_mae is not None:
+                    message += f", R²: {val_r2:.4f}, MAE: {val_mae:.4f}"
             tqdm.write(message)
     
     log_training_start_message(logger, epochs)
@@ -537,6 +528,9 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir)
         
         # 记录完整评估结果到日志
+        log_training_metrics(logger, train_losses, val_losses, test_loss, rmse, mae, r2, threshold_accs)
+        log_model_saved(logger, model_path)
+        log_training_summary(logger, train_losses, val_losses)
         log_training_completion(logger, train_losses, val_losses, test_loss, rmse, mae, r2,
                                threshold_accs, None, None, None, model_path)
         return model, train_losses, val_losses
