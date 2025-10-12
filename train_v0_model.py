@@ -257,27 +257,6 @@ def prepare_single_property_targets(csv_file: str, property_name: str,
     return target_features
 
 
-def create_model(model_params: dict):
-    """
-    创建v0版本的模型实例
-    
-    Args:
-        model_params: 模型参数字典
-        
-    Returns:
-        模型实例
-    """
-    model = MoleculeEvolutionGCNPredictor(
-        node_feature_dim=model_params["node_feature_dim"],
-        edge_feature_dim=model_params["edge_feature_dim"],
-        hidden_dim=model_params["hidden_dim"],
-        output_dim=model_params["output_dim"],
-        num_layers=model_params["num_layers"]
-    )
-    
-    return model
-
-
 def train_model(data_file: str, max_pairs: int = None, epochs: int = 100, 
                 seed: int = 42, batch_size: int = 64):
     """
@@ -357,7 +336,13 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         collate_fn=pair_collate) if test_dataset is not None else None
     
     # 创建模型
-    model = create_model(model_params)
+    model = MoleculeEvolutionGCNPredictor(
+        node_feature_dim=model_params["node_feature_dim"],
+        edge_feature_dim=model_params["edge_feature_dim"],
+        hidden_dim=model_params["hidden_dim"],
+        output_dim=model_params["output_dim"],
+        num_layers=model_params["num_layers"]
+    )
     log_model_creation(logger, model)
     
     # 设置设备

@@ -21,14 +21,14 @@ def calculate_property_changes(pairs_file=None, output_file=None):
     
     Args:
         pairs_file: 配对文件路径，默认为 qm9-evo-pairs-step-1.csv
-        output_file: 输出文件路径，默认为 qm9-evo-pairs-step-1-with-properties.csv
+        output_file: 输出文件路径，默认为 qm9-evo-pairs-step-1-with-properties-pct.csv
     """
     # 设置默认文件路径
     data_dir = os.path.join(os.path.dirname(__file__), 'data')
     if pairs_file is None:
         pairs_file = os.path.join(data_dir, 'qm9-evo-pairs-step-1.csv')
     if output_file is None:
-        output_file = os.path.join(data_dir, 'qm9-evo-pairs-step-1-with-properties.csv')
+        output_file = os.path.join(data_dir, 'qm9-evo-pairs-step-1-with-properties-pct.csv')
     
     # 加载配对文件
     print("加载配对文件...")
@@ -56,6 +56,7 @@ def calculate_property_changes(pairs_file=None, output_file=None):
     
     # 存储属性变化值的列表
     property_changes = []
+    property_changes_pct = []  # 存储属性变化百分比的列表
     
     # 计算每对分子的属性变化
     print("计算属性变化...")
@@ -67,6 +68,7 @@ def calculate_property_changes(pairs_file=None, output_file=None):
         
         # 初始化属性变化字典
         prop_changes = {}
+        prop_changes_pct = {}  # 属性变化百分比字典
         
         # 获取源分子和目标分子的属性
         try:
@@ -80,31 +82,50 @@ def calculate_property_changes(pairs_file=None, output_file=None):
             else:
                 to_properties = None
             
-            # 计算属性变化
+            # 计算属性变化和变化百分比
             if from_properties is not None and to_properties is not None:
                 for prop in property_columns:
                     if prop in from_properties and prop in to_properties:
                         try:
-                            prop_changes[f'{prop}_change'] = to_properties[prop] - from_properties[prop]
+                            from_val = from_properties[prop]
+                            to_val = to_properties[prop]
+                            
+                            # 计算绝对变化
+                            prop_changes[f'{prop}_change'] = to_val - from_val
+                            
+                            # 计算相对变化百分比
+                            # 特殊处理 from_val 为 0 的情况，避免除零错误
+                            if from_val == 0:
+                                # 如果起始值为0，使用绝对变化值
+                                prop_changes_pct[f'{prop}_change_pct'] = to_val - from_val
+                            else:
+                                # 计算相对变化百分比
+                                prop_changes_pct[f'{prop}_change_pct'] = (to_val - from_val) / from_val
                         except (TypeError, ValueError):
                             prop_changes[f'{prop}_change'] = np.nan
+                            prop_changes_pct[f'{prop}_change_pct'] = np.nan
                     else:
                         prop_changes[f'{prop}_change'] = np.nan
+                        prop_changes_pct[f'{prop}_change_pct'] = np.nan
             else:
                 # 如果无法获取属性，则设置为NaN
                 for prop in property_columns:
                     prop_changes[f'{prop}_change'] = np.nan
+                    prop_changes_pct[f'{prop}_change_pct'] = np.nan
                     
         except Exception as e:
             # 出现异常时，设置为NaN
             for prop in property_columns:
                 prop_changes[f'{prop}_change'] = np.nan
+                prop_changes_pct[f'{prop}_change_pct'] = np.nan
         
         property_changes.append(prop_changes)
+        property_changes_pct.append(prop_changes_pct)
     
     # 将属性变化添加到配对DataFrame中
     properties_df = pd.DataFrame(property_changes)
-    result_df = pd.concat([pairs_df, properties_df], axis=1)
+    properties_pct_df = pd.DataFrame(property_changes_pct)
+    result_df = pd.concat([pairs_df, properties_df, properties_pct_df], axis=1)
     
     # 保存结果
     print(f"保存结果到 {output_file}...")
