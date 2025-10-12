@@ -40,57 +40,60 @@ FastAPI自动生成交互式API文档：
 - **描述**: 列出所有可用的训练数据文件及其基本信息
 - **响应示例**:
   ```json
-  [
-    {
-      "file_path": "/path/to/training_data.json",
-      "training_params": {
-        "data_file": "mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.csv",
-        "max_pairs": 2000,
-        "epochs": 50,
-        "seed": 42,
-        "target_property": "gap_change_pct",
-        "batch_size": 1024,
-        "device": "cuda",
-        "optimizer": "Adam",
-        "learning_rate": 0.01,
-        "weight_decay": 1e-05,
-        "scheduler": "ReduceLROnPlateau",
-        "loss_function": "L1Loss",
-        "patience_limit": 50
-      },
-      "model_params": {
-        "node_feature_dim": 11,
-        "edge_feature_dim": 11,
-        "hidden_dim": 128,
-        "output_dim": 1,
-        "num_layers": 2
-      },
-      "property_stats": {
-        "gap_change_pct": [
-          0.0726774729888522,
-          0.199669904795772
-        ]
-      },
-      "test_metrics": {
-        "test_loss": 0.28654947876930237,
-        "rmse": 0.4368484914302826,
-        "mae": 0.28654947876930237,
-        "r2": 0.794584333896637,
-        "threshold_accs": {
-          "0.4": 0.7699999809265137,
-          "0.3": 0.7099999785423279,
-          "0.2": 0.5349999666213989,
-          "0.1": 0.32499998807907104,
-          "0.05": 0.1550000011920929
+  {
+    "total_num": 25,
+    "items": [
+      {
+        "file_path": "/path/to/training_data.json",
+        "training_params": {
+          "data_file": "mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.csv",
+          "max_pairs": 2000,
+          "epochs": 50,
+          "seed": 42,
+          "target_property": "gap_change_pct",
+          "batch_size": 1024,
+          "device": "cuda",
+          "optimizer": "Adam",
+          "learning_rate": 0.01,
+          "weight_decay": 1e-05,
+          "scheduler": "ReduceLROnPlateau",
+          "loss_function": "L1Loss",
+          "patience_limit": 50
         },
-        "dataset_info": {
-          "train_size": 1600,
-          "val_size": 200,
-          "test_size": 200
+        "model_params": {
+          "node_feature_dim": 11,
+          "edge_feature_dim": 11,
+          "hidden_dim": 128,
+          "output_dim": 1,
+          "num_layers": 2
+        },
+        "property_stats": {
+          "gap_change_pct": [
+            0.0726774729888522,
+            0.199669904795772
+          ]
+        },
+        "test_metrics": {
+          "test_loss": 0.28654947876930237,
+          "rmse": 0.4368484914302826,
+          "mae": 0.28654947876930237,
+          "r2": 0.794584333896637,
+          "threshold_accs": {
+            "0.4": 0.7699999809265137,
+            "0.3": 0.7099999785423279,
+            "0.2": 0.5349999666213989,
+            "0.1": 0.32499998807907104,
+            "0.05": 0.1550000011920929
+          },
+          "dataset_info": {
+            "train_size": 1600,
+            "val_size": 200,
+            "test_size": 200
+          }
         }
       }
-    }
-  ]
+    ]
+  }
   ```
 
 ### 3. 获取特定训练数据

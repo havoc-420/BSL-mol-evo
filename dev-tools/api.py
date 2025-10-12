@@ -26,6 +26,10 @@ class TrainingDataListItem(BaseModel):
     property_stats: Dict[str, Any]
     test_metrics: Dict[str, Any]
 
+class TrainingDataListResponse(BaseModel):
+    total_num: int
+    items: List[TrainingDataListItem]
+
 def load_training_data(file_path: str) -> dict:
     """加载训练数据文件"""
     try:
@@ -45,7 +49,7 @@ def get_all_training_data_files() -> List[str]:
 async def health():
     return {"status": "ok", "message": "Molecule Evolution Training Data API is running"}
 
-@app.get("/training-data", response_model=List[TrainingDataListItem])
+@app.get("/training-data", response_model=TrainingDataListResponse)
 async def list_training_data(
     limit: int = Query(10, description="Number of items to return"),
     offset: int = Query(0, description="Offset for pagination")
@@ -61,6 +65,8 @@ async def list_training_data(
         files = get_all_training_data_files()
         files.sort()  # 排序文件列表
         
+        total_num = len(files)
+        
         # 应用分页
         paginated_files = files[offset:offset+limit]
         
@@ -75,7 +81,10 @@ async def list_training_data(
                 test_metrics=data.get("test_metrics", {})
             ))
         
-        return result
+        return TrainingDataListResponse(
+            total_num=total_num,
+            items=result
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error listing training data: {str(e)}")
 
