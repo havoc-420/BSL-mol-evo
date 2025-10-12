@@ -11,6 +11,7 @@ import torch
 import json
 import matplotlib.pyplot as plt
 import logging
+from datetime import datetime
 
 
 def setup_logger(model_dir, logger_name='training', console_output=True):
@@ -166,6 +167,7 @@ def save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir
     """
     # 构建训练数据字典
     training_data = {
+        "timestamp": datetime.now().isoformat(),
         "training_params": training_params,
         "model_params": model_params,
         "property_stats": property_stats,
