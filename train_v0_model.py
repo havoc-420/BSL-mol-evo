@@ -307,7 +307,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
     # 输出训练集的头部信息（前几个样本示例）
     log_dataset_examples(logger, from_data_list, to_data_list, edge_attrs, target_features)
 
-    # 直接记录数据构建信息，避免创建不必要的dummy_data对象
+    # 记录数据构建信息
     log_data_construction_info(logger, from_data_list, model_params, edge_attrs, target_features)
     
     # 划分数据集
