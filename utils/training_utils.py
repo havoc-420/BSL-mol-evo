@@ -113,7 +113,7 @@ def split_data_indices(total_count: int, train_ratio: float = 0.7,
     # 计算各数据集大小
     train_size = int(total_count * train_ratio)
     val_size = int(total_count * val_ratio)
-    # test_size = total_count - train_size - val_size
+    # ·test_size = total_count - train_size - val_size
     
     # 创建索引列表并打乱
     indices = list(range(total_count))
@@ -149,7 +149,8 @@ def get_accuracy_color_code(accuracy):
         return '\033[31m'  # 红色 - 很差
 
 
-def save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir, model_params, training_params=None, property_stats=None):
+def save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir, model_params, 
+                              training_params, property_stats, val_metrics_history):
     """
     将训练数据保存为JSON格式
     
@@ -159,24 +160,22 @@ def save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir
         test_metrics: 测试指标字典
         model_dir: 模型目录路径
         model_params: 模型参数字典
-        training_params: 训练参数字典（可选）
-        property_stats: 属性统计信息（均值和标准差），可选
+        training_params: 训练参数字典
+        property_stats: 属性统计信息（均值和标准差）
+        val_metrics_history: 验证指标历史记录
     """
     # 构建训练数据字典
     training_data = {
         "model_params": model_params,
+        "training_params": training_params,
+        "property_stats": property_stats,
         "test_metrics": test_metrics,
-        "train_losses": train_losses,
-        "val_losses": val_losses,
+        "losses": {
+            "train_losses": train_losses,
+            "val_losses": val_losses
+        },
+        "val_metrics_history": val_metrics_history
     }
-    
-    # 如果提供了训练参数，则添加到数据中
-    if training_params is not None:
-        training_data["training_params"] = training_params
-    
-    # 如果提供了属性统计信息，则添加到数据中
-    if property_stats is not None:
-        training_data["property_stats"] = property_stats
     
     # 保存为JSON文件
     json_path = os.path.join(model_dir, "training_data.json")
@@ -221,7 +220,12 @@ def plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir)
     # 绘制验证R2趋势
     plt.subplot(1, 2, 1)
     # 修正：根据实际的验证指标记录频率来设置epoch点
-    val_epochs = range(2, len(train_losses) + 1, 2)  # R2和MAE每2个epoch记录一次
+    val_epochs = range(10, len(train_losses) + 1, 10)  # R2和MAE每10个epoch记录一次
+    if len(val_epochs) > len(val_r2s):
+        val_epochs = val_epochs[:len(val_r2s)]
+    elif len(val_r2s) > len(val_epochs):
+        val_r2s = val_r2s[:len(val_epochs)]
+        
     plt.plot(val_epochs, val_r2s, 'o-', label='Validation R²', linewidth=2, markersize=3, color='green')
     plt.title('Validation R² Trend')
     plt.xlabel('Epoch')
@@ -231,6 +235,12 @@ def plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir)
     
     # 绘制验证MAE趋势
     plt.subplot(1, 2, 2)
+    # 确保val_epochs和val_maes长度一致
+    if len(val_maes) != len(val_epochs):
+        min_len = min(len(val_epochs), len(val_maes))
+        val_epochs = val_epochs[:min_len]
+        val_maes = val_maes[:min_len]
+        
     plt.plot(val_epochs, val_maes, 's-', label='Validation MAE', linewidth=2, markersize=3, color='red')
     plt.title('Validation MAE Trend')
     plt.xlabel('Epoch')

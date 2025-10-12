@@ -32,7 +32,7 @@ model_params = {
     "num_layers": 2  # INFO 现阶段默认都是 2 层
 }
 
-# 目标属性名称
+# 目标属性名称 - 默认值，将被命令行参数覆盖
 TARGET_PROPERTY = 'mu_change'
 
 # 设置项目根目录路径
@@ -68,6 +68,7 @@ try:
         log_model_saved,
         log_training_summary
     )
+    from mol_evo.utils.training_metrics import TrainingMetricsRecorder  # 新增导入
 except ImportError as e:
     print(f"无法导入所需的模块: {e}")
     exit(1)
@@ -195,7 +196,7 @@ def build_molecule_evolution_dataset_v0(csv_file: str, max_pairs: int = None,
         if from_data is None or to_data is None:
             message = f"跳过无法处理的分子对: {row['smiles_from']} -> {row['smiles_to']}"
             if logger:
-                logger.info(message)
+                logger.warning(message)
             else:
                 print(message)
             continue
@@ -223,42 +224,8 @@ def build_molecule_evolution_dataset_v0(csv_file: str, max_pairs: int = None,
     return from_data_list, to_data_list, edge_attrs, target_features, property_stats
 
 
-def prepare_single_property_targets(csv_file: str, property_name: str, 
-                                  max_pairs: int = None) -> torch.Tensor:
-    """
-    准备单个属性的变化目标值
-    
-    Args:
-        csv_file: CSV文件路径
-        property_name: 属性名称
-        max_pairs: 最大对数（用于调试）
-        
-    Returns:
-        属性变化目标值
-    """
-    # 读取数据
-    df = pd.read_csv(csv_file)
-    
-    if max_pairs:
-        df = df.head(max_pairs)
-    
-    # 准备目标特征
-    target_features = []
-    
-    for _, row in df.iterrows():
-        if property_name in row and not pd.isna(row[property_name]):
-            value = row[property_name]
-            target_features.append([value])
-        else:
-            target_features.append([0.0])
-    
-    target_features = torch.FloatTensor(np.array(target_features))
-    
-    return target_features
-
-
 def train_model(data_file: str, max_pairs: int = None, epochs: int = 100, 
-                seed: int = 42, batch_size: int = 64):
+                seed: int = 42, batch_size: int = 64, learning_rate: float = 0.01):
     """
     训练v0版本的分子进化预测器模型（单属性预测）
     
@@ -268,6 +235,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         epochs: 训练轮数
         seed: 随机种子
         batch_size: 批处理大小
+        learning_rate: 学习率
     """
     # train-data 存储位置
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -352,18 +320,33 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
     # 将模型移到设备上
     model = model.to(device)
     
-    # 定义优化器和损失函数
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=1e-5)
+    # TAG 定义优化器和损失函数
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=10, factor=0.5, min_lr=1e-6)
     criterion = nn.L1Loss()
     
-    # 初始化损失记录
-    train_losses = []
-    val_losses = []
-    val_mses = []
-    val_rmses = []
-    val_r2s = []
-    val_maes = []
+    # 创建训练指标记录器
+    metrics_recorder = TrainingMetricsRecorder()
+    
+    # 记录模型和训练参数
+    metrics_recorder.set_model_params(model_params)
+    training_params = {
+        "data_file": data_file,
+        "max_pairs": max_pairs,
+        "epochs": epochs,
+        "seed": seed,
+        "target_property": TARGET_PROPERTY,
+        "batch_size": batch_size,
+        "device": str(device),
+        "optimizer": "Adam",
+        "learning_rate": learning_rate,
+        "weight_decay": 1e-5,
+        "scheduler": "ReduceLROnPlateau",
+        "loss_function": "L1Loss",
+        "patience_limit": 50
+    }
+    metrics_recorder.set_training_params(training_params)
+    metrics_recorder.set_property_stats(property_stats)
     
     # 早停机制参数
     best_val_loss = float('inf')
@@ -406,7 +389,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         
         # 计算平均epoch损失
         epoch_loss /= len(train_dataset)
-        train_losses.append(epoch_loss)
+        metrics_recorder.record_train_loss(epoch_loss)
         
         # 每100轮保存一次checkpoint
         if (epoch + 1) % 100 == 0:
@@ -446,7 +429,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                 
                 # 计算平均验证损失
                 val_loss /= len(val_dataset)
-                val_losses.append(val_loss)
+                metrics_recorder.record_val_loss(val_loss)
                 
                 # 检查验证损失是否有NaN或inf
                 if math.isnan(val_loss) or math.isinf(val_loss):
@@ -456,22 +439,17 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                 scheduler.step(val_loss)
                 
                 # 计算验证集的额外评估指标 (每10个epoch计算一次)
-                if (epoch + 1) % 2 == 0:
+                if (epoch + 1) % 10 == 0:
                     # 合并所有验证预测和目标
                     all_val_predictions = torch.cat(all_val_predictions, dim=0)
                     all_val_targets = torch.cat(all_val_targets, dim=0)
                     
                     # RMSE
-                    val_mse = torch.mean((all_val_predictions - all_val_targets) ** 2)
+                    val_mse = torch.mean((all_val_targets - all_val_predictions) ** 2)
                     val_rmse = torch.sqrt(val_mse)
-                    
-                    # 添加MSE和RMSE到对应的列表中
-                    val_mses.append(val_mse.item())
-                    val_rmses.append(val_rmse.item())
                     
                     # MAE
                     val_mae = torch.mean(torch.abs(all_val_predictions - all_val_targets))
-                    val_maes.append(val_mae.item())
                     
                     # R²
                     val_ss_res = torch.sum((all_val_targets - all_val_predictions) ** 2)
@@ -480,7 +458,16 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                         val_r2 = 0.0
                     else:
                         val_r2 = (1 - val_ss_res / (val_ss_tot + 1e-8)).item()
-                    val_r2s.append(val_r2)
+                    
+                    # 记录验证指标
+                    metrics_recorder.record_val_metrics(
+                        epoch=epoch + 1,
+                        loss=val_loss,
+                        mse=val_mse.item(),
+                        rmse=val_rmse.item(),
+                        mae=val_mae.item(),
+                        r2=val_r2
+                    )
                     
             model.train()
         else:
@@ -493,6 +480,8 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                 patience_counter = 0
                 # 保存最佳模型
                 best_model_state = model.state_dict()
+                # 记录早停信息
+                metrics_recorder.record_early_stopping(epoch + 1, best_val_loss, patience_counter)
             else:
                 patience_counter += 1
                 
@@ -504,17 +493,8 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         
         # 每10个epoch输出一次信息
         if (epoch + 1) % 10 == 0:
-            val_r2 = val_r2s[-1] if val_r2s else None
-            val_mae = val_maes[-1] if val_maes else None
-            # 将epoch_loss封装为Tensor以匹配log_epoch_progress函数期望的类型
-            log_epoch_progress(logger, epoch, epochs, torch.tensor(epoch_loss), val_loss, val_r2, val_mae)
-            # 控制台只显示基本进度信息
-            message = f"Epoch [{epoch+1}/{epochs}], Train Loss: {epoch_loss:.6f}"
-            if val_loss is not None:
-                message += f", Val Loss: {val_loss:.6f}"
-                if val_r2 is not None and val_mae is not None:
-                    message += f", R²: {val_r2:.4f}, MAE: {val_mae:.4f}"
-            tqdm.write(message)
+            metrics_recorder.log_epoch_progress(logger, epoch + 1, epochs, epoch_loss, val_loss, 
+                                                log_epoch_progress=log_epoch_progress)
     
     log_training_start_message(logger, epochs)
 
@@ -576,6 +556,22 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
             model_path = os.path.join(model_dir, model_filename)
             torch.save(model.state_dict(), model_path)
             
+            # 记录测试指标
+            dataset_info = {
+                "train_size": len(train_idx),
+                "val_size": len(val_idx),
+                "test_size": len(test_idx)
+            }
+            
+            metrics_recorder.record_test_metrics(
+                test_loss=test_loss.item(),
+                rmse=rmse.item(),
+                mae=mae.item(),
+                r2=r2,
+                threshold_accs=threshold_accs,
+                dataset_info=dataset_info
+            )
+            
             # 准备测试指标数据
             test_metrics = {
                 "test_loss": test_loss.item(),
@@ -597,37 +593,86 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                 "epochs": epochs,
                 "seed": seed,
                 "target_property": TARGET_PROPERTY,
-                "batch_size": batch_size
+                "batch_size": batch_size,
+                "device": str(device),
+                "optimizer": "Adam",
+                "learning_rate": learning_rate,
+                "weight_decay": 1e-5,
+                "scheduler": "ReduceLROnPlateau",
+                "loss_function": "L1Loss",
+                "patience_limit": patience_limit
             }
-            save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir, model_params, training_params, property_stats)
+            save_training_data_as_json(metrics_recorder.train_losses, metrics_recorder.val_losses, test_metrics, model_dir, model_params, 
+                                     training_params=training_params, property_stats=property_stats, 
+                                     val_metrics_history=metrics_recorder.val_metrics_history)
             
             # 生成训练趋势图
-            plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir)
+            plot_training_trends(
+                metrics_recorder.train_losses,
+                metrics_recorder.val_losses,
+                metrics_recorder.val_r2s,
+                metrics_recorder.val_maes,
+                model_dir
+            )
             
             # 记录完整评估结果到日志
-            log_training_metrics(logger, train_losses, val_losses, test_loss, rmse, mae, r2, threshold_accs)
+            log_training_metrics(logger,
+                metrics_recorder.train_losses,
+                metrics_recorder.val_losses,
+                test_loss,
+                rmse,
+                mae,
+                r2,
+                threshold_accs
+            )
             log_model_saved(logger, model_path)
-            log_training_summary(logger, train_losses, val_losses)
-            log_training_completion(logger, train_losses, val_losses, test_loss, rmse, mae, r2,
-                                   threshold_accs, None, None, None, model_path)
-    return model, train_losses, val_losses
+            log_training_summary(logger, metrics_recorder.train_losses, metrics_recorder.val_losses)
+            log_training_completion(
+                logger,
+                metrics_recorder.train_losses,
+                metrics_recorder.val_losses,
+                test_loss,
+                rmse,
+                mae,
+                r2,
+                threshold_accs,
+                None,
+                None,
+                None,
+                model_path
+            )
 
 
 def main():
     parser = argparse.ArgumentParser(description='v0版本分子进化预测器模型训练脚本（单属性预测）')
-    parser.add_argument('--data-file', type=str, 
-                       default=os.path.join('mol_evo', 'dataset', 'data', 'qm9-evo-pairs-step-1-with-properties.csv'),
+    
+    # 添加自定义类型函数用于限制最大值
+    def max_pairs_type(x):
+        x = int(x)
+        if x > 30000:
+            raise argparse.ArgumentTypeError("最大分子对数不能超过30000")
+        return x
+    
+    parser.add_argument('-d', '-data', '--data-file', type=str, 
+                       default=os.path.join('mol_evo', 'dataset', 'data', 'qm9-evo-pairs-step-1-with-properties-pct.csv'),  # INFO 这里使用附带 pct 的数据集了
                        help='数据文件路径')
-    parser.add_argument('--max-pairs', type=int, help='最大分子对数（用于调试）')
-    parser.add_argument('--epochs', type=int, default=100, help='训练轮数')
-    parser.add_argument('--seed', type=int, default=42, help='随机种子')
-    parser.add_argument('--batch-size', type=int, default=64, help='批处理大小')
+    parser.add_argument('-m', '-max', '--max-pairs', type=max_pairs_type, help='最大分子对数（用于调试，最大不超过30000）')
+    parser.add_argument('-e', '-ep', '--epochs', type=int, default=100, help='训练轮数')
+    parser.add_argument('-b', '-batch', '--batch-size', type=int, default=512, help='批处理大小')
+    parser.add_argument('-p', '--target-property', type=str, default='mu_change', 
+                       help='目标属性')
+    parser.add_argument('-s', '--seed', type=int, default=42, help='随机种子')
+    parser.add_argument('-lr', '--learning-rate', type=float, default=0.01, help='学习率')
     
     args = parser.parse_args()
     
+    # 使用命令行参数设置目标属性
+    global TARGET_PROPERTY
+    TARGET_PROPERTY = args.target_property
+    
     try:
-        model, train_losses, val_losses = train_model(
-            args.data_file, args.max_pairs, args.epochs, args.seed, args.batch_size
+        train_model(
+            args.data_file, args.max_pairs, args.epochs, args.seed, args.batch_size, args.learning_rate
         )
     except Exception as e:
         print(f"训练过程中发生错误: {e}")
