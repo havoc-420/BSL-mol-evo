@@ -225,7 +225,8 @@ def build_molecule_evolution_dataset_v0(csv_file: str, max_pairs: int = None,
 
 
 def train_model(data_file: str, max_pairs: int = None, epochs: int = 100, 
-                seed: int = 42, batch_size: int = 64, learning_rate: float = 0.01):
+                seed: int = 42, batch_size: int = 64, learning_rate: float = 0.01,
+                model_type: str = "gcn"):
     """
     训练v0版本的分子进化预测器模型（单属性预测）
     
@@ -239,7 +240,9 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
     """
     # train-data 存储位置
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    model_dir = os.path.join(project_root, 'mol_evo', 'model-data', 'v0', f"training_{timestamp}")
+    # 修改模型目录命名规则为: train_{TARGET-ATTR}_{max-pairs}_{epoches}_{TIMESTAMP}
+    dir_name = f"train-{TARGET_PROPERTY}-{max_pairs}-{epochs}-{timestamp}"
+    model_dir = os.path.join(project_root, 'mol_evo', 'model-data', 'v0', model_type, dir_name)
     os.makedirs(model_dir, exist_ok=True)
     
     # 创建自定义的DualLogger实例
@@ -331,6 +334,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
     # 记录模型和训练参数
     metrics_recorder.set_model_params(model_params)
     training_params = {
+        "model_type": model_type,
         "data_file": data_file,
         "max_pairs": max_pairs,
         "epochs": epochs,
@@ -460,14 +464,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                         val_r2 = (1 - val_ss_res / (val_ss_tot + 1e-8)).item()
                     
                     # 记录验证指标
-                    metrics_recorder.record_val_metrics(
-                        epoch=epoch + 1,
-                        loss=val_loss,
-                        mse=val_mse.item(),
-                        rmse=val_rmse.item(),
-                        mae=val_mae.item(),
-                        r2=val_r2
-                    )
+                    metrics_recorder.record_val_metrics(epoch+1, val_loss, val_mse.item(), val_rmse.item(), val_mae.item(), val_r2)
                     
             model.train()
         else:
@@ -481,7 +478,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                 # 保存最佳模型
                 best_model_state = model.state_dict()
                 # 记录早停信息
-                metrics_recorder.record_early_stopping(epoch + 1, best_val_loss, patience_counter)
+                metrics_recorder.record_early_stopping(epoch+1, best_val_loss, patience_counter)
             else:
                 patience_counter += 1
                 
@@ -493,8 +490,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         
         # 每10个epoch输出一次信息
         if (epoch + 1) % 10 == 0:
-            metrics_recorder.log_epoch_progress(logger, epoch + 1, epochs, epoch_loss, val_loss, 
-                                                log_epoch_progress=log_epoch_progress)
+            metrics_recorder.log_epoch_progress(logger, epoch, epochs, epoch_loss, val_loss, log_epoch_progress=log_epoch_progress)
     
     log_training_start_message(logger, epochs)
 
@@ -564,13 +560,8 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
             }
             
             metrics_recorder.record_test_metrics(
-                test_loss=test_loss.item(),
-                rmse=rmse.item(),
-                mae=mae.item(),
-                r2=r2,
-                threshold_accs=threshold_accs,
-                dataset_info=dataset_info
-            )
+                test_loss=test_loss.item(), rmse=rmse.item(), mae=mae.item(), 
+                r2=r2, threshold_accs=threshold_accs, dataset_info=dataset_info)
             
             # 准备测试指标数据
             test_metrics = {
@@ -602,45 +593,25 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                 "loss_function": "L1Loss",
                 "patience_limit": patience_limit
             }
-            save_training_data_as_json(metrics_recorder.train_losses, metrics_recorder.val_losses, test_metrics, model_dir, model_params, 
-                                     training_params=training_params, property_stats=property_stats, 
-                                     val_metrics_history=metrics_recorder.val_metrics_history)
+            save_training_data_as_json(
+                metrics_recorder.train_losses, metrics_recorder.val_losses, test_metrics, 
+                model_dir, model_params, training_params=training_params, 
+                property_stats=property_stats, val_metrics_history=metrics_recorder.val_metrics_history)
             
             # 生成训练趋势图
             plot_training_trends(
-                metrics_recorder.train_losses,
-                metrics_recorder.val_losses,
-                metrics_recorder.val_r2s,
-                metrics_recorder.val_maes,
-                model_dir
-            )
+                metrics_recorder.train_losses, metrics_recorder.val_losses,
+                metrics_recorder.val_r2s, metrics_recorder.val_maes, model_dir)
             
             # 记录完整评估结果到日志
-            log_training_metrics(logger,
-                metrics_recorder.train_losses,
-                metrics_recorder.val_losses,
-                test_loss,
-                rmse,
-                mae,
-                r2,
-                threshold_accs
-            )
+            log_training_metrics(
+                logger, metrics_recorder.train_losses, metrics_recorder.val_losses,
+                test_loss, rmse, mae, r2, threshold_accs)
             log_model_saved(logger, model_path)
             log_training_summary(logger, metrics_recorder.train_losses, metrics_recorder.val_losses)
             log_training_completion(
-                logger,
-                metrics_recorder.train_losses,
-                metrics_recorder.val_losses,
-                test_loss,
-                rmse,
-                mae,
-                r2,
-                threshold_accs,
-                None,
-                None,
-                None,
-                model_path
-            )
+                logger, metrics_recorder.train_losses, metrics_recorder.val_losses, 
+                test_loss, rmse, mae, r2, threshold_accs, None, None, None, model_path)
 
 
 def main():
