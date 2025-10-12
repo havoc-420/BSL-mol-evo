@@ -1,5 +1,4 @@
 from rdkit import Chem
-from rdkit.Chem.rdchem import ChiralType
 from collections import deque
 from .attachment import Attachment
 

@@ -242,7 +242,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     # 修改模型目录命名规则为: train_{TARGET-ATTR}_{max-pairs}_{epoches}_{TIMESTAMP}
     dir_name = f"train-{TARGET_PROPERTY}-{max_pairs}-{epochs}-{timestamp}"
-    model_dir = os.path.join(project_root, 'mol_evo', 'model-data', 'v0', model_type, dir_name)
+    model_dir = os.path.join(project_root, 'mol_evo', 'output', 'v0', model_type, dir_name)
     os.makedirs(model_dir, exist_ok=True)
     
     # 创建自定义的DualLogger实例

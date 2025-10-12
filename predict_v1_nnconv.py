@@ -67,7 +67,7 @@ def find_model_files():
     Returns:
         模型文件列表
     """
-    model_pattern = os.path.join(project_root, 'mol_evo', 'model-data', 'nnconv', 'training_*', 'molecule_evolution_nnconv_predictor.pth')
+    model_pattern = os.path.join(project_root, 'mol_evo', 'output', 'nnconv', 'training_*', 'molecule_evolution_nnconv_predictor.pth')
     model_files = glob.glob(model_pattern)
     return sorted(model_files)
 

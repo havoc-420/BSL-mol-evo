@@ -359,7 +359,7 @@ def train_model(data_file: str, model_type: str, max_pairs: int = None, epochs: 
     
     # 保存模型
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    model_dir = os.path.join(project_root, 'mol_evo', 'model-data', model_type, f"training_{timestamp}")
+    model_dir = os.path.join(project_root, 'mol_evo', 'output', model_type, f"training_{timestamp}")
     os.makedirs(model_dir, exist_ok=True)
     
     # 设置日志记录器

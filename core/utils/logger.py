@@ -1,3 +1,7 @@
+"""_summary_
+多色 log，暂时是准备弃用了。
+"""
+
 import logging
 import sys
 from typing import Optional

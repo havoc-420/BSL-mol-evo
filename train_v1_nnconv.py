@@ -289,7 +289,7 @@ def train_nnconv_model(data_file: str, max_pairs: int = None, epochs: int = 100,
     
     # 保存模型
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    model_dir = os.path.join(project_root, 'mol_evo', 'model-data', BASE_DIR_NAME, f"training_{timestamp}")
+    model_dir = os.path.join(project_root, 'mol_evo', 'output', BASE_DIR_NAME, f"training_{timestamp}")
     os.makedirs(model_dir, exist_ok=True)
     
     # 设置日志记录器

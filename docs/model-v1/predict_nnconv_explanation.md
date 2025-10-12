@@ -21,7 +21,7 @@ def find_model_files():
 def select_model_interactively(model_files):
 ```
 
-- `find_model_files()` 函数会自动在项目目录中查找所有可用的模型文件，路径模式为 `mol_evo/model-data/nnconv/training_*/molecule_evolution_nnconv_predictor.pth`
+- `find_model_files()` 函数会自动在项目目录中查找所有可用的模型文件，路径模式为 `mol_evo/output/nnconv/training_*/molecule_evolution_nnconv_predictor.pth`
 - `select_model_interactively()` 提供交互式界面让用户选择模型，如果只有一个模型则自动选择，如果有多个模型则让用户选择或默认选择最新的模型
 
 ### 3. 属性统计信息加载
@@ -30,7 +30,7 @@ def select_model_interactively(model_files):
 def load_property_stats(model_dir):
 ```
 
-从模型目录中的 [training_data.json](file:///Users/havoc420/Documents/Projects/python/mol-evo/model-data/nnconv/training_20251008_043355/training_data.json) 文件加载属性统计信息（均值和标准差），这些信息用于后续的反标准化操作。
+从模型目录中的 [training_data.json](file:///Users/havoc420/Documents/Projects/python/mol-evo/output/nnconv/training_20251008_043355/training_data.json) 文件加载属性统计信息（均值和标准差），这些信息用于后续的反标准化操作。
 
 ### 4. 数据准备
 
