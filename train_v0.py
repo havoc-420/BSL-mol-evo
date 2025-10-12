@@ -20,6 +20,7 @@ from torch_geometric.data import Batch
 import torch.nn as nn
 from datetime import datetime
 from tqdm import tqdm
+import shutil
 
 """ BASE SETTINGS """
 
@@ -241,7 +242,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
     # train-data 存储位置
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     # 修改模型目录命名规则为: train_{TARGET-ATTR}_{max-pairs}_{epoches}_{TIMESTAMP}
-    dir_name = f"train-{TARGET_PROPERTY}-{max_pairs}-{epochs}-{timestamp}"
+    dir_name = f"train-{timestamp}-{TARGET_PROPERTY}-{max_pairs}-{epochs}"
     model_dir = os.path.join(project_root, 'mol_evo', 'output', 'v0', model_type, dir_name)
     os.makedirs(model_dir, exist_ok=True)
     
@@ -249,369 +250,382 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
     logger = DualLogger(model_dir)
     log_training_start(logger, data_file, max_pairs, epochs)
     
-    # 构建图数据 - 使用新的数据处理方法
-    logger.info(f"正在构建图数据: {data_file}")  # 默认输出到控制台和文件
-    from_data_list, to_data_list, edge_attrs, target_features, property_stats = build_molecule_evolution_dataset_v0(
-        data_file, max_pairs, TARGET_PROPERTY, logger)
-    
-    # 输出训练集的头部信息（前几个样本示例）
-    log_dataset_examples(logger, from_data_list, to_data_list, edge_attrs, target_features)
+    try:
+        # 构建图数据 - 使用新的数据处理方法
+        logger.info(f"正在构建图数据: {data_file}")  # 默认输出到控制台和文件
+        from_data_list, to_data_list, edge_attrs, target_features, property_stats = build_molecule_evolution_dataset_v0(
+            data_file, max_pairs, TARGET_PROPERTY, logger)
+        
+        # 输出训练集的头部信息（前几个样本示例）
+        log_dataset_examples(logger, from_data_list, to_data_list, edge_attrs, target_features)
 
-    # 记录数据构建信息
-    log_data_construction_info(logger, from_data_list, model_params, edge_attrs, target_features)
-    
-    # 划分数据集
-    train_idx, val_idx, test_idx = split_data_indices(len(from_data_list), 0.8, 0.1, 0.1, seed)
-    log_dataset_split_info(logger, train_idx, val_idx, test_idx)
-    
-    # 创建数据集
-    train_dataset = MoleculePairDataset(
-        [from_data_list[i] for i in train_idx],
-        [to_data_list[i] for i in train_idx],
-        edge_attrs[train_idx],
-        target_features[train_idx])
-    
-    val_dataset = MoleculePairDataset(
-        [from_data_list[i] for i in val_idx],
-        [to_data_list[i] for i in val_idx],
-        edge_attrs[val_idx],
-        target_features[val_idx]) if len(val_idx) > 0 else None
+        # 记录数据构建信息
+        log_data_construction_info(logger, from_data_list, model_params, edge_attrs, target_features)
         
-    test_dataset = MoleculePairDataset(
-        [from_data_list[i] for i in test_idx],
-        [to_data_list[i] for i in test_idx],
-        edge_attrs[test_idx],
-        target_features[test_idx]) if len(test_idx) > 0 else None
-    
-    # 创建DataLoader
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=0,
-        collate_fn=pair_collate,
-        pin_memory=True)
-    
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=2,
-        collate_fn=pair_collate) if val_dataset is not None else None
+        # 划分数据集
+        train_idx, val_idx, test_idx = split_data_indices(len(from_data_list), 0.8, 0.1, 0.1, seed)
+        log_dataset_split_info(logger, train_idx, val_idx, test_idx)
         
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=2,
-        collate_fn=pair_collate) if test_dataset is not None else None
-    
-    # 创建模型
-    model = MoleculeEvolutionGCNPredictor(
-        node_feature_dim=model_params["node_feature_dim"],
-        edge_feature_dim=model_params["edge_feature_dim"],
-        hidden_dim=model_params["hidden_dim"],
-        output_dim=model_params["output_dim"],
-        num_layers=model_params["num_layers"]
-    )
-    log_model_creation(logger, model)
-    
-    # 设置设备
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    log_device_info(logger, device)
-    
-    # 将模型移到设备上
-    model = model.to(device)
-    
-    # TAG 定义优化器和损失函数
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=10, factor=0.5, min_lr=1e-6)
-    criterion = nn.L1Loss()
-    
-    # 创建训练指标记录器
-    metrics_recorder = TrainingMetricsRecorder()
-    
-    # 记录模型和训练参数
-    metrics_recorder.set_model_params(model_params)
-    training_params = {
-        "model_type": model_type,
-        "data_file": data_file,
-        "max_pairs": max_pairs,
-        "epochs": epochs,
-        "seed": seed,
-        "target_property": TARGET_PROPERTY,
-        "batch_size": batch_size,
-        "device": str(device),
-        "optimizer": "Adam",
-        "learning_rate": learning_rate,
-        "weight_decay": 1e-5,
-        "scheduler": "ReduceLROnPlateau",
-        "loss_function": "L1Loss",
-        "patience_limit": 50
-    }
-    metrics_recorder.set_training_params(training_params)
-    metrics_recorder.set_property_stats(property_stats)
-    
-    # 早停机制参数
-    best_val_loss = float('inf')
-    patience_counter = 0
-    patience_limit = 50
-    
-    # 训练循环
-    model.train()
-    for epoch in tqdm(range(epochs), desc="Training Epochs"):
-        epoch_loss = 0.0
-        for from_batch, to_batch, edge_batch, target_batch in train_loader:
-            optimizer.zero_grad()
-            
-            # 移动到设备
-            from_batch = from_batch.to(device)
-            to_batch = to_batch.to(device)
-            edge_batch = edge_batch.to(device)
-            target_batch = target_batch.to(device)
-            
-            # 前向传播
-            predictions = model(from_batch, to_batch, edge_batch)
-            
-            # 计算训练损失
-            train_loss = criterion(predictions, target_batch)
-            
-            # 检查是否有NaN或inf值
-            if math.isnan(train_loss.item()) or math.isinf(train_loss.item()):
-                log_training_interrupted(logger, epoch)
-                break
-            
-            # 反向传播
-            train_loss.backward()
-            
-            # 梯度裁剪，防止梯度爆炸
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            
-            optimizer.step()
-            
-            epoch_loss += train_loss.item() * target_batch.size(0)
+        # 创建数据集
+        train_dataset = MoleculePairDataset(
+            [from_data_list[i] for i in train_idx],
+            [to_data_list[i] for i in train_idx],
+            edge_attrs[train_idx],
+            target_features[train_idx])
         
-        # 计算平均epoch损失
-        epoch_loss /= len(train_dataset)
-        metrics_recorder.record_train_loss(epoch_loss)
+        val_dataset = MoleculePairDataset(
+            [from_data_list[i] for i in val_idx],
+            [to_data_list[i] for i in val_idx],
+            edge_attrs[val_idx],
+            target_features[val_idx]) if len(val_idx) > 0 else None
+            
+        test_dataset = MoleculePairDataset(
+            [from_data_list[i] for i in test_idx],
+            [to_data_list[i] for i in test_idx],
+            edge_attrs[test_idx],
+            target_features[test_idx]) if len(test_idx) > 0 else None
         
-        # 每100轮保存一次checkpoint
-        if (epoch + 1) % 100 == 0:
-            checkpoint_path = os.path.join(model_dir, f"checkpoint_epoch_{epoch+1}.pth")
-            torch.save({
-                'epoch': epoch + 1,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'train_loss': epoch_loss,
-                'best_val_loss': best_val_loss,
-                'patience_counter': patience_counter,
-            }, checkpoint_path)
-            log_checkpoint_saved(logger, checkpoint_path)
+        # 创建DataLoader
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=0,
+            collate_fn=pair_collate,
+            pin_memory=True)
         
-        # STAGE 验证阶段
-        if val_loader is not None:
-            model.eval()
-            with torch.no_grad():
-                val_loss = 0.0
-                all_val_predictions = []
-                all_val_targets = []
+        val_loader = DataLoader(
+            val_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=2,
+            collate_fn=pair_collate) if val_dataset is not None else None
+            
+        test_loader = DataLoader(
+            test_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=2,
+            collate_fn=pair_collate) if test_dataset is not None else None
+        
+        # 创建模型
+        model = MoleculeEvolutionGCNPredictor(
+            node_feature_dim=model_params["node_feature_dim"],
+            edge_feature_dim=model_params["edge_feature_dim"],
+            hidden_dim=model_params["hidden_dim"],
+            output_dim=model_params["output_dim"],
+            num_layers=model_params["num_layers"]
+        )
+        log_model_creation(logger, model)
+        
+        # 设置设备
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        log_device_info(logger, device)
+        
+        # 将模型移到设备上
+        model = model.to(device)
+        
+        # TAG 定义优化器和损失函数
+        optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=10, factor=0.5, min_lr=1e-6)
+        criterion = nn.L1Loss()
+        
+        # 创建训练指标记录器
+        metrics_recorder = TrainingMetricsRecorder()
+        
+        # 记录模型和训练参数
+        metrics_recorder.set_model_params(model_params)
+        training_params = {
+            "model_type": model_type,
+            "data_file": data_file,
+            "max_pairs": max_pairs,
+            "epochs": epochs,
+            "seed": seed,
+            "target_property": TARGET_PROPERTY,
+            "batch_size": batch_size,
+            "device": str(device),
+            "optimizer": "Adam",
+            "learning_rate": learning_rate,
+            "weight_decay": 1e-5,
+            "scheduler": "ReduceLROnPlateau",
+            "loss_function": "L1Loss",
+            "patience_limit": 50
+        }
+        metrics_recorder.set_training_params(training_params)
+        metrics_recorder.set_property_stats(property_stats)
+        
+        # 早停机制参数
+        best_val_loss = float('inf')
+        patience_counter = 0
+        patience_limit = 50
+        best_model_state = None
+        
+        # 训练循环
+        model.train()
+        for epoch in tqdm(range(epochs), desc="Training Epochs"):
+            epoch_loss = 0.0
+            for from_batch, to_batch, edge_batch, target_batch in train_loader:
+                optimizer.zero_grad()
                 
-                for from_batch, to_batch, edge_batch, target_batch in val_loader:
-                    # 移动到设备
-                    from_batch = from_batch.to(device)
-                    to_batch = to_batch.to(device)
-                    edge_batch = edge_batch.to(device)
-                    target_batch = target_batch.to(device)
-                    
-                    # 前向传播
-                    val_predictions = model(from_batch, to_batch, edge_batch)
-                    vloss = criterion(val_predictions, target_batch)
-                    val_loss += vloss.item() * target_batch.size(0)
-                    
-                    all_val_predictions.append(val_predictions)
-                    all_val_targets.append(target_batch)
-                
-                # 计算平均验证损失
-                val_loss /= len(val_dataset)
-                metrics_recorder.record_val_loss(val_loss)
-                
-                # 检查验证损失是否有NaN或inf
-                if math.isnan(val_loss) or math.isinf(val_loss):
-                    log_training_interrupted(logger, epoch, "NaN或inf验证损失值")
-                
-                # 更新学习率调度器
-                scheduler.step(val_loss)
-                
-                # 计算验证集的额外评估指标 (每10个epoch计算一次)
-                if (epoch + 1) % 10 == 0:
-                    # 合并所有验证预测和目标
-                    all_val_predictions = torch.cat(all_val_predictions, dim=0)
-                    all_val_targets = torch.cat(all_val_targets, dim=0)
-                    
-                    # RMSE
-                    val_mse = torch.mean((all_val_targets - all_val_predictions) ** 2)
-                    val_rmse = torch.sqrt(val_mse)
-                    
-                    # MAE
-                    val_mae = torch.mean(torch.abs(all_val_predictions - all_val_targets))
-                    
-                    # R²
-                    val_ss_res = torch.sum((all_val_targets - all_val_predictions) ** 2)
-                    val_ss_tot = torch.sum((all_val_targets - torch.mean(all_val_targets)) ** 2)
-                    if val_ss_tot.item() == 0:
-                        val_r2 = 0.0
-                    else:
-                        val_r2 = (1 - val_ss_res / (val_ss_tot + 1e-8)).item()
-                    
-                    # 记录验证指标
-                    metrics_recorder.record_val_metrics(epoch+1, val_loss, val_mse.item(), val_rmse.item(), val_mae.item(), val_r2)
-                    
-            model.train()
-        else:
-            val_loss = None
-        
-        # 早停机制检查
-        if val_loss is not None:
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                patience_counter = 0
-                # 保存最佳模型
-                best_model_state = model.state_dict()
-                # 记录早停信息
-                metrics_recorder.record_early_stopping(epoch+1, best_val_loss, patience_counter)
-            else:
-                patience_counter += 1
-                
-            if patience_counter >= patience_limit:
-                log_early_stopping(logger, epoch)
-                # 恢复最佳模型状态
-                model.load_state_dict(best_model_state)
-                break
-        
-        # 每10个epoch输出一次信息
-        if (epoch + 1) % 10 == 0:
-            metrics_recorder.log_epoch_progress(logger, epoch, epochs, epoch_loss, val_loss, log_epoch_progress=log_epoch_progress)
-    
-    log_training_start_message(logger, epochs)
-
-    # 测试阶段
-    if test_loader is not None:
-        model.eval()
-        with torch.no_grad():
-            all_test_predictions = []
-            all_test_targets = []
-            
-            for from_batch, to_batch, edge_batch, target_batch in test_loader:
                 # 移动到设备
                 from_batch = from_batch.to(device)
                 to_batch = to_batch.to(device)
                 edge_batch = edge_batch.to(device)
+                target_batch = target_batch.to(device)
                 
                 # 前向传播
-                test_predictions = model(from_batch, to_batch, edge_batch)
-                all_test_predictions.append(test_predictions.cpu())
-                all_test_targets.append(target_batch.cpu())
+                predictions = model(from_batch, to_batch, edge_batch)
+                
+                # 计算训练损失
+                train_loss = criterion(predictions, target_batch)
+                
+                # 检查是否有NaN或inf值
+                if math.isnan(train_loss.item()) or math.isinf(train_loss.item()):
+                    log_training_interrupted(logger, epoch)
+                    break
+                
+                # 反向传播
+                train_loss.backward()
+                
+                # 梯度裁剪，防止梯度爆炸
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                
+                optimizer.step()
+                
+                epoch_loss += train_loss.item() * target_batch.size(0)
             
-            # 合并所有测试预测和目标
-            test_predictions = torch.cat(all_test_predictions, dim=0).to(device)
-            test_targets = torch.cat(all_test_targets, dim=0).to(device)
+            # 计算平均epoch损失
+            epoch_loss /= len(train_dataset)
+            metrics_recorder.record_train_loss(epoch_loss)
             
-            # criterion = nn.MSELoss()
-            criterion = nn.L1Loss()
-            test_loss = criterion(test_predictions, test_targets)
+            # 每100轮保存一次checkpoint
+            if (epoch + 1) % 100 == 0:
+                checkpoint_path = os.path.join(model_dir, f"checkpoint_epoch_{epoch+1}.pth")
+                torch.save({
+                    'epoch': epoch + 1,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'train_loss': epoch_loss,
+                    'best_val_loss': best_val_loss,
+                    'patience_counter': patience_counter,
+                }, checkpoint_path)
+                log_checkpoint_saved(logger, checkpoint_path)
             
-            # 计算额外的评估指标
-            # RMSE (Root Mean Square Error)
-            mse = torch.mean((test_predictions - test_targets) ** 2)
-            rmse = torch.sqrt(mse)
-            
-            # MAE (Mean Absolute Error)
-            mae = torch.mean(torch.abs(test_predictions - test_targets))
-            
-            # R² (Coefficient of Determination) - 增强数值稳定性
-            ss_res = torch.sum((test_targets - test_predictions) ** 2)
-            ss_tot = torch.sum((test_targets - torch.mean(test_targets)) ** 2)
-            
-            # 添加数值稳定性检查
-            if ss_tot.item() == 0:
-                r2 = 0.0
+            # STAGE 验证阶段
+            if val_loader is not None:
+                model.eval()
+                with torch.no_grad():
+                    val_loss = 0.0
+                    all_val_predictions = []
+                    all_val_targets = []
+                    
+                    for from_batch, to_batch, edge_batch, target_batch in val_loader:
+                        # 移动到设备
+                        from_batch = from_batch.to(device)
+                        to_batch = to_batch.to(device)
+                        edge_batch = edge_batch.to(device)
+                        target_batch = target_batch.to(device)
+                        
+                        # 前向传播
+                        val_predictions = model(from_batch, to_batch, edge_batch)
+                        vloss = criterion(val_predictions, target_batch)
+                        val_loss += vloss.item() * target_batch.size(0)
+                        
+                        all_val_predictions.append(val_predictions)
+                        all_val_targets.append(target_batch)
+                    
+                    # 计算平均验证损失
+                    val_loss /= len(val_dataset)
+                    metrics_recorder.record_val_loss(val_loss)
+                    
+                    # 检查验证损失是否有NaN或inf
+                    if math.isnan(val_loss) or math.isinf(val_loss):
+                        log_training_interrupted(logger, epoch, "NaN或inf验证损失值")
+                    
+                    # 更新学习率调度器
+                    scheduler.step(val_loss)
+                    
+                    # 计算验证集的额外评估指标 (每10个epoch计算一次)
+                    if (epoch + 1) % 10 == 0:
+                        # 合并所有验证预测和目标
+                        all_val_predictions = torch.cat(all_val_predictions, dim=0)
+                        all_val_targets = torch.cat(all_val_targets, dim=0)
+                        
+                        # RMSE
+                        val_mse = torch.mean((all_val_targets - all_val_predictions) ** 2)
+                        val_rmse = torch.sqrt(val_mse)
+                        
+                        # MAE
+                        val_mae = torch.mean(torch.abs(all_val_predictions - all_val_targets))
+                        
+                        # R²
+                        val_ss_res = torch.sum((all_val_targets - all_val_predictions) ** 2)
+                        val_ss_tot = torch.sum((all_val_targets - torch.mean(all_val_targets)) ** 2)
+                        if val_ss_tot.item() == 0:
+                            val_r2 = 0.0
+                        else:
+                            val_r2 = (1 - val_ss_res / (val_ss_tot + 1e-8)).item()
+                        
+                        # 记录验证指标
+                        metrics_recorder.record_val_metrics(epoch+1, val_loss, val_mse.item(), val_rmse.item(), val_mae.item(), val_r2)
+                        
+                model.train()
             else:
-                r2 = (1 - ss_res / (ss_tot + 1e-8)).item()
+                val_loss = None
             
-            # 阈值准确率评估
-            thresholds = [0.4, 0.3, 0.2, 0.1, 0.05]
-            threshold_accs = {}
+            # 早停机制检查
+            if val_loss is not None:
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    patience_counter = 0
+                    # 保存最佳模型
+                    best_model_state = model.state_dict()
+                    # 记录早停信息
+                    metrics_recorder.record_early_stopping(epoch+1, best_val_loss, patience_counter)
+                else:
+                    patience_counter += 1
+                    
+                if patience_counter >= patience_limit:
+                    log_early_stopping(logger, epoch)
+                    # 恢复最佳模型状态
+                    model.load_state_dict(best_model_state)
+                    break
             
-            for th in thresholds:
-                # 计算满足阈值的样本比例
-                correct = (torch.abs(test_predictions - test_targets) < th).float()
-                threshold_accs[th] = correct.mean().item()
-            
-            # 保存模型
-            model_filename = "molecule_evolution_gcn_v0_mu_predictor.pth"
-            model_path = os.path.join(model_dir, model_filename)
-            torch.save(model.state_dict(), model_path)
-            
-            # 记录测试指标
-            dataset_info = {
-                "train_size": len(train_idx),
-                "val_size": len(val_idx),
-                "test_size": len(test_idx)
-            }
-            
-            metrics_recorder.record_test_metrics(
-                test_loss=test_loss.item(), rmse=rmse.item(), mae=mae.item(), 
-                r2=r2, threshold_accs=threshold_accs, dataset_info=dataset_info)
-            
-            # 准备测试指标数据
-            test_metrics = {
-                "test_loss": test_loss.item(),
-                "rmse": rmse.item(),
-                "mae": mae.item(),
-                "r2": r2,
-                "threshold_accs": threshold_accs,
-                "dataset_info": {
+            # 每10个epoch输出一次信息
+            if (epoch + 1) % 10 == 0:
+                metrics_recorder.log_epoch_progress(logger, epoch, epochs, epoch_loss, val_loss, log_epoch_progress=log_epoch_progress)
+        
+        log_training_start_message(logger, epochs)
+
+        # 测试阶段
+        if test_loader is not None:
+            model.eval()
+            with torch.no_grad():
+                all_test_predictions = []
+                all_test_targets = []
+                
+                for from_batch, to_batch, edge_batch, target_batch in test_loader:
+                    # 移动到设备
+                    from_batch = from_batch.to(device)
+                    to_batch = to_batch.to(device)
+                    edge_batch = edge_batch.to(device)
+                    
+                    # 前向传播
+                    test_predictions = model(from_batch, to_batch, edge_batch)
+                    all_test_predictions.append(test_predictions.cpu())
+                    all_test_targets.append(target_batch.cpu())
+                
+                # 合并所有测试预测和目标
+                test_predictions = torch.cat(all_test_predictions, dim=0).to(device)
+                test_targets = torch.cat(all_test_targets, dim=0).to(device)
+                
+                # criterion = nn.MSELoss()
+                criterion = nn.L1Loss()
+                test_loss = criterion(test_predictions, test_targets)
+                
+                # 计算额外的评估指标
+                # RMSE (Root Mean Square Error)
+                mse = torch.mean((test_predictions - test_targets) ** 2)
+                rmse = torch.sqrt(mse)
+                
+                # MAE (Mean Absolute Error)
+                mae = torch.mean(torch.abs(test_predictions - test_targets))
+                
+                # R² (Coefficient of Determination) - 增强数值稳定性
+                ss_res = torch.sum((test_targets - test_predictions) ** 2)
+                ss_tot = torch.sum((test_targets - torch.mean(test_targets)) ** 2)
+                
+                # 添加数值稳定性检查
+                if ss_tot.item() == 0:
+                    r2 = 0.0
+                else:
+                    r2 = (1 - ss_res / (ss_tot + 1e-8)).item()
+                
+                # 阈值准确率评估
+                thresholds = [0.4, 0.3, 0.2, 0.1, 0.05]
+                threshold_accs = {}
+                
+                for th in thresholds:
+                    # 计算满足阈值的样本比例
+                    correct = (torch.abs(test_predictions - test_targets) < th).float()
+                    threshold_accs[th] = correct.mean().item()
+                
+                # 保存模型
+                model_filename = "molecule_evolution_gcn_v0_mu_predictor.pth"
+                model_path = os.path.join(model_dir, model_filename)
+                torch.save(model.state_dict(), model_path)
+                
+                # 记录测试指标
+                dataset_info = {
                     "train_size": len(train_idx),
                     "val_size": len(val_idx),
                     "test_size": len(test_idx)
                 }
-            }
-            
-            # 保存训练数据为JSON格式，包含训练参数
-            training_params = {
-                "data_file": data_file,
-                "max_pairs": max_pairs,
-                "epochs": epochs,
-                "seed": seed,
-                "target_property": TARGET_PROPERTY,
-                "batch_size": batch_size,
-                "device": str(device),
-                "optimizer": "Adam",
-                "learning_rate": learning_rate,
-                "weight_decay": 1e-5,
-                "scheduler": "ReduceLROnPlateau",
-                "loss_function": "L1Loss",
-                "patience_limit": patience_limit
-            }
-            save_training_data_as_json(
-                metrics_recorder.train_losses, metrics_recorder.val_losses, test_metrics, 
-                model_dir, model_params, training_params=training_params, 
-                property_stats=property_stats, val_metrics_history=metrics_recorder.val_metrics_history)
-            
-            # 生成训练趋势图
-            plot_training_trends(
-                metrics_recorder.train_losses, metrics_recorder.val_losses,
-                metrics_recorder.val_r2s, metrics_recorder.val_maes, model_dir)
-            
-            # 记录完整评估结果到日志
-            log_training_metrics(
-                logger, metrics_recorder.train_losses, metrics_recorder.val_losses,
-                test_loss, rmse, mae, r2, threshold_accs)
-            log_model_saved(logger, model_path)
-            log_training_summary(logger, metrics_recorder.train_losses, metrics_recorder.val_losses)
-            log_training_completion(
-                logger, metrics_recorder.train_losses, metrics_recorder.val_losses, 
-                test_loss, rmse, mae, r2, threshold_accs, None, None, None, model_path)
+                
+                metrics_recorder.record_test_metrics(
+                    test_loss=test_loss.item(), rmse=rmse.item(), mae=mae.item(), 
+                    r2=r2, threshold_accs=threshold_accs, dataset_info=dataset_info)
+                
+                # 准备测试指标数据
+                test_metrics = {
+                    "test_loss": test_loss.item(),
+                    "rmse": rmse.item(),
+                    "mae": mae.item(),
+                    "r2": r2,
+                    "threshold_accs": threshold_accs,
+                    "dataset_info": {
+                        "train_size": len(train_idx),
+                        "val_size": len(val_idx),
+                        "test_size": len(test_idx)
+                    }
+                }
+                
+                # 保存训练数据为JSON格式，包含训练参数
+                training_params = {
+                    "data_file": data_file,
+                    "max_pairs": max_pairs,
+                    "epochs": epochs,
+                    "seed": seed,
+                    "target_property": TARGET_PROPERTY,
+                    "batch_size": batch_size,
+                    "device": str(device),
+                    "optimizer": "Adam",
+                    "learning_rate": learning_rate,
+                    "weight_decay": 1e-5,
+                    "scheduler": "ReduceLROnPlateau",
+                    "loss_function": "L1Loss",
+                    "patience_limit": patience_limit
+                }
+                save_training_data_as_json(
+                    metrics_recorder.train_losses, metrics_recorder.val_losses, test_metrics, 
+                    model_dir, model_params, training_params=training_params, 
+                    property_stats=property_stats, val_metrics_history=metrics_recorder.val_metrics_history)
+                
+                # 生成训练趋势图
+                plot_training_trends(
+                    metrics_recorder.train_losses, metrics_recorder.val_losses,
+                    metrics_recorder.val_r2s, metrics_recorder.val_maes, model_dir)
+                
+                # 记录完整评估结果到日志
+                log_training_metrics(
+                    logger, metrics_recorder.train_losses, metrics_recorder.val_losses,
+                    test_loss, rmse, mae, r2, threshold_accs)
+                log_model_saved(logger, model_path)
+                log_training_summary(logger, metrics_recorder.train_losses, metrics_recorder.val_losses)
+                log_training_completion(
+                    logger, metrics_recorder.train_losses, metrics_recorder.val_losses, 
+                    test_loss, rmse, mae, r2, threshold_accs, None, None, None, model_path)
+                
+    except KeyboardInterrupt:
+        logger.info("\n训练被用户中断 (Ctrl+C)")
+        choice = input("是否要清理模型目录 {}? (Y/n): ".format(model_dir)).strip().lower()
+        if choice in ['Y', 'yes']:
+            logger.info("正在清理模型目录...")
+            shutil.rmtree(model_dir)
+            logger.info("模型目录已清理")
+        else:
+            logger.info("保留模型目录和文件")
+        sys.exit(0)
 
 
 def main():

@@ -21,6 +21,7 @@ from datetime import datetime
 import json
 import matplotlib.pyplot as plt
 import logging
+import shutil
 
 """ BASE SETTINGS """
 
@@ -366,181 +367,193 @@ def train_model(data_file: str, model_type: str, max_pairs: int = None, epochs: 
     logger = setup_logger(model_dir)
     log_training_start(logger, data_file, max_pairs, epochs)
     
-    # 构建图数据
-    data, smiles_to_idx, property_stats = build_molecule_graph_with_fingerprints(data_file, max_pairs)
-    
-    # 对于RGCN模型，需要添加edge_type属性
-    if model_type == 'rgcn':
-        data = add_edge_types_to_data(data, data_file, max_pairs)
-        logger.info("已为RGCN模型添加edge_type属性")
-    
-    # 过滤属性统计信息，只保留选定属性的统计信息
-    filtered_property_stats = filter_property_stats(property_stats, property_names)
-    
-    # 准备属性变化目标
-    if normalize:
-        # 修改prepare_property_change_targets以支持选定属性
-        target_features = prepare_property_change_targets_selected(data_file, filtered_property_stats, max_pairs, property_names)
-    else:
-        target_features = prepare_property_change_targets_no_standardization(data_file, max_pairs, property_names)
-        # 创建空的属性统计信息，表示未进行标准化
-        filtered_property_stats = {}
-    
-    log_data_construction(logger, data_file, data, target_features)
-    
-    # 划分数据集
-    train_idx, val_idx, test_idx = split_data_indices(data.num_edges, 0.7, 0.2, 0.1, seed)
-    
-    log_dataset_split(logger, data, train_idx, val_idx, test_idx)
-    
-    # 显示部分数据样本用于查验
-    display_sample_data(data_file, data, target_features, train_idx, val_idx, property_names)
-    
-    # 创建模型
-    model = create_model(model_type, model_params)
-    
-    log_model_creation(logger, model)
-    
-    # 训练模型
-    log_training_start_message(logger, epochs)
-    train_losses, val_losses, val_r2s, val_maes = train_gnn_model(
-        model, data, target_features,
-        epochs=epochs, lr=0.001, train_idx=train_idx, val_idx=val_idx, logger=logger
-    )
-    
-    # 设置设备
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
-    # 将模型和数据移动到设备
-    model = model.to(device)
-    data = data.to(device)
-    target_features = target_features.to(device)
-
-    # 测试阶段
-    model.eval()
-    with torch.no_grad():
-        predictions = model(data)
-        criterion = nn.MSELoss()
-        test_loss = criterion(predictions[test_idx], target_features[test_idx])
+    try:
+        # 构建图数据
+        data, smiles_to_idx, property_stats = build_molecule_graph_with_fingerprints(data_file, max_pairs)
         
-        # 计算额外的评估指标
-        test_predictions = predictions[test_idx]
-        test_targets = target_features[test_idx]
+        # 对于RGCN模型，需要添加edge_type属性
+        if model_type == 'rgcn':
+            data = add_edge_types_to_data(data, data_file, max_pairs)
+            logger.info("已为RGCN模型添加edge_type属性")
         
-        # RMSE (Root Mean Square Error)
-        mse = torch.mean((test_predictions - test_targets) ** 2)
-        rmse = torch.sqrt(mse)
+        # 过滤属性统计信息，只保留选定属性的统计信息
+        filtered_property_stats = filter_property_stats(property_stats, property_names)
         
-        # MAE (Mean Absolute Error)
-        mae = torch.mean(torch.abs(test_predictions - test_targets))
-        
-        # R² (Coefficient of Determination) - 增强数值稳定性
-        ss_res = torch.sum((test_targets - test_predictions) ** 2, dim=0)  # 按维度计算
-        ss_tot = torch.sum((test_targets - torch.mean(test_targets, dim=0)) ** 2, dim=0)  # 按维度计算
-        
-        # 添加数值稳定性检查
-        # 对于每个维度，如果ss_tot为0，则R²为0；否则计算1 - ss_res/ss_tot
-        # 添加小的epsilon值提高数值稳定性
-        r2 = torch.ones_like(ss_res)  # 默认为1
-        non_zero_mask = ss_tot != 0
-        r2[non_zero_mask] = 1 - ss_res[non_zero_mask] / (ss_tot[non_zero_mask] + 1e-8)
-        
-        # 如果只有一个属性，则取标量值
-        if r2.numel() == 1:
-            r2 = r2.item()
+        # 准备属性变化目标
+        if normalize:
+            # 修改prepare_property_change_targets以支持选定属性
+            target_features = prepare_property_change_targets_selected(data_file, filtered_property_stats, max_pairs, property_names)
         else:
-            r2 = r2.mean().item()  # 多个属性时取平均
+            target_features = prepare_property_change_targets_no_standardization(data_file, max_pairs, property_names)
+            # 创建空的属性统计信息，表示未进行标准化
+            filtered_property_stats = {}
         
-        # 阈值准确率评估
-        thresholds = [0.4, 0.3, 0.2, 0.1, 0.05]
-        threshold_accs = {}
+        log_data_construction(logger, data_file, data, target_features)
         
-        # 计算各维度阈值准确率
-        dimension_accuracies = {}
-        for th in thresholds:
-            # 计算所有维度同时满足阈值的样本比例
-            all_dims_correct = (torch.abs(test_predictions - test_targets) < th).all(dim=1).float()
-            threshold_accs[f'all_{th}'] = all_dims_correct.mean().item()
-            
-            # 计算整体平均准确率（每个维度单独计算然后平均）
-            dim_correct = (torch.abs(test_predictions - test_targets) < th).float()
-            threshold_accs[f'mean_{th}'] = dim_correct.mean().item()
-            
-            # 保存各维度的准确率
-            dimension_accuracies[th] = dim_correct.mean(dim=0).cpu().numpy()
+        # 划分数据集
+        train_idx, val_idx, test_idx = split_data_indices(data.num_edges, 0.7, 0.2, 0.1, seed)
         
-        # 如果进行了标准化，则反标准化预测结果和目标值以获得原始尺度的评估指标
-        if normalize and filtered_property_stats:
-            original_predictions = inverse_standardize(test_predictions, filtered_property_stats)
-            original_targets = inverse_standardize(test_targets, filtered_property_stats)
+        log_dataset_split(logger, data, train_idx, val_idx, test_idx)
+        
+        # 显示部分数据样本用于查验
+        display_sample_data(data_file, data, target_features, train_idx, val_idx, property_names)
+        
+        # 创建模型
+        model = create_model(model_type, model_params)
+        
+        log_model_creation(logger, model)
+        
+        # 训练模型
+        log_training_start_message(logger, epochs)
+        train_losses, val_losses, val_r2s, val_maes = train_gnn_model(
+            model, data, target_features,
+            epochs=epochs, lr=0.001, train_idx=train_idx, val_idx=val_idx, logger=logger
+        )
+        
+        # 设置设备
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        
+        # 将模型和数据移动到设备
+        model = model.to(device)
+        data = data.to(device)
+        target_features = target_features.to(device)
+
+        # 测试阶段
+        model.eval()
+        with torch.no_grad():
+            predictions = model(data)
+            criterion = nn.MSELoss()
+            test_loss = criterion(predictions[test_idx], target_features[test_idx])
             
-            # 在原始尺度上计算评估指标
-            orig_mse = torch.mean((original_predictions - original_targets) ** 2)
-            orig_rmse = torch.sqrt(orig_mse)
-            orig_mae = torch.mean(torch.abs(original_predictions - original_targets))
+            # 计算额外的评估指标
+            test_predictions = predictions[test_idx]
+            test_targets = target_features[test_idx]
             
-            # 在原始尺度上计算R²
-            orig_ss_res = torch.sum((original_targets - original_predictions) ** 2)
-            orig_ss_tot = torch.sum((original_targets - torch.mean(original_targets)) ** 2)
-            if orig_ss_tot.item() == 0:
-                orig_r2 = 0.0
+            # RMSE (Root Mean Square Error)
+            mse = torch.mean((test_predictions - test_targets) ** 2)
+            rmse = torch.sqrt(mse)
+            
+            # MAE (Mean Absolute Error)
+            mae = torch.mean(torch.abs(test_predictions - test_targets))
+            
+            # R² (Coefficient of Determination) - 增强数值稳定性
+            ss_res = torch.sum((test_targets - test_predictions) ** 2, dim=0)  # 按维度计算
+            ss_tot = torch.sum((test_targets - torch.mean(test_targets, dim=0)) ** 2, dim=0)  # 按维度计算
+            
+            # 添加数值稳定性检查
+            # 对于每个维度，如果ss_tot为0，则R²为0；否则计算1 - ss_res/ss_tot
+            # 添加小的epsilon值提高数值稳定性
+            r2 = torch.ones_like(ss_res)  # 默认为1
+            non_zero_mask = ss_tot != 0
+            r2[non_zero_mask] = 1 - ss_res[non_zero_mask] / (ss_tot[non_zero_mask] + 1e-8)
+            
+            # 如果只有一个属性，则取标量值
+            if r2.numel() == 1:
+                r2 = r2.item()
             else:
-                orig_r2 = (1 - orig_ss_res / (orig_ss_tot + 1e-8)).item()
+                r2 = r2.mean().item()  # 多个属性时取平均
             
-            log_original_scale_metrics(logger, orig_mse, orig_rmse, orig_mae)
-        else:
-            # 如果没有标准化，则原始尺度的指标就是标准化后的指标
-            orig_mse = mse
-            orig_rmse = rmse
-            orig_mae = mae
-            # 对于未标准化的数据，我们不计算原始尺度的R²，因为这没有意义
+            # 阈值准确率评估
+            thresholds = [0.4, 0.3, 0.2, 0.1, 0.05]
+            threshold_accs = {}
+            
+            # 计算各维度阈值准确率
+            dimension_accuracies = {}
+            for th in thresholds:
+                # 计算所有维度同时满足阈值的样本比例
+                all_dims_correct = (torch.abs(test_predictions - test_targets) < th).all(dim=1).float()
+                threshold_accs[f'all_{th}'] = all_dims_correct.mean().item()
+                
+                # 计算整体平均准确率（每个维度单独计算然后平均）
+                dim_correct = (torch.abs(test_predictions - test_targets) < th).float()
+                threshold_accs[f'mean_{th}'] = dim_correct.mean().item()
+                
+                # 保存各维度的准确率
+                dimension_accuracies[th] = dim_correct.mean(dim=0).cpu().numpy()
+            
+            # 如果进行了标准化，则反标准化预测结果和目标值以获得原始尺度的评估指标
+            if normalize and filtered_property_stats:
+                original_predictions = inverse_standardize(test_predictions, filtered_property_stats)
+                original_targets = inverse_standardize(test_targets, filtered_property_stats)
+                
+                # 在原始尺度上计算评估指标
+                orig_mse = torch.mean((original_predictions - original_targets) ** 2)
+                orig_rmse = torch.sqrt(orig_mse)
+                orig_mae = torch.mean(torch.abs(original_predictions - original_targets))
+                
+                # 在原始尺度上计算R²
+                orig_ss_res = torch.sum((original_targets - original_predictions) ** 2)
+                orig_ss_tot = torch.sum((original_targets - torch.mean(original_targets)) ** 2)
+                if orig_ss_tot.item() == 0:
+                    orig_r2 = 0.0
+                else:
+                    orig_r2 = (1 - orig_ss_res / (orig_ss_tot + 1e-8)).item()
+                
+                log_original_scale_metrics(logger, orig_mse, orig_rmse, orig_mae)
+            else:
+                # 如果没有标准化，则原始尺度的指标就是标准化后的指标
+                orig_mse = mse
+                orig_rmse = rmse
+                orig_mae = mae
+                # 对于未标准化的数据，我们不计算原始尺度的R²，因为这没有意义
 
-        # 使用表格形式展示各维度阈值准确率
-        print_table_accuracy(dimension_accuracies, thresholds, property_names, logger)
-        
-        # 保存模型
-        model_filename = f"molecule_evolution_{model_type}_predictor.pth"
-        model_path = os.path.join(model_dir, model_filename)
-        torch.save(model.state_dict(), model_path)
-        
-        # 准备测试指标数据
-        test_metrics = {
-            "test_loss": test_loss.item(),
-            "rmse": rmse.item(),
-            "mae": mae.item(),
-            "r2": r2,
-            "threshold_accs": threshold_accs,
-            "dimension_accuracies": {str(th): acc.tolist() for th, acc in dimension_accuracies.items()},
-            "original_scale_metrics": {
-                "mse": orig_mse.item(),
-                "rmse": orig_rmse.item(),
-                "mae": orig_mae.item()
-            },
-            "dataset_info": {
-                "train_size": len(train_idx),
-                "val_size": len(val_idx),
-                "test_size": len(test_idx)
+            # 使用表格形式展示各维度阈值准确率
+            print_table_accuracy(dimension_accuracies, thresholds, property_names, logger)
+            
+            # 保存模型
+            model_filename = f"molecule_evolution_{model_type}_predictor.pth"
+            model_path = os.path.join(model_dir, model_filename)
+            torch.save(model.state_dict(), model_path)
+            
+            # 准备测试指标数据
+            test_metrics = {
+                "test_loss": test_loss.item(),
+                "rmse": rmse.item(),
+                "mae": mae.item(),
+                "r2": r2,
+                "threshold_accs": threshold_accs,
+                "dimension_accuracies": {str(th): acc.tolist() for th, acc in dimension_accuracies.items()},
+                "original_scale_metrics": {
+                    "mse": orig_mse.item(),
+                    "rmse": orig_rmse.item(),
+                    "mae": orig_mae.item()
+                },
+                "dataset_info": {
+                    "train_size": len(train_idx),
+                    "val_size": len(val_idx),
+                    "test_size": len(test_idx)
+                }
             }
-        }
-        
-        # 保存训练数据为JSON格式，包含属性统计信息，包含训练参数
-        training_params = {
-            "data_file": data_file,
-            "max_pairs": max_pairs,
-            "epochs": epochs,
-            "seed": seed,
-            "normalize": normalize,
-            "selected_properties": selected_properties
-        }
-        save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir, model_params, training_params, filtered_property_stats)
-        
-        # 生成训练趋势图
-        plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir)
-        
-        # 记录完整评估结果到日志
-        log_training_completion(logger, train_losses, val_losses, test_loss, rmse, mae, r2,
-                               threshold_accs, orig_mse, orig_rmse, orig_mae, model_path)
-        return model, train_losses, val_losses
+            
+            # 保存训练数据为JSON格式，包含属性统计信息，包含训练参数
+            training_params = {
+                "data_file": data_file,
+                "max_pairs": max_pairs,
+                "epochs": epochs,
+                "seed": seed,
+                "normalize": normalize,
+                "selected_properties": selected_properties
+            }
+            save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir, model_params, training_params, filtered_property_stats)
+            
+            # 生成训练趋势图
+            plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir)
+            
+            # 记录完整评估结果到日志
+            log_training_completion(logger, train_losses, val_losses, test_loss, rmse, mae, r2,
+                                   threshold_accs, orig_mse, orig_rmse, orig_mae, model_path)
+            return model, train_losses, val_losses
+            
+    except KeyboardInterrupt:
+        logger.info("\n训练被用户中断 (Ctrl+C)")
+        choice = input("是否要清理模型目录 {}? (y/N): ".format(model_dir)).strip().lower()
+        if choice in ['y', 'yes']:
+            logger.info("正在清理模型目录...")
+            shutil.rmtree(model_dir)
+            logger.info("模型目录已清理")
+        else:
+            logger.info("保留模型目录和文件")
+        sys.exit(0)
 
 
 def main():
