@@ -534,8 +534,16 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                         float_threshold -= threshold_scale
                 
                 # 保存模型
-                model_filename = "molecule_evolution_gcn_v0_mu_predictor.pth"
+                model_filename = "last.pth"
                 model_path = os.path.join(model_dir, model_filename)
+                
+                # 添加调试日志，输出模型参数的前一小部分
+                logger.info("Debug: 模型参数前10个值:")
+                state_dict = model.state_dict()
+                for name, param in list(state_dict.items())[:3]:  # 取前几个参数
+                    values = param.flatten()[:10]  # 取前10个值
+                    logger.info(f"Debug: 参数 {name} (shape: {param.shape}) => 前10个值: {values.tolist()}")
+                
                 torch.save(model.state_dict(), model_path)
                 
                 # 记录测试指标

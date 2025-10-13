@@ -2,7 +2,7 @@
 
 ```bash
 CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --max-pairs 50 --epochs 20
-CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --max-pairs 2000 --epochs 500
+CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --max-pairs 2000 --epochs 100
 
 CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --max-pairs 30000 --epochs 500 -lr 0.001 --batch-size 1024
 
@@ -20,5 +20,10 @@ python mol_evo/predict_v0.py --csv-file mol_evo/dataset/data/qm9-evo-pairs-step-
 ```bash
 python mol_evo/predict_v0.py --csv-file mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.csv --num-samples 200 --prediction-mode standardized
 
-python mol_evo/predict_v0.py --csv-file mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.csv --num-samples 30000 --prediction-mode standardized
+python mol_evo/predict_v0.py --csv-file mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.csv --num-samples 30000
+```
+
+3. same test
+```bash
+cd /home/data2/rhj/project/mol_editor && python mol_evo/predict_testset.py --model-path /home/data2/rhj/project/mol_editor/mol_evo/output/v0/gcn/train-20251012_230612-mu_change-30000-500/molecule_evolution_gcn_v0_mu_predictor.pth --model-dir /home/data2/rhj/project/mol_editor/mol_evo/output/v0/gcn/train-20251012_230612-mu_change-30000-500 --data-file /home/data2/rhj/project/mol_editor/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.csv -mpairs 30000 --seed 12420
 ```
