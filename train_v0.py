@@ -12,7 +12,6 @@ import torch
 import pandas as pd
 import numpy as np
 import math
-from torch_geometric.data import Data
 from torch.utils.data import Dataset
 from torch_geometric.loader import DataLoader
 
@@ -30,7 +29,7 @@ model_params = {
     "edge_feature_dim": 11,   # 保持不变
     "hidden_dim": 128,
     "output_dim": 1,  # 单属性预测
-    "num_layers": 2  # INFO 现阶段默认都是 2 层
+    "num_layers": 3  # INFO 现阶段默认都是 3 层
 }
 
 # 目标属性名称 - 默认值，将被命令行参数覆盖
@@ -45,7 +44,7 @@ sys.path.insert(0, project_root)
 try:
     from mol_evo.core.models.v0.gcn import MoleculeEvolutionGCNPredictor
     from mol_evo.core.utils.molecule import MoleculeCache
-    from mol_evo.core.data.processing import prepare_edge_features
+    from mol_evo.core.data.data_v0 import smiles_to_graph_data, prepare_edge_features
     from mol_evo.utils.training_utils import (
         split_data_indices, 
         save_training_data_as_json, 
@@ -67,7 +66,6 @@ try:
         log_epoch_progress,
         log_training_metrics,
         log_model_saved,
-        log_training_summary
     )
     from mol_evo.utils.training_metrics import TrainingMetricsRecorder  # 新增导入
 except ImportError as e:
@@ -105,34 +103,6 @@ def pair_collate(batch):
     target_batch = torch.stack(target_list, dim=0)      # (B, 1)
 
     return from_batch, to_batch, edge_batch, target_batch
-
-
-def smiles_to_graph_data(smiles, cache):
-    """
-    将SMILES字符串转换为图数据（使用项目中的实际函数）
-    参考文档: mol_evo/docs/model-v0/data_preprocessing_and_usage.md
-    
-    Args:
-        smiles (str): SMILES字符串
-        cache (MoleculeCache): 分子缓存实例
-    
-    Returns:
-        Data: PyTorch Geometric Data对象
-    """
-    # 定义原子类型映射
-    types = {'H': 0, 'C': 1, 'N': 2, 'O': 3, 'F': 4}
-    
-    # 使用项目中的函数将SMILES转换为图结构
-    x, z, pos, edge_index, edge_attr = cache.process_smiles(smiles, types)
-    
-    # 检查转换是否成功
-    if x is None:
-        print(f"无法处理SMILES: {smiles}")
-        return None
-    
-    # 创建图数据对象
-    data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
-    return data
 
 
 def build_molecule_evolution_dataset_v0(csv_file: str, max_pairs: int = None, 
@@ -181,7 +151,7 @@ def build_molecule_evolution_dataset_v0(csv_file: str, max_pairs: int = None,
     target_features = torch.FloatTensor(np.array(target_features))
     
     # 创建分子缓存实例，并传入logger
-    cache = MoleculeCache("training_dataset", logger=logger)
+    cache = MoleculeCache(csv_file=csv_file, logger=logger)    # UPDATE 避免缓存破坏
     
     # 构建分子数据列表
     from_data_list = []
@@ -241,7 +211,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
     """
     # train-data 存储位置
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    # 修改模型目录命名规则为: train_{TARGET-ATTR}_{max-pairs}_{epoches}_{TIMESTAMP}
+    # 模型目录命名规则: train_{TIMESTAMP}_{TARGET-ATTR}_{max-pairs}_{epoches}
     dir_name = f"train-{timestamp}-{TARGET_PROPERTY}-{max_pairs}-{epochs}"
     model_dir = os.path.join(project_root, 'mol_evo', 'output', 'v0', model_type, dir_name)
     os.makedirs(model_dir, exist_ok=True)
@@ -251,7 +221,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
     log_training_start(logger, data_file, max_pairs, epochs)
     
     try:
-        # 构建图数据 - 使用新的数据处理方法
+        # STAGE 构建图数据 - 使用新的数据处理方法
         logger.info(f"正在构建图数据: {data_file}")  # 默认输出到控制台和文件
         from_data_list, to_data_list, edge_attrs, target_features, property_stats = build_molecule_evolution_dataset_v0(
             data_file, max_pairs, TARGET_PROPERTY, logger)
@@ -285,7 +255,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
             edge_attrs[test_idx],
             target_features[test_idx]) if len(test_idx) > 0 else None
         
-        # 创建DataLoader
+        # 创建 DataLoader
         train_loader = DataLoader(
             train_dataset,
             batch_size=batch_size,
@@ -360,7 +330,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         patience_limit = 50
         best_model_state = None
         
-        # 训练循环
+        # STAGE 训练循环
         model.train()
         for epoch in tqdm(range(epochs), desc="Training Epochs"):
             epoch_loss = 0.0
@@ -497,7 +467,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         
         log_training_start_message(logger, epochs)
 
-        # 测试阶段
+        # STAGE 测试阶段
         if test_loader is not None:
             model.eval()
             with torch.no_grad():
@@ -541,14 +511,27 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                 else:
                     r2 = (1 - ss_res / (ss_tot + 1e-8)).item()
                 
-                # 阈值准确率评估
-                thresholds = [0.4, 0.3, 0.2, 0.1, 0.05]
-                threshold_accs = {}
-                
-                for th in thresholds:
-                    # 计算满足阈值的样本比例
-                    correct = (torch.abs(test_predictions - test_targets) < th).float()
-                    threshold_accs[th] = correct.mean().item()
+                # TAG 阈值准确率评估：在标准化情况下，阈值表示标准差的倍数
+                float_threshold = 0.5           #初始阈值
+                threshold_scale = 0.1           #阈值数量级记录
+
+                accuracy = 1.0                  #上一轮准确率
+                target_accuracy = 0.5           #目标准确率
+                threshold_accuracies = {}       #阈值-准确率映射
+
+                #动态调整阈值以计算不同阈值下的准确率
+                while accuracy > target_accuracy:
+                    #计算预测值与真实值差异小于当前阈值的样本比例
+                    correct_predictions = (torch.abs(test_predictions - test_targets) < float_threshold).float()
+                    accuracy = correct_predictions.mean().item()
+                    threshold_accuracies[float_threshold] = accuracy
+
+                    #动态调整阈值：在同一数量级内递减，达到边界后进入下一更小数量级（1.1 防 float-th 的浮点数溢出）
+                    if float_threshold <= threshold_scale * 1.1:
+                        threshold_scale /= 10
+                        float_threshold /= 2
+                    else:
+                        float_threshold -= threshold_scale
                 
                 # 保存模型
                 model_filename = "molecule_evolution_gcn_v0_mu_predictor.pth"
@@ -564,7 +547,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                 
                 metrics_recorder.record_test_metrics(
                     test_loss=test_loss.item(), rmse=rmse.item(), mae=mae.item(), 
-                    r2=r2, threshold_accs=threshold_accs, dataset_info=dataset_info)
+                    r2=r2, threshold_accs=threshold_accuracies, dataset_info=dataset_info)
                 
                 # 准备测试指标数据
                 test_metrics = {
@@ -572,7 +555,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                     "rmse": rmse.item(),
                     "mae": mae.item(),
                     "r2": r2,
-                    "threshold_accs": threshold_accs,
+                    "threshold_accs": threshold_accuracies,
                     "dataset_info": {
                         "train_size": len(train_idx),
                         "val_size": len(val_idx),
@@ -607,14 +590,13 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                     metrics_recorder.val_r2s, metrics_recorder.val_maes, model_dir)
                 
                 # 记录完整评估结果到日志
+                log_model_saved(logger, model_path)
                 log_training_metrics(
                     logger, metrics_recorder.train_losses, metrics_recorder.val_losses,
-                    test_loss, rmse, mae, r2, threshold_accs)
-                log_model_saved(logger, model_path)
-                log_training_summary(logger, metrics_recorder.train_losses, metrics_recorder.val_losses)
+                    test_loss, rmse, mae, r2, threshold_accuracies)
                 log_training_completion(
                     logger, metrics_recorder.train_losses, metrics_recorder.val_losses, 
-                    test_loss, rmse, mae, r2, threshold_accs, None, None, None, model_path)
+                    test_loss, rmse, mae, r2, threshold_accuracies, model_path)
                 
     except KeyboardInterrupt:
         logger.info("\n训练被用户中断 (Ctrl+C)")

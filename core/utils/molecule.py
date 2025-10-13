@@ -9,6 +9,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Chem.rdchem import HybridizationType, BondType
 import os
+import hashlib
 
 # 定义需要的全局变量和辅助函数
 try:
@@ -142,22 +143,47 @@ class MoleculeCache:
     分子图结构缓存类，支持将多个SMILES存储在同一个pt文件中
     """
     
-    def __init__(self, cache_name="default", logger=None):
+    def __init__(self, cache_name="default", csv_file=None, logger=None):
         """
         初始化缓存
         
         Args:
             cache_name (str): 缓存文件名（不包含扩展名）
+            csv_file (str): 关联的CSV文件路径，如果提供则会基于此生成缓存文件名
             logger: 日志记录器
         """
-        self.cache_name = cache_name
+        if csv_file:
+            # 根据CSV文件路径生成唯一的缓存名称
+            self.cache_name = self._generate_cache_name_from_csv(csv_file)
+        else:
+            self.cache_name = cache_name
+            
         self.logger = logger
         self.cache_dir = self._get_cache_dir()
-        self.cache_file = os.path.join(self.cache_dir, f"{cache_name}.pt")
+        self.cache_file = os.path.join(self.cache_dir, f"{self.cache_name}.pt")
         self.cache_data = self._load_cache()
         self.cache_hits = 0
         self.cache_misses = 0
         self.added_count = 0  # 新增计数器
+    
+    def _generate_cache_name_from_csv(self, csv_file):
+        """
+        根据CSV文件路径生成缓存名称
+        
+        Args:
+            csv_file (str): CSV文件路径
+            
+        Returns:
+            str: 基于CSV文件生成的缓存名称
+        """
+        # 获取文件的绝对路径和基本信息
+        abs_path = os.path.abspath(csv_file)
+        file_hash = hashlib.md5(abs_path.encode('utf-8')).hexdigest()[:16]
+        basename = os.path.basename(csv_file)
+        name_without_ext = os.path.splitext(basename)[0]
+        
+        # 生成缓存名称
+        return f"csv_{name_without_ext}_{file_hash}"
     
     def _get_cache_dir(self):
         """

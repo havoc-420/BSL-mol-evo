@@ -185,7 +185,7 @@ def save_training_data_as_json(train_losses, val_losses, test_metrics, model_dir
         json.dump(training_data, f, ensure_ascii=False, indent=2)
 
 
-def plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir):
+def plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir, logger=None):
     """
     绘制训练趋势图
     
@@ -195,7 +195,12 @@ def plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir)
         val_r2s: 验证R²值列表
         val_maes: 验证MAE值列表
         model_dir: 模型目录路径
+        logger: 日志记录器实例（可选）
     """
+    # 如果没有提供logger，则创建一个默认的
+    if logger is None:
+        logger = logging.getLogger('training')
+    
     # 创建损失图表
     plt.figure(figsize=(10, 6))
     
@@ -214,7 +219,8 @@ def plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir)
     loss_plot_path = os.path.join(model_dir, "loss_trends.png")
     plt.savefig(loss_plot_path, dpi=300, bbox_inches='tight')
     plt.close()  # 关闭图表以释放内存
-    print(f"损失趋势图已保存: {loss_plot_path}")
+    # 使用logger记录替代print输出
+    logger.info(f"损失趋势图已保存: {loss_plot_path}")
     
     # 创建其他指标图表
     plt.figure(figsize=(10, 5))
@@ -255,7 +261,8 @@ def plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir)
     metrics_plot_path = os.path.join(model_dir, "metrics_trends.png")
     plt.savefig(metrics_plot_path, dpi=300, bbox_inches='tight')
     plt.close()  # 关闭图表以释放内存
-    print(f"指标趋势图已保存: {metrics_plot_path}")
+    # 使用logger记录替代print输出
+    logger.info(f"指标趋势图已保存: {metrics_plot_path}")
 
 
 def print_table_accuracy(accuracies, thresholds, property_names, logger=None):
@@ -370,7 +377,7 @@ def log_threshold_accuracies(logger, threshold_accs):
 
 
 def log_training_completion(logger, train_losses, val_losses, test_loss, rmse, mae, r2,
-                           threshold_accs, orig_mse, orig_rmse, orig_mae, model_path):
+                           threshold_accs, model_path):
     """
     记录训练完成信息
     
@@ -404,23 +411,6 @@ def log_training_completion(logger, train_losses, val_losses, test_loss, rmse, m
     
     # 记录阈值准确率
     log_threshold_accuracies(logger, threshold_accs)
-    
-    # 检查原始尺度指标是否为tensor类型或None
-    if orig_mse is not None:
-        if torch.is_tensor(orig_mse):
-            logger.info(f"  - 原始尺度MSE: {orig_mse.item():.6f}")
-        else:
-            logger.info(f"  - 原始尺度MSE: {orig_mse:.6f}")
-    if orig_rmse is not None:
-        if torch.is_tensor(orig_rmse):
-            logger.info(f"  - 原始尺度RMSE: {orig_rmse.item():.6f}")
-        else:
-            logger.info(f"  - 原始尺度RMSE: {orig_rmse:.6f}")
-    if orig_mae is not None:
-        if torch.is_tensor(orig_mae):
-            logger.info(f"  - 原始尺度MAE: {orig_mae.item():.6f}")
-        else:
-            logger.info(f"  - 原始尺度MAE: {orig_mae:.6f}")
     
     logger.info(f"  - 模型已保存到: {model_path}")
 

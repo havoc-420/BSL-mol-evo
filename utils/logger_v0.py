@@ -36,16 +36,27 @@ def log_dataset_examples(logger, from_data_list, to_data_list, edge_attrs, targe
         target_features: 目标属性张量
         num_examples: 示例数量
     """
-    logger.info("训练集样本示例 (头部数据):")
+    logger.info("--- 训练集样本示例 (头部数据) ---")
     num_examples = min(num_examples, len(from_data_list))
+    
+    # 表格头部
+    logger.info("  {:<8} {:<12} {:<12} {:<12} {:<12} {:<15} {:<15}".format(
+        "样本", "起始节点数", "起始边数", "目标节点数", "目标边数", "边特征", "目标属性值"))
+    logger.info("  " + "-" * 80)
+    
+    # 表格内容
     for i in range(num_examples):
-        logger.info(f"  样本 {i+1}:")
-        logger.info(f"    起始分子节点数: {from_data_list[i].x.size(0)}")
-        logger.info(f"    起始分子边数: {from_data_list[i].edge_index.size(1)}")
-        logger.info(f"    目标分子节点数: {to_data_list[i].x.size(0)}")
-        logger.info(f"    目标分子边数: {to_data_list[i].edge_index.size(1)}")
-        logger.info(f"    边特征: {edge_attrs[i].tolist()}")
-        logger.info(f"    目标属性值: {target_features[i].item()}")
+        from_nodes = from_data_list[i].x.size(0)
+        from_edges = from_data_list[i].edge_index.size(1)
+        to_nodes = to_data_list[i].x.size(0)
+        to_edges = to_data_list[i].edge_index.size(1)
+        edge_attr = str(edge_attrs[i].tolist())
+        target_val = f"{target_features[i].item():.6f}"
+        
+        logger.info("  {:<8} {:<12} {:<12} {:<12} {:<12} {:<15} {:<15}".format(
+            i+1, from_nodes, from_edges, to_nodes, to_edges, edge_attr[:13], target_val))
+        
+    logger.info("  " + "-" * 80)
 
 
 def log_data_construction_info(logger, from_data_list, model_params, edge_attrs, target_features):
@@ -59,11 +70,13 @@ def log_data_construction_info(logger, from_data_list, model_params, edge_attrs,
         edge_attrs: 边特征张量
         target_features: 目标属性张量
     """
-    logger.info("数据构建完成:")
-    logger.info(f"  - 样本数: {len(from_data_list)}")
-    logger.info(f"  - 节点特征维度: {model_params['node_feature_dim']}")
-    logger.info(f"  - 边特征维度: {edge_attrs.shape[1] if len(edge_attrs.shape) > 1 else 1}")
-    logger.info(f"  - 目标属性变化维度: {target_features.shape[1] if len(target_features.shape) > 1 else 1}")
+    logger.info("\n数据构建完成:")
+    logger.info("  {:<20} {:<20}".format("项目", "值"))
+    logger.info("  " + "-" * 40)
+    logger.info("  {:<20} {:<20}".format("样本数", str(len(from_data_list))))
+    logger.info("  {:<20} {:<20}".format("节点特征维度", str(model_params['node_feature_dim'])))
+    logger.info("  {:<20} {:<20}".format("边特征维度", str(edge_attrs.shape[1] if len(edge_attrs.shape) > 1 else 1)))
+    logger.info("  {:<20} {:<20}".format("目标属性变化维度", str(target_features.shape[1] if len(target_features.shape) > 1 else 1)))
 
 
 def log_dataset_split_info(logger, train_idx, val_idx, test_idx):
@@ -191,20 +204,4 @@ def log_model_saved(logger, model_path):
         model_path: 模型文件路径
     """
     logger.info(f"模型已保存至: {model_path}")
-    logger.info("")
-
-
-def log_training_summary(logger, train_losses, val_losses):
-    """
-    记录训练总结信息
-    
-    Args:
-        logger: V0TrainingLogger实例
-        train_losses: 训练损失列表
-        val_losses: 验证损失列表
-    """
-    logger.info("训练过程总结:")
-    logger.info(f"  最佳训练损失: {min(train_losses):.6f}")
-    if val_losses:
-        logger.info(f"  最佳验证损失: {min(val_losses):.6f}")
     logger.info("")
