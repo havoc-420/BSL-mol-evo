@@ -242,6 +242,45 @@ def evaluate_model(model, data_loader, device, property_stats, target_property):
         else:
             r2 = (1 - ss_res / (ss_tot + 1e-8)).item()
         
+        # PCC (Pearson Correlation Coefficient)
+        pred_mean = torch.mean(test_predictions)
+        target_mean = torch.mean(test_targets)
+        pred_centered = test_predictions - pred_mean
+        target_centered = test_targets - target_mean
+        numerator = torch.sum(pred_centered * target_centered)
+        pred_sq_sum = torch.sum(pred_centered ** 2)
+        target_sq_sum = torch.sum(target_centered ** 2)
+        denominator = torch.sqrt(pred_sq_sum * target_sq_sum)
+        
+        if denominator.item() == 0:
+            pcc = 0.0
+        else:
+            pcc = (numerator / denominator).item()
+        
+        # Rank Loss计算
+        def compute_rank_loss(preds, targets):
+            """
+            计算Rank Loss，衡量预测值和真实值之间的排序一致性
+            """
+            # 获取所有样本对
+            n = preds.shape[0]
+            if n < 2:
+                return 0.0
+            
+            # 计算所有可能的样本对
+            pred_diffs = preds.unsqueeze(1) - preds.unsqueeze(0)
+            target_diffs = targets.unsqueeze(1) - targets.unsqueeze(0)
+            
+            # 只考虑目标值不同的样本对
+            mask = target_diffs != 0
+            sign_diffs = torch.sign(target_diffs[mask])
+            
+            # 计算hinge loss
+            loss = torch.relu(1.0 - sign_diffs * pred_diffs[mask])
+            return loss.mean().item()
+        
+        rank_loss = compute_rank_loss(test_predictions, test_targets)
+        
         # 阈值准确率评估：在标准化情况下，阈值表示标准差的倍数
         float_threshold = 0.5           #初始阈值
         threshold_scale = 0.1           #阈值数量级记录
@@ -292,6 +331,8 @@ def evaluate_model(model, data_loader, device, property_stats, target_property):
             "rmse": rmse.item(),
             "mae": mae.item(),
             "r2": r2,
+            "pcc": pcc,
+            "rank_loss": rank_loss,
             "threshold_accuracies": threshold_accuracies,
             "denorm_rmse": denorm_rmse.item(),
             "denorm_mae": denorm_mae.item(),
@@ -413,6 +454,8 @@ def predict_full_dataset(model_path, model_dir, data_file, seed=42, batch_size=6
         logger.info(f"RMSE: {metrics['rmse']:.6f}")
         logger.info(f"MAE: {metrics['mae']:.6f}")
         logger.info(f"R²: {metrics['r2']:.6f}")
+        logger.info(f"PCC: {metrics['pcc']:.6f}")
+        logger.info(f"Rank Loss: {metrics['rank_loss']:.6f}")
         logger.info("-" * 30)
         logger.info("反标准化后的指标:")
         logger.info(f"RMSE: {metrics['denorm_rmse']:.6f}")

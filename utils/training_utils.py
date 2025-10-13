@@ -377,7 +377,7 @@ def log_threshold_accuracies(logger, threshold_accs):
 
 
 def log_training_completion(logger, train_losses, val_losses, test_loss, rmse, mae, r2,
-                           threshold_accs, model_path):
+                           threshold_accs, model_path, pcc=None, rank_loss=None):
     """
     记录训练完成信息
     
@@ -390,10 +390,9 @@ def log_training_completion(logger, train_losses, val_losses, test_loss, rmse, m
         mae: 测试MAE
         r2: 测试R²
         threshold_accs: 阈值准确率字典
-        orig_mse: 原始尺度MSE
-        orig_rmse: 原始尺度RMSE
-        orig_mae: 原始尺度MAE
         model_path: 模型保存路径
+        pcc: Pearson相关系数
+        rank_loss: 排序损失
     """
     logger.info("训练完成:")
     logger.info(f"  - 最终训练损失: {train_losses[-1]:.6f}")
@@ -408,6 +407,12 @@ def log_training_completion(logger, train_losses, val_losses, test_loss, rmse, m
         logger.info(f"  - 测试R²: {r2.item():.6f}")
     else:
         logger.info(f"  - 测试R²: {r2:.6f}")
+        
+    # 记录新增指标
+    if pcc is not None:
+        logger.info(f"  - 测试PCC: {pcc:.6f}")
+    if rank_loss is not None:
+        logger.info(f"  - 测试Rank Loss: {rank_loss:.6f}")
     
     # 记录阈值准确率
     log_threshold_accuracies(logger, threshold_accs)

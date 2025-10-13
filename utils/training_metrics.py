@@ -32,6 +32,9 @@ class TrainingMetricsRecorder:
         # 验证集R2历史
         self.val_r2s: List[float] = []
         
+        # 验证集PCC历史
+        self.val_pccs: List[float] = []
+        
         # 测试集最终评估指标
         self.test_metrics: Optional[Dict[str, Any]] = None
         
@@ -59,7 +62,7 @@ class TrainingMetricsRecorder:
         self.val_losses.append(loss)
     
     def record_val_metrics(self, epoch: int, loss: float, mse: float, rmse: float, 
-                          mae: float, r2: float):
+                          mae: float, r2: float, pcc: float = None):
         """记录验证集评估指标"""
         metrics = {
             "epoch": epoch,
@@ -69,6 +72,12 @@ class TrainingMetricsRecorder:
             "val_mae": mae,
             "val_r2": r2
         }
+        
+        # 如果提供了PCC值，则添加到指标中
+        if pcc is not None:
+            metrics["val_pcc"] = pcc
+            self.val_pccs.append(pcc)
+        
         self.val_metrics_history.append(metrics)
         
         # 同时记录到各自的列表中
@@ -78,7 +87,8 @@ class TrainingMetricsRecorder:
     
     def record_test_metrics(self, test_loss: float, rmse: float, mae: float, r2: float,
                            threshold_accs: Dict[float, float], dataset_info: Dict[str, int],
-                           original_scale_metrics: Optional[Dict[str, float]] = None):
+                           original_scale_metrics: Optional[Dict[str, float]] = None,
+                           pcc: float = None, rank_loss: float = None):
         """记录测试集最终评估指标"""
         self.test_metrics = {
             "test_loss": test_loss,
@@ -88,6 +98,14 @@ class TrainingMetricsRecorder:
             "threshold_accs": threshold_accs,
             "dataset_info": dataset_info
         }
+        
+        # 如果提供了PCC值，则添加到指标中
+        if pcc is not None:
+            self.test_metrics["pcc"] = pcc
+            
+        # 如果提供了rank loss值，则添加到指标中
+        if rank_loss is not None:
+            self.test_metrics["rank_loss"] = rank_loss
         
         if original_scale_metrics:
             self.test_metrics["original_scale_metrics"] = original_scale_metrics
@@ -127,7 +145,8 @@ class TrainingMetricsRecorder:
             "val_metrics_history": self.val_metrics_history,
             "val_rmses": self.val_rmses,
             "val_maes": self.val_maes,
-            "val_r2s": self.val_r2s
+            "val_r2s": self.val_r2s,
+            "val_pccs": self.val_pccs
         }
         
         if self.test_metrics:
@@ -172,9 +191,11 @@ class TrainingMetricsRecorder:
         if latest_metrics:
             val_r2 = latest_metrics.get("val_r2")
             val_mae = latest_metrics.get("val_mae")
+            val_pcc = latest_metrics.get("val_pcc")
         else:
             val_r2 = None
             val_mae = None
+            val_pcc = None
             
         # 将epoch_loss封装为Tensor以匹配log_epoch_progress函数期望的类型
         log_epoch_progress(logger, epoch, total_epochs, torch.tensor(epoch_loss), val_loss, val_r2, val_mae)
@@ -185,6 +206,8 @@ class TrainingMetricsRecorder:
             message += f", Val Loss: {val_loss:.6f}"
             if val_r2 is not None and val_mae is not None:
                 message += f", R²: {val_r2:.4f}, MAE: {val_mae:.4f}"
+            if val_pcc is not None:
+                message += f", PCC: {val_pcc:.4f}"
         tqdm.write(message)
     
     def get_best_val_loss(self) -> Optional[float]:

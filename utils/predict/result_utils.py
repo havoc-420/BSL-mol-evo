@@ -210,6 +210,8 @@ def save_prediction_results(error_stats, sampled_df, model_path, model_dir, csv_
         "rmse": error_stats["rmse"].tolist(),
         "mae": error_stats["mae"].tolist(),
         "r2": error_stats["r2"].tolist(),
+        "pcc": error_stats["pcc"].tolist(),
+        "rank_loss": error_stats["rank_loss"].tolist(),
         "relative_error_percent": error_stats["relative_error_percent"].tolist(),
         "num_samples": error_stats["num_samples"],
         "pred_mean": error_stats["pred_mean"].tolist(),

@@ -25,9 +25,30 @@ except ImportError as e:
     print("无法导入自定义模块", e)
     raise
 
-# 直接导入需要的工具函数
-from .data_utils import prepare_single_prediction_data
-from .model_utils import load_property_stats, is_model_normalized
+try:
+    from .data_utils import prepare_single_prediction_data
+    from .model_utils import load_property_stats, is_model_normalized, load_training_params
+except ImportError as e:
+    print("无法导入工具模块", e)
+    raise
+
+
+def get_target_property(model_dir):
+    """
+    从模型目录的训练数据中获取目标属性名称
+    
+    Args:
+        model_dir: 模型目录路径
+        
+    Returns:
+        目标属性名称
+    """
+    training_params = load_training_params(model_dir)
+    if training_params and 'target_property' in training_params:
+        return training_params['target_property']
+    else:
+        # 默认返回mu_change以保持向后兼容
+        return 'mu_change'
 
 
 def predict_property_changes(model_path, model_dir, smiles_from, smiles_to, to_atom_symbol, operation_type, prediction_mode='denormalized'):
@@ -46,6 +67,9 @@ def predict_property_changes(model_path, model_dir, smiles_from, smiles_to, to_a
     Returns:
         预测的属性变化值
     """
+    # 获取目标属性名称
+    target_prop = get_target_property(model_dir)
+    
     # 准备数据
     from_data, to_data, edge_attr, property_stats = prepare_single_prediction_data(
         smiles_from, smiles_to, to_atom_symbol, operation_type, model_dir)
@@ -55,7 +79,7 @@ def predict_property_changes(model_path, model_dir, smiles_from, smiles_to, to_a
         node_feature_dim=11,      # v0模型节点特征维度
         edge_feature_dim=11,      # 边特征维度（5原子类型 + 6操作类型）
         hidden_dim=128,
-        output_dim=1,             # v0模型只预测单个属性 (mu_change)
+        output_dim=1,             # v0模型只预测单个属性
         num_layers=3
     )
     
@@ -86,15 +110,14 @@ def predict_property_changes(model_path, model_dir, smiles_from, smiles_to, to_a
         standardized_changes = {}
         original_changes = {}
         
-        # v0模型只预测mu_change属性
-        prop_name = 'mu_change'
-        standardized_changes[prop_name] = predicted_changes[0]
+        # 使用从模型配置中获取的目标属性
+        standardized_changes[target_prop] = predicted_changes[0]
         # 反标准化得到原始尺度的预测值
-        if prop_name in property_stats:
-            mean, std = property_stats[prop_name]
-            original_changes[prop_name] = predicted_changes[0] * std + mean
+        if target_prop in property_stats:
+            mean, std = property_stats[target_prop]
+            original_changes[target_prop] = predicted_changes[0] * std + mean
         else:
-            original_changes[prop_name] = predicted_changes[0]
+            original_changes[target_prop] = predicted_changes[0]
         
         # 根据预测模式返回相应结果
         if prediction_mode == 'standardized':
@@ -103,7 +126,7 @@ def predict_property_changes(model_path, model_dir, smiles_from, smiles_to, to_a
             return original_changes, standardized_changes
     else:
         # 如果模型没有使用标准化，则直接返回预测值
-        original_changes = {'mu_change': predicted_changes[0]}
+        original_changes = {target_prop: predicted_changes[0]}
         # 在非标准化模式下，标准化值为None
         return original_changes, None  # 第二个返回值为None表示没有标准化值
 
@@ -129,8 +152,13 @@ def compare_with_ground_truth(model_paths, model_dirs, csv_file, row_index, pred
     
     row = df.iloc[row_index]
     
-    # 获取真实值
-    true_values = {'mu_change': row['mu_change']}
+    # 获取第一个模型的目标属性以确定要比较的真实值字段
+    if model_dirs:
+        target_prop = get_target_property(model_dirs[0])
+        # 获取真实值
+        true_values = {target_prop: row[target_prop]}
+    else:
+        true_values = {'mu_change': row['mu_change']}
     
     # 对每个模型进行预测
     predictions_list = []
@@ -164,6 +192,9 @@ def batch_predict(model_path, model_dir, csv_file, num_samples=10, random_seed=4
     Returns:
         预测结果和误差统计
     """
+    # 获取目标属性名称
+    target_prop = get_target_property(model_dir)
+    
     # 读取数据
     df = pd.read_csv(csv_file)
     
@@ -202,7 +233,7 @@ def batch_predict(model_path, model_dir, csv_file, num_samples=10, random_seed=4
             edge_attr = torch.FloatTensor(np.array([edge_feat]))
             
             # 获取真实值
-            true_changes = {'mu_change': row['mu_change']}
+            true_changes = {target_prop: row[target_prop]}
             
             # 保存有效数据
             valid_indices.append(idx)
@@ -237,7 +268,7 @@ def batch_predict(model_path, model_dir, csv_file, num_samples=10, random_seed=4
         node_feature_dim=11,      # v0模型节点特征维度
         edge_feature_dim=11,      # 边特征维度（5原子类型 + 6操作类型）
         hidden_dim=128,
-        output_dim=1,             # v0模型只预测单个属性 (mu_change)
+        output_dim=1,             # v0模型只预测单个属性
         num_layers=3
     )
     
@@ -271,9 +302,8 @@ def batch_predict(model_path, model_dir, csv_file, num_samples=10, random_seed=4
                         final_pred = predicted_changes[0]
                     else:  # denormalized 反标准化预测模式
                         # 反标准化得到原始尺度的预测值
-                        prop_name = 'mu_change'
-                        if prop_name in property_stats:
-                            mean, std = property_stats[prop_name]
+                        if target_prop in property_stats:
+                            mean, std = property_stats[target_prop]
                             final_pred = predicted_changes[0] * std + mean
                         else:
                             final_pred = predicted_changes[0]
@@ -281,7 +311,7 @@ def batch_predict(model_path, model_dir, csv_file, num_samples=10, random_seed=4
                     # 如果模型没有使用标准化，则直接使用预测值
                     final_pred = predicted_changes[0]
                 
-                predictions_list.append({'mu_change': final_pred})
+                predictions_list.append({target_prop: final_pred})
                 
                 # 更新进度条描述
                 pred_pbar.set_description(f"预测 (已完成: {idx + 1})")
@@ -290,7 +320,7 @@ def batch_predict(model_path, model_dir, csv_file, num_samples=10, random_seed=4
                 if logger:
                     logger.error(f"预测第 {idx} 个样本时出错: {e}")
                 # 如果预测出错，添加一个默认值
-                predictions_list.append({'mu_change': 0.0})
+                predictions_list.append({target_prop: 0.0})
     
     # 计算误差统计
     if not predictions_list or not valid_targets:
@@ -299,8 +329,8 @@ def batch_predict(model_path, model_dir, csv_file, num_samples=10, random_seed=4
         return None, None
     
     # 转换为数组便于计算
-    pred_array = np.array([pred['mu_change'] for pred in predictions_list])
-    target_array = np.array([target['mu_change'] for target in valid_targets])
+    pred_array = np.array([pred[target_prop] for pred in predictions_list])
+    target_array = np.array([target[target_prop] for target in valid_targets])
     
     # 计算各种误差指标
     mse = np.mean((pred_array - target_array) ** 2)
@@ -311,6 +341,45 @@ def batch_predict(model_path, model_dir, csv_file, num_samples=10, random_seed=4
     ss_res = np.sum((target_array - pred_array) ** 2)
     ss_tot = np.sum((target_array - np.mean(target_array)) ** 2)
     r2 = 1 - ss_res / (ss_tot + 1e-8)  # 添加小值避免除零
+    
+    # PCC (Pearson Correlation Coefficient)
+    pred_mean = np.mean(pred_array)
+    target_mean = np.mean(target_array)
+    pred_centered = pred_array - pred_mean
+    target_centered = target_array - target_mean
+    numerator = np.sum(pred_centered * target_centered)
+    pred_sq_sum = np.sum(pred_centered ** 2)
+    target_sq_sum = np.sum(target_centered ** 2)
+    denominator = np.sqrt(pred_sq_sum * target_sq_sum)
+    
+    if denominator == 0:
+        pcc = 0.0
+    else:
+        pcc = numerator / denominator
+    
+    # Rank Loss计算
+    def compute_rank_loss(preds, targets):
+        """
+        计算Rank Loss，衡量预测值和真实值之间的排序一致性
+        """
+        # 获取所有样本对
+        n = preds.shape[0]
+        if n < 2:
+            return 0.0
+        
+        # 计算所有可能的样本对
+        pred_diffs = np.expand_dims(preds, 1) - np.expand_dims(preds, 0)
+        target_diffs = np.expand_dims(targets, 1) - np.expand_dims(targets, 0)
+        
+        # 只考虑目标值不同的样本对
+        mask = target_diffs != 0
+        sign_diffs = np.sign(target_diffs[mask])
+        
+        # 计算hinge loss
+        loss = np.maximum(0.0, 1.0 - sign_diffs * pred_diffs[mask])
+        return np.mean(loss)
+    
+    rank_loss = compute_rank_loss(pred_array, target_array)
     
     # 计算平均相对误差，处理接近零的情况
     # 使用一个阈值来避免除以接近零的数
@@ -328,11 +397,13 @@ def batch_predict(model_path, model_dir, csv_file, num_samples=10, random_seed=4
     
     # 创建误差统计字典
     error_stats = {
-        'property_names': ['mu_change'],
+        'property_names': [target_prop],
         'mse': np.array([mse]),
         'rmse': np.array([rmse]),
         'mae': np.array([mae]),
         'r2': np.array([r2]),
+        'pcc': np.array([pcc]),
+        'rank_loss': np.array([rank_loss]),
         'relative_error_percent': np.array([relative_error]),
         'num_samples': len(predictions_list),
         'pred_mean': np.array([pred_mean]),
@@ -343,3 +414,56 @@ def batch_predict(model_path, model_dir, csv_file, num_samples=10, random_seed=4
     }
     
     return error_stats, sampled_df
+
+
+def print_error_statistics(error_stats, logger=None):
+    """
+    打印误差统计结果
+    
+    Args:
+        error_stats: 误差统计字典
+        logger: 日志记录器
+    """
+    if not error_stats:
+        print("没有误差统计数据可显示")
+        if logger:
+            logger.warning("没有误差统计数据可显示")
+        return
+    
+    property_names = error_stats['property_names']
+    mse = error_stats['mse']
+    rmse = error_stats['rmse']
+    mae = error_stats['mae']
+    r2 = error_stats['r2']
+    pcc = error_stats['pcc']
+    rank_loss = error_stats['rank_loss']
+    relative_error = error_stats['relative_error_percent']
+    pred_mean = error_stats['pred_mean']
+    target_mean = error_stats['target_mean']
+    pred_std = error_stats['pred_std']
+    target_std = error_stats['target_std']
+    prediction_mode = error_stats.get('prediction_mode', 'denormalized')
+    
+    mode_text = "标准差" if prediction_mode == 'standardized' else "反标准化"
+    print("\n" * 2 + "="*100)
+    print(f"批量{mode_text}预测误差统计结果")
+    print("="*100)
+    print(f"样本数量: {error_stats['num_samples']}")
+    print(f"预测模式: {mode_text}")
+    print("-"*100)
+    
+    # 表头
+    header = f"{'属性':<12} {'MSE':<12} {'RMSE':<12} {'MAE':<12} {'R2':<12} {'PCC':<12} {'Rank Loss':<12} {'相对误差(%)':<12} {'预测均值':<12} {'真实均值':<12} {'预测std':<12} {'真实std':<12}"
+    print(header)
+    print("-"*100)
+    
+    # 数据行
+    for i, prop in enumerate(property_names):
+        prop_name = prop.replace('_change', '')
+        row = (f"{prop_name:<12} {mse[i]:<12.4f} {rmse[i]:<12.4f} {mae[i]:<12.4f} {r2[i]:<12.4f} "
+               f"{pcc[i]:<12.4f} {rank_loss[i]:<12.4f} {relative_error[i]:<12.2f} {pred_mean[i]:<12.4f} {target_mean[i]:<12.4f} "
+               f"{pred_std[i]:<12.4f} {target_std[i]:<12.4f}")
+        print(row)
+    
+    if logger:
+        logger.info(f"批量{mode_text}预测完成，误差统计结果已显示")

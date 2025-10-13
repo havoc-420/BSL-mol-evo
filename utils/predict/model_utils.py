@@ -63,7 +63,9 @@ def find_model_files(base_path=None):
     for root, dirs, files in os.walk(base_path):
         for file in files:
             if file.endswith('.pth'):
-                model_files.append(os.path.join(root, file))
+                # 过滤掉以 checkpoint_epoch_ 开头的检查点文件
+                if not file.startswith('checkpoint_epoch_'):
+                    model_files.append(os.path.join(root, file))
     
     return sorted(model_files)
 

@@ -3,6 +3,8 @@
 """
 v0版本模型训练日志工具函数
 """
+import torch
+from typing import Optional
 
 def log_training_start(logger, data_file, max_pairs, epochs):
     """
@@ -144,30 +146,36 @@ def log_early_stopping(logger, epoch):
     logger.info(message)
 
 
-def log_epoch_progress(logger, epoch, epochs, train_loss, val_loss=None, val_r2=None, val_mae=None):
+def log_epoch_progress(logger, epoch: int, total_epochs: int, 
+                      epoch_loss: torch.Tensor, val_loss: Optional[float] = None,
+                      val_r2: Optional[float] = None, val_mae: Optional[float] = None,
+                      val_pcc: Optional[float] = None):
     """
-    记录每轮训练进度信息
+    记录epoch进度信息到日志
     
     Args:
-        logger: V0TrainingLogger实例
-        epoch: 当前轮数
-        epochs: 总轮数
-        train_loss: 训练损失
+        logger: 日志记录器
+        epoch: 当前epoch
+        total_epochs: 总epochs数
+        epoch_loss: 训练损失
         val_loss: 验证损失
         val_r2: 验证R²
         val_mae: 验证MAE
+        val_pcc: 验证PCC
     """
-    message = f"Epoch [{epoch+1}/{epochs}], Train Loss: {train_loss.item():.6f}"
+    message = f"Epoch [{epoch+1}/{total_epochs}], Train Loss: {epoch_loss.item():.6f}"
     if val_loss is not None:
         message += f", Val Loss: {val_loss:.6f}"
-        if val_r2 is not None and val_mae is not None:
-            message += f", R²: {val_r2:.4f}, MAE: {val_mae:.4f}"
-    
-    # 详细训练信息只记录到文件，不在控制台显示
-    logger.info(message, to_console=False)
+        if val_r2 is not None:
+            message += f", R²: {val_r2:.4f}"
+        if val_mae is not None:
+            message += f", MAE: {val_mae:.4f}"
+        if val_pcc is not None:
+            message += f", PCC: {val_pcc:.4f}"
+    logger.info(message)
 
 
-def log_training_metrics(logger, train_losses, val_losses, test_loss, rmse, mae, r2, threshold_accs):
+def log_training_metrics(logger, train_losses, val_losses, test_loss, rmse, mae, r2, threshold_accs, pcc=None, rank_loss=None):
     """
     记录训练完成后的评估指标
     
@@ -180,6 +188,8 @@ def log_training_metrics(logger, train_losses, val_losses, test_loss, rmse, mae,
         mae: 平均绝对误差
         r2: 决定系数
         threshold_accs: 阈值准确率字典
+        pcc: Pearson相关系数
+        rank_loss: 排序损失
     """
     logger.info("=" * 60)
     logger.info("训练完成 - 最终评估结果")
@@ -188,6 +198,10 @@ def log_training_metrics(logger, train_losses, val_losses, test_loss, rmse, mae,
     logger.info(f"RMSE: {rmse:.6f}")
     logger.info(f"MAE: {mae:.6f}")
     logger.info(f"R²: {r2:.6f}")
+    if pcc is not None:
+        logger.info(f"PCC: {pcc:.6f}")
+    if rank_loss is not None:
+        logger.info(f"Rank Loss: {rank_loss:.6f}")
     logger.info("")
     logger.info("阈值准确率:")
     for threshold, acc in threshold_accs.items():
