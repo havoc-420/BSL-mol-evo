@@ -27,9 +27,9 @@ import shutil
 model_params = {
     "node_feature_dim": 11,   # 修改为smile_to_graph_xyz生成的特征维度
     "edge_feature_dim": 11,   # 保持不变
-    "hidden_dim": 128,
     "output_dim": 1,  # 单属性预测
-    "num_layers": 3  # INFO 现阶段默认都是 3 层
+    # "hidden_dim": 128,
+    # "num_layers": 3
 }
 
 # 目标属性名称 - 默认值，将被命令行参数覆盖
@@ -42,7 +42,7 @@ sys.path.insert(0, project_root)
 
 # 导入自定义模块
 try:
-    from mol_evo.core.models.v0.gcn import MoleculeEvolutionGCNPredictor
+    from mol_evo.core.models.v0 import MoleculeEvolutionGCNPredictor
     from mol_evo.core.utils.molecule import MoleculeCache
     from mol_evo.core.data.data_v0 import smiles_to_graph_data, prepare_edge_features
     from mol_evo.utils.training_utils import (
@@ -67,9 +67,12 @@ try:
         log_training_metrics,
         log_model_saved,
     )
-    from mol_evo.utils.training_metrics import TrainingMetricsRecorder  # 新增导入
+    from mol_evo.utils.training_metrics import TrainingMetricsRecorder
 except ImportError as e:
-    print(f"无法导入所需的模块: {e}")
+    import traceback
+    print(f"无法导入所需的模块 train-v0.py: {e}")
+    print("详细错误堆栈信息:")
+    traceback.print_exc()
     exit(1)
 
 
@@ -282,9 +285,9 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         model = MoleculeEvolutionGCNPredictor(
             node_feature_dim=model_params["node_feature_dim"],
             edge_feature_dim=model_params["edge_feature_dim"],
-            hidden_dim=model_params["hidden_dim"],
             output_dim=model_params["output_dim"],
-            num_layers=model_params["num_layers"]
+            # hidden_dim=model_params["hidden_dim"],
+            # num_layers=model_params["num_layers"]
         )
         log_model_creation(logger, model)
         

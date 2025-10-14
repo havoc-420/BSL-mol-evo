@@ -4,8 +4,10 @@
 模型模块 v0 版本初始化文件
 """
 
-from .gcn import MoleculeEvolutionGCNPredictor
+from .gcn_linear import MoleculeEvolutionGCNPredictor
+from .gcn_tf import MoleculeEvolutionGCNTransformerPredictor
 
 __all__ = [
-    'MoleculeEvolutionGCNPredictor'
+    "MoleculeEvolutionGCNPredictor",
+    "MoleculeEvolutionGCNTransformerPredictor"
 ]

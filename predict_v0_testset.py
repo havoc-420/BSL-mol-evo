@@ -24,10 +24,10 @@ sys.path.insert(0, project_root)
 
 try:
     # 导入训练脚本中的模块和函数
-    from mol_evo.core.models.v0.gcn import MoleculeEvolutionGCNPredictor
+    from mol_evo.core.models.v0.gcn_linear import MoleculeEvolutionGCNLinearPredictor
     from mol_evo.core.utils.molecule import MoleculeCache
     from mol_evo.core.data.data_v0 import smiles_to_graph_data, prepare_edge_features
-    from mol_evo.utils.training_utils import split_data_indices
+    # from mol_evo.utils.training_utils import split_data_indices
     from mol_evo.utils.logger_utils import DualLogger
     
     # 从训练脚本中导入数据集类和相关函数
@@ -171,7 +171,7 @@ def load_model(model_path, model_params):
     Returns:
         加载好的模型
     """
-    model = MoleculeEvolutionGCNPredictor(
+    model = MoleculeEvolutionGCNLinearPredictor(
         node_feature_dim=model_params["node_feature_dim"],
         edge_feature_dim=model_params["edge_feature_dim"],
         hidden_dim=model_params["hidden_dim"],
@@ -376,7 +376,7 @@ def predict_full_dataset(model_path, model_dir, data_file, seed=42, batch_size=6
                 model_params = training_data.get("model_params", {})
                 target_property = training_data.get("training_params", {}).get("target_property", "mu_change")
                 property_stats = training_data.get("property_stats", {target_property: (0.0, 1.0)})
-                logger.info(f"从训练数据中加载模型参数和属性统计信息")
+                logger.info("从训练数据中加载模型参数和属性统计信息")
         else:
             # 默认参数
             model_params = {
@@ -388,7 +388,7 @@ def predict_full_dataset(model_path, model_dir, data_file, seed=42, batch_size=6
             }
             target_property = "mu_change"
             property_stats = {target_property: (0.0, 1.0)}
-            logger.warning(f"未找到训练数据文件，使用默认参数")
+            logger.warning("未找到训练数据文件，使用默认参数")
         
         # 构建数据集
         logger.info(f"正在构建图数据: {data_file}")
@@ -414,7 +414,7 @@ def predict_full_dataset(model_path, model_dir, data_file, seed=42, batch_size=6
         
         # 加载模型
         model = load_model(model_path, model_params)
-        logger.info(f"模型加载成功")
+        logger.info("模型加载成功")
         
         # 设置设备
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

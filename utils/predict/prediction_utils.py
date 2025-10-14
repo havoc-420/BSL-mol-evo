@@ -17,7 +17,7 @@ sys.path.insert(0, project_root)
 
 # 导入自定义模块
 try:
-    from mol_evo.core.models.v0.gcn import MoleculeEvolutionGCNPredictor
+    from mol_evo.core.models.v0.gcn_linear import MoleculeEvolutionGCNLinearPredictor
     from mol_evo.core.data.processing import prepare_edge_features
     from mol_evo.core.utils.molecule import MoleculeCache
     from mol_evo.core.data.data_v0 import smiles_to_graph_data
@@ -75,7 +75,7 @@ def predict_property_changes(model_path, model_dir, smiles_from, smiles_to, to_a
         smiles_from, smiles_to, to_atom_symbol, operation_type, model_dir)
     
     # 创建模型
-    model = MoleculeEvolutionGCNPredictor(
+    model = MoleculeEvolutionGCNLinearPredictor(
         node_feature_dim=11,      # v0模型节点特征维度
         edge_feature_dim=11,      # 边特征维度（5原子类型 + 6操作类型）
         hidden_dim=128,
@@ -264,7 +264,7 @@ def batch_predict(model_path, model_dir, csv_file, num_samples=10, random_seed=4
         logger.info(f"预处理完成，{len(valid_indices)} 个有效样本，开始进行预测...")
     
     # 创建模型
-    model = MoleculeEvolutionGCNPredictor(
+    model = MoleculeEvolutionGCNLinearPredictor(
         node_feature_dim=11,      # v0模型节点特征维度
         edge_feature_dim=11,      # 边特征维度（5原子类型 + 6操作类型）
         hidden_dim=128,

@@ -1,8 +1,8 @@
-# MoleculeEvolutionGCNPredictor 模型数据预处理与使用指南
+# MoleculeEvolutionGCNLinearPredictor 模型数据预处理与使用指南
 
 ## 概述
 
-本文档详细介绍了如何为 [MoleculeEvolutionGCNPredictor](file:///home/data2/rhj/project/mol_editor/mol_evo/core/models/v0/gcn.py#L79-L136) 模型预处理数据以及如何正确使用该模型进行训练和推理。该模型用于预测分子演化过程中属性的变化，需要成对的分子数据和操作信息作为输入。
+本文档详细介绍了如何为 [MoleculeEvolutionGCNLinearPredictor](file:///home/data2/rhj/project/mol_editor/mol_evo/core/models/v0/gcn.py#L79-L136) 模型预处理数据以及如何正确使用该模型进行训练和推理。该模型用于预测分子演化过程中属性的变化，需要成对的分子数据和操作信息作为输入。
 
 ## 模型输入要求
 
@@ -123,7 +123,7 @@ def create_training_sample(from_smiles, to_smiles, operation_type, atom_type):
 ### 1. 模型初始化
 
 ```python
-from mol_evo.core.models.v0.gcn import MoleculeEvolutionGCNPredictor
+from mol_evo.core.models.v0.gcn import MoleculeEvolutionGCNLinearPredictor
 
 # 模型参数
 node_feature_dim = 37  # 节点特征维度
@@ -132,7 +132,7 @@ hidden_dim = 64        # 隐藏层维度
 output_dim = 10        # 输出维度 (属性变化数量)
 
 # 创建模型
-model = MoleculeEvolutionGCNPredictor(
+model = MoleculeEvolutionGCNLinearPredictor(
     node_feature_dim=node_feature_dim,
     edge_feature_dim=edge_feature_dim,
     hidden_dim=hidden_dim,
@@ -230,4 +230,4 @@ for from_smiles, to_smiles, op_type, atom_type in samples:
 
 ## 总结
 
-[MoleculeEvolutionGCNPredictor](file:///home/data2/rhj/project/mol_editor/mol_evo/core/models/v0/gcn.py#L79-L136)模型通过处理成对的分子图数据和操作信息来预测分子属性的变化。正确预处理数据并确保三个输入组件的一致性是成功使用该模型的关键。在实际应用中，应优先复用项目中已有的工具函数，如`smile_to_graph_xyz`和`prepare_edge_features`，以确保数据处理的一致性和准确性。
+[MoleculeEvolutionGCNLinearPredictor](file:///home/data2/rhj/project/mol_editor/mol_evo/core/models/v0/gcn.py#L79-L136)模型通过处理成对的分子图数据和操作信息来预测分子属性的变化。正确预处理数据并确保三个输入组件的一致性是成功使用该模型的关键。在实际应用中，应优先复用项目中已有的工具函数，如`smile_to_graph_xyz`和`prepare_edge_features`，以确保数据处理的一致性和准确性。

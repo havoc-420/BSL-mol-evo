@@ -15,7 +15,7 @@ sys.path.insert(0, project_root)
 
 # 直接导入需要的模块
 try:
-    from mol_evo.core.models.v0.gcn import MoleculeFeatureExtractor
+    from mol_evo.core.models.v0.gcn_linear import MoleculeFeatureExtractor
     from mol_evo.core.utils.molecule import smile_to_graph_xyz
     from torch_geometric.data import Data
     print("成功导入模块")
