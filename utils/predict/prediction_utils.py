@@ -86,12 +86,12 @@ def predict_property_changes(model_path, model_dir, smiles_from, smiles_to, to_a
     # 加载模型权重
     model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
     
-    # TEST 添加调试日志，输出模型参数的前一小部分
-    print("Debug: 预测模型参数前10个值:")
-    state_dict = model.state_dict()
-    for name, param in list(state_dict.items())[:3]:  # 取前几个参数
-        values = param.flatten()[:10]  # 取前10个值
-        print(f"Debug: 参数 {name} (shape: {param.shape}) => 前10个值: {values.tolist()}")
+    # # TEST 添加调试日志，输出模型参数的前一小部分
+    # print("Debug: 预测模型参数前10个值:")
+    # state_dict = model.state_dict()
+    # for name, param in list(state_dict.items())[:3]:  # 取前几个参数
+    #     values = param.flatten()[:10]  # 取前10个值
+    #     print(f"Debug: 参数 {name} (shape: {param.shape}) => 前10个值: {values.tolist()}")
     
     model.eval()
     
