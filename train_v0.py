@@ -20,6 +20,7 @@ import torch.nn as nn
 from datetime import datetime
 from tqdm import tqdm
 import shutil
+import random
 
 """ BASE SETTINGS """
 
@@ -213,6 +214,14 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         learning_rate: 学习率
         model_type: 模型类型
     """
+    # 设置所有随机种子以确保可重复性
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    
     # train-data 存储位置
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     # 模型目录命名规则: train_{TIMESTAMP}_{TARGET-ATTR}_{max-pairs}_{epoches}
@@ -272,14 +281,14 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
             val_dataset,
             batch_size=batch_size,
             shuffle=False,
-            num_workers=2,
+            num_workers=0,
             collate_fn=pair_collate) if val_dataset is not None else None
             
         test_loader = DataLoader(
             test_dataset,
             batch_size=batch_size,
             shuffle=False,
-            num_workers=2,
+            num_workers=0,
             collate_fn=pair_collate) if test_dataset is not None else None
         
         # 创建模型
@@ -732,7 +741,6 @@ def main():
             return
     
     # 验证模型类型是否有效
-    from mol_evo.core.models.v0 import ModelFactory
     if model_type not in ModelFactory.list_models():
         print(f"错误: 无效的模型类型 '{model_type}'")
         print(f"支持的模型类型: {', '.join(ModelFactory.list_models())}")

@@ -23,11 +23,11 @@ def smiles_to_graph_data(smiles, cache):
     types = {'H': 0, 'C': 1, 'N': 2, 'O': 3, 'F': 4}
     
     # 使用项目中的函数将SMILES转换为图结构
-    x, z, pos, edge_index, edge_attr = cache.process_smiles(smiles, types)
+    x, z, pos, edge_index, edge_attr = cache.process_smiles(smiles, types)  # UPDATE 存在无法处理的 SMILES
     
     # 检查转换是否成功
     if x is None:
-        print(f"无法处理SMILES: {smiles}")
+        # print(f"无法处理SMILES: {smiles}")
         return None
     
     # 创建图数据对象

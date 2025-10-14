@@ -29,7 +29,7 @@ class MoleculeEvolutionGCNTransformerPredictor(nn.Module):
     - fusion: TransformerFusionPredictor (Transformer特征融合预测器)
     """
     
-    def __init__(self, node_feature_dim: int = 37, edge_feature_dim: int = 11,
+    def __init__(self, node_feature_dim: int = 11, edge_feature_dim: int = 11,
                  hidden_dim: int = 128, output_dim: int = 15, num_layers: int = 2):
         """
         初始化预测器
@@ -56,7 +56,7 @@ class MoleculeEvolutionGCNTransformerPredictor(nn.Module):
         self.edge_encoder = TransformerEdgeFeatureExtractor(
             input_dim=edge_feature_dim,
             d_model=hidden_dim,
-            nhead=8 if hidden_dim % 8 == 0 else 4,  # 确保nhead能整除d_model
+            nhead=8 if hidden_dim % 8 == 0 else 4,  # 确保nhead能整除d_model  # INFO 不过感觉这样的 nhead 可能没什么用
             num_layers=2,
             dim_feedforward=hidden_dim * 4,
             dropout=0.1
@@ -64,7 +64,7 @@ class MoleculeEvolutionGCNTransformerPredictor(nn.Module):
         
         # fusion组件: Transformer特征融合预测器
         self.fusion_predictor = TransformerFusionPredictor(
-            node_dim=512,
+            node_dim=512,  # GCN提取器输出维度为512 (256*2, mean和max池化的合并结果)
             edge_dim=hidden_dim,
             d_model=256,
             nhead=8,
