@@ -3,7 +3,6 @@
 """
 
 import pandas as pd
-import numpy as np
 from torch_geometric.data import Data
 from typing import List, Tuple, Dict
 
@@ -31,7 +30,7 @@ def smiles_to_graph_data(smiles, cache):
         return None
     
     # 创建图数据对象
-    data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
+    data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr, z=z, pos=pos)
     return data
 
 

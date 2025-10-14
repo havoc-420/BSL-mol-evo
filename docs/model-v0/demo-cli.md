@@ -12,9 +12,11 @@ CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --max-pairs 30000 --epochs 500
 ```bash
 CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --max-pairs 50 --epochs 20 --model-type gcn_linear_linear
 
-CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --max-pairs 50 --epochs 20 --model-type gcn_transformer_transformer
-CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --max-pairs 30000 --epochs 100 --model-type gcn_transformer_transformer
+# transformer & visnet 的 lr 需要调低；否则「梯度爆炸」
+CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --max-pairs 50 --epochs 20 --model-type gcn_transformer_transformer -lr 0.001
+CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --max-pairs 30000 --epochs 100 --model-type gcn_transformer_transformer -lr 0.001
 
+CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --max-pairs 30000 --epochs 100 -lr 0.001
 
 ```
 

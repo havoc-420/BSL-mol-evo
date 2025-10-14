@@ -8,7 +8,6 @@ from torch.nn import Embedding, LayerNorm, Linear, Parameter
 
 from torch_geometric.nn import MessagePassing, radius_graph
 from torch_geometric.utils import scatter
-from torch_scatter import scatter_mean
 
 
 class CosineCutoff(torch.nn.Module):
@@ -976,7 +975,7 @@ class EquivariantScalar(torch.nn.Module):
         for layer in self.output_network:
             layer.reset_parameters()
 
-    def pre_reduce(self, x: Tensor, v: Tensor, batch: Tensor) -> Tensor:
+    def pre_reduce(self, x: Tensor, v: Tensor) -> Tensor:
         r"""Computes the final scalar outputs.
 
         Args:
@@ -986,14 +985,10 @@ class EquivariantScalar(torch.nn.Module):
         Returns:
             out (torch.Tensor): The final scalar outputs of the nodes.
         """
-        for index, layer in enumerate(self.output_network):
+        for layer in self.output_network:
             x, v = layer(x, v)
-            if index == len(self.output_network) - 2:
-                # 保存 x 的节点级表示
-                # 聚合为图级别表征
-                graph_rep = scatter_mean(x, batch, dim=0)
 
-        return x + v.sum() * 0, graph_rep
+        return x + v.sum() * 0
 
 
 class Atomref(torch.nn.Module):
@@ -1158,17 +1153,14 @@ class ViSNet(torch.nn.Module):
             pos.requires_grad_(True)
 
         x, v = self.representation_model(z, pos, batch)
-        x, graph_rep = self.output_model.pre_reduce(x, v, batch)
+        x = self.output_model.pre_reduce(x, v)
         x = x * self.std
 
-
         if self.prior_model is not None:
-            
             x = self.prior_model(x, z)
 
         y = scatter(x, batch, dim=0, reduce=self.reduce_op)
         y = y + self.mean
-        
 
         if self.derivative:
             grad_outputs = [torch.ones_like(y)]
@@ -1184,4 +1176,4 @@ class ViSNet(torch.nn.Module):
                     "Autograd returned None for the force prediction.")
             return y, -dy
 
-        return y, graph_rep
+        return y, None
