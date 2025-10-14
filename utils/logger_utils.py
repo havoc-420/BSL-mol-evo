@@ -35,12 +35,11 @@ class DualLogger:
             message (str): 日志消息
             to_console (bool): 是否同时输出到控制台，默认为True
         """
-        # 始终记录到文件
-        self.file_logger.info(message)
-        
         # 根据参数决定是否输出到控制台（默认输出）
         if to_console:
             self.console_logger.info(message)
+        else:
+            self.file_logger.info(message)
     
     def warning(self, message, to_console=True):
         """
@@ -50,12 +49,11 @@ class DualLogger:
             message (str): 日志消息
             to_console (bool): 是否同时输出到控制台，默认为True
         """
-        # 始终记录到文件
-        self.file_logger.warning(message)
-        
         # 根据参数决定是否输出到控制台（默认输出）
         if to_console:
             self.console_logger.warning(message)
+        else:
+            self.file_logger.warning(message)
     
     def error(self, message, to_console=True):
         """
@@ -65,12 +63,11 @@ class DualLogger:
             message (str): 日志消息
             to_console (bool): 是否同时输出到控制台，默认为True
         """
-        # 始终记录到文件
-        self.file_logger.error(message)
-        
         # 根据参数决定是否输出到控制台（默认输出）
         if to_console:
             self.console_logger.error(message)
+        else:
+            self.file_logger.error(message)
     
     def debug(self, message, to_console=True):
         """
@@ -80,9 +77,8 @@ class DualLogger:
             message (str): 日志消息
             to_console (bool): 是否同时输出到控制台，默认为True
         """
-        # 始终记录到文件
-        self.file_logger.debug(message)
-        
         # 根据参数决定是否输出到控制台（默认输出）
         if to_console:
             self.console_logger.debug(message)
+        else:
+            self.file_logger.debug(message)

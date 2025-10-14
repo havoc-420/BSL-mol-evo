@@ -5,6 +5,14 @@ CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --max-pairs 50 --epochs 20
 CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --max-pairs 2000 --epochs 100
 
 CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --max-pairs 30000 --epochs 500 --batch-size 1024
+```
+
+## model type
+
+```bash
+CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --max-pairs 50 --epochs 20 --model-type gcn_linear_linear
+
+CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --max-pairs 50 --epochs 20 --model-type gcn_transformer_transformer
 
 ```
 

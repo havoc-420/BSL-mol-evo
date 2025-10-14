@@ -42,7 +42,7 @@ sys.path.insert(0, project_root)
 
 # 导入自定义模块
 try:
-    from mol_evo.core.models.v0 import MoleculeEvolutionGCNPredictor
+    from mol_evo.core.models.v0 import ModelFactory
     from mol_evo.core.utils.molecule import MoleculeCache
     from mol_evo.core.data.data_v0 import smiles_to_graph_data, prepare_edge_features
     from mol_evo.utils.training_utils import (
@@ -200,7 +200,7 @@ def build_molecule_evolution_dataset_v0(csv_file: str, max_pairs: int = None,
 
 def train_model(data_file: str, max_pairs: int = None, epochs: int = 100, 
                 seed: int = 42, batch_size: int = 64, learning_rate: float = 0.01,
-                model_type: str = "gcn"):
+                model_type: str = "gcn_linear"):
     """
     训练v0版本的分子进化预测器模型（单属性预测）
     
@@ -211,6 +211,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         seed: 随机种子
         batch_size: 批处理大小
         learning_rate: 学习率
+        model_type: 模型类型
     """
     # train-data 存储位置
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -282,7 +283,8 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
             collate_fn=pair_collate) if test_dataset is not None else None
         
         # 创建模型
-        model = MoleculeEvolutionGCNPredictor(
+        model = ModelFactory.create(
+            model_type,
             node_feature_dim=model_params["node_feature_dim"],
             edge_feature_dim=model_params["edge_feature_dim"],
             output_dim=model_params["output_dim"],
@@ -307,7 +309,19 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         metrics_recorder = TrainingMetricsRecorder()
         
         # 记录模型和训练参数
-        metrics_recorder.set_model_params(model_params)
+        # 获取模型的实际参数
+        model_actual_params = {
+            "node_feature_dim": model_params["node_feature_dim"],
+            "edge_feature_dim": model_params["edge_feature_dim"],
+            "output_dim": model_params["output_dim"],
+            "model_type": model_type
+        }
+        
+        # 如果模型有特定的参数，也可以添加进来
+        if hasattr(model, 'get_model_config'):
+            model_actual_params.update(model.get_model_config())
+            
+        metrics_recorder.set_model_params(model_actual_params)
         training_params = {
             "model_type": model_type,
             "data_file": data_file,
@@ -632,6 +646,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                 
                 # 保存训练数据为JSON格式，包含训练参数
                 training_params = {
+                    "model_type": model_type,
                     "data_file": data_file,
                     "max_pairs": max_pairs,
                     "epochs": epochs,
@@ -697,8 +712,31 @@ def main():
                        help='目标属性')
     parser.add_argument('-s', '--seed', type=int, default=42, help='随机种子')
     parser.add_argument('-lr', '--learning-rate', type=float, default=0.01, help='学习率')
+    parser.add_argument('-mt', '--model-type', type=str, default=None, 
+                       help='模型类型: 可通过交互式方式选择')
     
     args = parser.parse_args()
+    
+    # 如果没有提供模型类型，则交互式选择
+    model_type = args.model_type
+    if model_type is None:
+        try:
+            from mol_evo.utils.train.model_utils import select_model_type_interactively
+            model_type = select_model_type_interactively()
+            if model_type is None:
+                print("未选择模型类型，退出训练")
+                return
+        except ImportError as e:
+            print(f"无法导入交互式选择工具: {e}")
+            print("请提供 --model-type 参数")
+            return
+    
+    # 验证模型类型是否有效
+    from mol_evo.core.models.v0 import ModelFactory
+    if model_type not in ModelFactory.list_models():
+        print(f"错误: 无效的模型类型 '{model_type}'")
+        print(f"支持的模型类型: {', '.join(ModelFactory.list_models())}")
+        return
     
     # 使用命令行参数设置目标属性
     global TARGET_PROPERTY
@@ -706,7 +744,8 @@ def main():
     
     try:
         train_model(
-            args.data_file, args.max_pairs, args.epochs, args.seed, args.batch_size, args.learning_rate
+            args.data_file, args.max_pairs, args.epochs, args.seed, args.batch_size, args.learning_rate,
+            model_type
         )
     except Exception as e:
         print(f"训练过程中发生错误: {e}")
