@@ -431,11 +431,10 @@ def log_training_start(logger, data_file, max_pairs, epochs):
         epochs: 训练轮数
     """
     logger.info("=" * 60)
-    logger.info("基于NNConv的分子进化预测器模型训练开始")
-    logger.info("=" * 60)
     logger.info(f"数据文件: {data_file}")
     logger.info(f"最大对数: {max_pairs}")
     logger.info(f"训练轮数: {epochs}")
+    logger.info("=" * 60)
 
 
 def log_data_construction(logger, data_file, data, target_features):
