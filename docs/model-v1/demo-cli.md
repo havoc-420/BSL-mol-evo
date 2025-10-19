@@ -1,6 +1,7 @@
 # Train
 
 ```bash TEST
+CUDA_VISIBLE_DEVICES=4 
 CUDA_VISIBLE_DEVICES=2 python mol_evo/train_nnconv.py --max-pairs 100 --epochs 20
 ```
 

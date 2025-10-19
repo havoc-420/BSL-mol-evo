@@ -83,6 +83,7 @@ try:
     from .gcn_linear_linear import MoleculeEvolutionGCNLinearPredictor
     from .gcn_transformer_transformer import MoleculeEvolutionGCNTransformerPredictor
     from .visnet_linear_linear import MoleculeEvolutionVisnetLinearPredictor
+    from .gcn_transformer_linear import MoleculeEvolutionGCNTransformerLinearPredictor
 except ImportError as e:
     print(f"❌ 无法导入某些模型模块: {e}. 请确保所有依赖项已安装.")
     exit(1)
@@ -90,3 +91,4 @@ except ImportError as e:
 ModelFactory.register("gcn_linear_linear", MoleculeEvolutionGCNLinearPredictor)
 ModelFactory.register("gcn_transformer_transformer", MoleculeEvolutionGCNTransformerPredictor)
 ModelFactory.register("visnet_linear_linear", MoleculeEvolutionVisnetLinearPredictor)
+ModelFactory.register("gcn_transformer_linear", MoleculeEvolutionGCNTransformerLinearPredictor)
