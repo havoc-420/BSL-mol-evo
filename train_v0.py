@@ -714,7 +714,7 @@ def main():
     parser.add_argument('-d', '-data', '--data-file', type=str, 
                        default=os.path.join('mol_evo', 'dataset', 'data', 'qm9-evo-pairs-step-1-with-properties-pct.csv'),  # INFO 这里使用附带 pct 的数据集了
                        help='数据文件路径')
-    parser.add_argument('-m', '-max', '--max-pairs', type=max_pairs_type, help='最大分子对数（用于调试，最大不超过30000）')
+    parser.add_argument('-m', '-max', '--max-pairs', type=max_pairs_type, default=30000, help='最大分子对数（用于调试，最大不超过30000）')
     parser.add_argument('-e', '-ep', '--epochs', type=int, default=100, help='训练轮数')
     parser.add_argument('-b', '-batch', '--batch-size', type=int, default=512, help='批处理大小')
     parser.add_argument('-p', '--target-property', type=str, default='mu_change', 
