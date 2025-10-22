@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-基于GCN的分子进化预测器 (Linear-Linear-Linear版本)
+基于GCN的分子进化预测器 (Linear-Linear版本)
 
 这是一个使用线性组件的GCN模型：
 - molecule: GCN特征提取器
@@ -17,11 +17,13 @@ from torch_geometric.data import Data
 from .molecule_feature_extractors import GCNMoleculeFeatureExtractor
 from .edge_feature_extractors import LinearEdgeFeatureExtractor
 from .fusion_predictors import MLPFusionPredictor
+from . import register_model
 
 
+@register_model(display_name="GCN Linear-Linear 模型")
 class MoleculeEvolutionGCNLinearPredictor(nn.Module):
     """
-    基于GCN的分子进化预测器 (Linear-Linear-Linear版本)
+    基于GCN的分子进化预测器 (Linear-Linear版本)
     
     使用线性组件组合：
     - molecule: GCNMoleculeFeatureExtractor (GCN特征提取器)

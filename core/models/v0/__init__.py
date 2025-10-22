@@ -4,9 +4,73 @@
 模型基类和工厂实现
 """
 
+import sys
 import torch.nn as nn
 from torch_geometric.data import Data
 import torch
+from collections import defaultdict
+
+
+# 装饰器注册相关
+_model_entrypoints = {}  # mapping of model names to entrypoint fns
+_model_to_module = {}  # mapping of model names to module names
+_module_to_models = defaultdict(set)  # dict of sets to check membership of model in module
+_model_display_names = {}  # mapping of model names to display names
+
+
+def register_model(name=None, display_name=None):
+    """注册模型的装饰器
+    
+    Args:
+        name: 模型注册名称，默认为函数/类名
+        display_name: 模型显示名称，用于用户界面展示
+    """
+    def _register_model(fn):
+        # lookup containing module
+        mod = sys.modules[fn.__module__]
+        module_name_split = fn.__module__.split('.')
+        module_name = module_name_split[-1] if len(module_name_split) else ''
+
+        # add model to __all__ in module
+        model_name = name if name is not None else fn.__name__
+        if hasattr(mod, '__all__'):
+            mod.__all__.append(model_name)
+        else:
+            mod.__all__ = [model_name]
+
+        # add entries to registry dict/sets
+        _model_entrypoints[model_name] = fn
+        _model_to_module[model_name] = module_name
+        _module_to_models[module_name].add(model_name)
+        
+        # 设置显示名称
+        if display_name is not None:
+            _model_display_names[model_name] = display_name
+        else:
+            _model_display_names[model_name] = model_name
+        
+        # 同时注册到ModelFactory
+        ModelFactory.register(model_name, fn)
+        
+        return fn
+    
+    # 如果register_model()被直接调用（没有参数），name会是被装饰的函数
+    if callable(name):
+        fn = name
+        name = None
+        return _register_model(fn)
+    
+    return _register_model
+
+
+def model_entrypoint(model_name):
+    """获取模型入口函数"""
+    return _model_entrypoints[model_name]
+
+
+def get_model_display_name(model_name):
+    """获取模型显示名称"""
+    return _model_display_names.get(model_name, model_name)
 
 
 class BaseMoleculeEvolutionPredictor(nn.Module):
@@ -79,6 +143,7 @@ class ModelFactory:
         return list(cls._models.keys())
 
 
+# 直接导入模型类，它们已经在各自的文件中通过装饰器注册了
 try: 
     from .gcn_linear_linear import MoleculeEvolutionGCNLinearPredictor
     from .gcn_transformer_transformer import MoleculeEvolutionGCNTransformerPredictor
@@ -86,13 +151,16 @@ try:
     from .gcn_transformer_linear import MoleculeEvolutionGCNTransformerLinearPredictor
     from .frag_linear_linear import MoleculeEvolutionFragLinearPredictor
     from .equiformer_linear_linear import MoleculeEvolutionEquiformerLinearPredictor
+    
+    # 确保触发模块导入，使装饰器得以执行
+    _ = [
+        MoleculeEvolutionGCNLinearPredictor,
+        MoleculeEvolutionGCNTransformerPredictor,
+        MoleculeEvolutionVisnetLinearPredictor,
+        MoleculeEvolutionGCNTransformerLinearPredictor,
+        MoleculeEvolutionFragLinearPredictor,
+        MoleculeEvolutionEquiformerLinearPredictor
+    ]
 except ImportError as e:
     print(f"❌ 无法导入某些模型模块: {e}. 请确保所有依赖项已安装.")
     exit(1)
-
-ModelFactory.register("gcn_linear_linear", MoleculeEvolutionGCNLinearPredictor)
-ModelFactory.register("gcn_transformer_transformer", MoleculeEvolutionGCNTransformerPredictor)
-ModelFactory.register("visnet_linear_linear", MoleculeEvolutionVisnetLinearPredictor)
-ModelFactory.register("gcn_transformer_linear", MoleculeEvolutionGCNTransformerLinearPredictor)
-ModelFactory.register("frag_linear_linear", MoleculeEvolutionFragLinearPredictor)
-ModelFactory.register("equiformer_linear_linear", MoleculeEvolutionEquiformerLinearPredictor)

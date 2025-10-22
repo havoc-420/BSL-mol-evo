@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-基于GCN的分子进化预测器 (Linear-Linear-Linear版本)
+基于VisNet的分子进化预测器 (Linear-Linear版本)
 
-这是一个使用线性组件的GCN模型：
-- molecule: GCN特征提取器
+这是一个使用线性组件的VisNet模型：
+- molecule: VisNet特征提取器
 - edge: 线性边特征编码器
 - fusion: 线性特征融合预测器
 用于从分子图中提取特征表示并预测分子演化过程中的属性变化。
@@ -17,14 +17,16 @@ from torch_geometric.data import Data
 from .molecule_feature_extractors import VisNetMoleculeFeatureExtractor
 from .edge_feature_extractors import LinearEdgeFeatureExtractor
 from .fusion_predictors import MLPFusionPredictor
+from . import register_model
 
 
+@register_model(display_name="VisNet Linear-Linear 模型")
 class MoleculeEvolutionVisnetLinearPredictor(nn.Module):
     """
-    基于GCN的分子进化预测器 (Linear-Linear-Linear版本)
+    基于VisNet的分子进化预测器 (Linear-Linear版本)
     
     使用线性组件组合：
-    - molecule: GCNMoleculeFeatureExtractor (GCN特征提取器)
+    - molecule: VisNetMoleculeFeatureExtractor (VisNet特征提取器)
     - edge: LinearEdgeFeatureExtractor (线性边特征编码器)
     - fusion: MLPFusionPredictor (线性特征融合预测器)
     """
@@ -37,7 +39,7 @@ class MoleculeEvolutionVisnetLinearPredictor(nn.Module):
         Args:
             node_feature_dim: 节点特征维度
             edge_feature_dim: 边特征维度 (操作信息)
-            hidden_dims: GCN各隐藏层维度列表
+            hidden_dims: VisNet各隐藏层维度列表
             output_dim: 输出维度 (属性变化)
         """
         super(MoleculeEvolutionVisnetLinearPredictor, self).__init__()
@@ -47,16 +49,16 @@ class MoleculeEvolutionVisnetLinearPredictor(nn.Module):
         self.hidden_dims = hidden_dims
         self.output_dim = output_dim
         
-        # molecule组件: GCN分子特征提取器
-        self.molecule_extractor_from = VisNetMoleculeFeatureExtractor(node_feature_dim=64, hidden_dims=hidden_dims)
-        self.molecule_extractor_to = VisNetMoleculeFeatureExtractor(node_feature_dim=64, hidden_dims=hidden_dims)
+        # molecule组件: VisNet分子特征提取器
+        self.molecule_extractor_from = VisNetMoleculeFeatureExtractor(node_feature_dim, hidden_dims)
+        self.molecule_extractor_to = VisNetMoleculeFeatureExtractor(node_feature_dim, hidden_dims)
         
         # edge组件: 线性边特征编码器
         self.edge_encoder = LinearEdgeFeatureExtractor(edge_feature_dim, hidden_dims[-1])
         
         # fusion组件: 线性特征融合预测器
         self.fusion_predictor = MLPFusionPredictor(
-            node_dim=hidden_dims[-1] * 2,  # GCN输出是mean和max拼接的结果
+            node_dim=hidden_dims[-1] * 2,  # VisNet输出是mean和max拼接的结果
             edge_dim=hidden_dims[-1],
             hidden_dims=[512, 256, 128],
             output_dim=output_dim

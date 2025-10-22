@@ -5,11 +5,13 @@ from torch_geometric.data import Data
 from .molecule_feature_extractors import FragNetMoleculeFeatureExtractor
 from .edge_feature_extractors import LinearEdgeFeatureExtractor
 from .fusion_predictors import MLPFusionPredictor
+from . import register_model
 
 
+@register_model(display_name="FragNet Linear-Linear 模型")
 class MoleculeEvolutionFragLinearPredictor(nn.Module):
     """
-    基于FragNet的分子进化预测器 (Linear-Linear-Linear版本)
+    基于FragNet的分子进化预测器 (Linear-Linear版本)
     
     使用线性组件组合：
     - molecule: FragNetMoleculeFeatureExtractor (FragNet特征提取器)
@@ -72,12 +74,12 @@ class MoleculeEvolutionFragLinearPredictor(nn.Module):
         )
         
         # edge组件: 线性边特征编码器
-        self.edge_encoder = LinearEdgeFeatureExtractor(edge_feature_dim, hidden_dim * 4)  # FragNet输出512维特征
+        self.edge_encoder = LinearEdgeFeatureExtractor(edge_feature_dim, hidden_dim)
         
         # fusion组件: 线性特征融合预测器
         self.fusion_predictor = MLPFusionPredictor(
-            node_dim=hidden_dim * 4 * 2,  # FragNet输出是512维特征，from和to拼接
-            edge_dim=hidden_dim * 4,      # FragNet输出512维特征
+            node_dim=hidden_dim * 2,  # FragNet输出是mean和max拼接的结果
+            edge_dim=hidden_dim,
             hidden_dims=[512, 256, 128],
             output_dim=output_dim
         )
