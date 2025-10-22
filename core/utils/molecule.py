@@ -4,12 +4,18 @@
 分子处理工具函数
 """
 
+import numpy as np
 import torch
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Chem.rdchem import HybridizationType, BondType
 import os
 import hashlib
+from torch_scatter import scatter_add  # 导入 scatter_add 函数
+
+# 导入本地模块
+from .fragnet_data.fragments import get_3Dcoords, FragmentedMol
+from .fragnet_data.features import FeaturesEXP
 
 # 定义需要的全局变量和辅助函数
 try:
@@ -136,6 +142,179 @@ def smile_to_graph_xyz(smile, types):
     x = torch.cat([x1, x2], dim=-1)
     
     return x, z, pos, edge_index, edge_attr
+
+
+def smile_to_fragnet_features(smile):
+    """
+    将SMILES字符串转换为FragNet模型所需的特征格式
+    
+    Args:
+        smile (str): SMILES字符串
+        
+    Returns:
+        dict: 包含FragNet所需的所有特征的字典
+    """
+    from .fragnet_data.fragments import get_3Dcoords, FragmentedMol
+    from .fragnet_data.features import FeaturesEXP
+    
+    # 创建分子对象和3D构象
+    mol = Chem.MolFromSmiles(smile)
+    if mol is None:
+        return None
+    
+    # 生成3D坐标，返回的是一个包含3D坐标的分子对象
+    mol3d = get_3Dcoords(smile)
+    if mol3d is None:
+        return None
+    
+    # 获取构象，这个构象属于mol3d分子
+    conf = mol3d.GetConformer()
+    
+    # 创建分片分子对象，使用mol3d和其自身的构象
+    frag_mol = FragmentedMol(mol3d, conf, frag_type="brics")
+    
+    # 创建特征提取器
+    feature_creator = FeaturesEXP()
+    
+    # 提取原子和键特征
+    x_atoms, edge_index, edge_attr = feature_creator.get_atom_and_bond_features_atom_graph_one_hot(
+        frag_mol.mol, feature_creator.use_bond_chirality
+    )
+    
+    # 提取片段连接特征
+    frag_idx = [[], []]
+    cnx_attr = []
+    for connection in frag_mol.connections:
+        frag_idx[0] += [connection.BeginFragIdx, connection.EndFragIdx]
+        frag_idx[1] += [connection.EndFragIdx, connection.BeginFragIdx]
+        cnx_attr.append(feature_creator.connection_features_one_hot(connection))
+        cnx_attr.append(feature_creator.connection_features_one_hot(connection))
+    
+    frag_idx = torch.tensor(frag_idx, dtype=torch.long)
+    cnx_attr = torch.tensor(cnx_attr, dtype=torch.float)
+    
+    # 构建原子到片段的映射
+    atom_id_frag_id = torch.tensor(
+        list(frag_mol.atom_to_frag_id.values()), dtype=torch.long
+    )
+    
+    # 聚合片段特征
+    x_atoms_tensor = torch.tensor(np.array(x_atoms), dtype=torch.float)
+    x_frags = scatter_add(src=x_atoms_tensor, index=atom_id_frag_id, dim=0)
+    
+    # 片段数量
+    n_frags = torch.tensor([len(frag_mol.fragments)], dtype=torch.long)
+    
+    # 构建返回字典
+    fragnet_features = {
+        'x_atoms': x_atoms_tensor,
+        'edge_index': torch.tensor(edge_index, dtype=torch.long),
+        'edge_attr': torch.tensor(edge_attr, dtype=torch.float),
+        'frag_index': frag_idx,
+        'cnx_attr': cnx_attr,
+        'x_frags': x_frags,
+        'atom_id_frag_id': atom_id_frag_id,
+        'n_frags': n_frags,
+        'smiles': smile
+    }
+    
+    return fragnet_features
+
+
+def smile_to_fragnet_batch(smile):
+    """
+    将SMILES字符串转换为FragNet模型所需的输入格式
+    
+    Args:
+        smile (str): SMILES字符串
+        
+    Returns:
+        dict: 包含FragNet所需的所有特征的字典，格式与collate_fn返回的批次数据一致
+    """
+    try:
+        # 导入必要的模块
+        from .fragnet_data.data import CreateData
+        
+        # 创建分子对象和3D构象
+        mol = Chem.MolFromSmiles(smile)
+        if mol is None:
+            return None
+            
+        # 生成3D坐标
+        mol3d = get_3Dcoords(smile)
+        if mol3d is None:
+            return None
+            
+        conf = mol3d.GetConformer()
+        
+        # 创建数据创建器
+        creator = CreateData(data_type='finetune')
+        
+        # 创建数据点 (模拟调用 create_data_point 方法的部分逻辑)
+        graph = FragmentedMol(mol3d, conf, frag_type="brics")
+        
+        # 获取原子和键特征
+        feature_creator = FeaturesEXP()
+        x_atoms, edge_index, edge_attr = feature_creator.get_atom_and_bond_features_atom_graph_one_hot(
+            graph.mol, feature_creator.use_bond_chirality
+        )
+        np
+        x_atoms = torch.tensor(np.array(x_atoms), dtype=torch.float)
+        edge_index = torch.tensor(edge_index, dtype=torch.long)
+        edge_attr = torch.tensor(edge_attr, dtype=torch.float)
+        
+        # 获取片段连接特征
+        frag_idx = [[], []]
+        cnx_attr = []
+        for connection in graph.connections:
+            frag_idx[0] += [connection.BeginFragIdx, connection.EndFragIdx]
+            frag_idx[1] += [connection.EndFragIdx, connection.BeginFragIdx]
+            cnx_attr.append(feature_creator.connection_features_one_hot(connection))
+            cnx_attr.append(feature_creator.connection_features_one_hot(connection))
+
+        frag_idx = torch.tensor(frag_idx, dtype=torch.long)
+        cnx_attr = torch.tensor(cnx_attr, dtype=torch.float)
+        
+        # 构建原子到片段的映射
+        atom_id_frag_id = torch.tensor(
+            list(graph.atom_to_frag_id.values()), dtype=torch.long
+        )
+        
+        # 聚合片段特征
+        x_frags = scatter_add(src=x_atoms, index=atom_id_frag_id, dim=0)
+        
+        # 片段数量
+        n_frags = len(graph.fragments)
+        
+        # 创建单个分子的批次数据 (模拟 collate_fn 的输出结构)
+        batch_data = {
+            "x_atoms": x_atoms,
+            "edge_index": edge_index,
+            "frag_index": frag_idx,
+            "x_frags": x_frags,
+            "edge_attr": edge_attr,
+            "cnx_attr": cnx_attr,
+            "batch": torch.zeros(x_atoms.shape[0], dtype=torch.long),  # 单个分子，批次索引全为0
+            "frag_batch": torch.zeros(n_frags, dtype=torch.long),      # 单个分子的所有片段，批次索引全为0
+            "atom_to_frag_ids": atom_id_frag_id,
+            "y": torch.tensor([0.0], dtype=torch.float),  # 默认目标值
+            "smiles": smile
+        }
+        
+        # 添加默认的键图和片段键图特征（如果模型需要）
+        num_bonds = edge_index.shape[1] // 2  # 因为每条边存储了两次
+        batch_data["node_features_bonds"] = torch.zeros((num_bonds, 16), dtype=torch.float)  # 默认键特征，维度应为16
+        batch_data["edge_index_bonds_graph"] = torch.tensor([[], []], dtype=torch.long)  # 空的键图边索引
+        batch_data["edge_attr_bonds"] = torch.zeros((0, 1), dtype=torch.float)  # 空的键图边属性，维度应为1
+        batch_data["node_features_fbonds"] = torch.zeros((0, 16), dtype=torch.float)  # 空的片段键特征，维度应为16
+        batch_data["edge_index_fbonds"] = torch.tensor([[], []], dtype=torch.long)  # 空的片段键图边索引
+        batch_data["edge_attr_fbonds"] = torch.zeros((0, 1), dtype=torch.float)  # 空的片段键图边属性，维度应为1
+        
+        return batch_data
+        
+    except Exception as e:
+        print(f"Error processing SMILES {smile}: {e}")
+        return None
 
 
 class MoleculeCache:

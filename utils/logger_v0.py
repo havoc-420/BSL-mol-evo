@@ -28,14 +28,14 @@ def log_training_start(logger, data_file, max_pairs, epochs):
 
 def log_dataset_examples(logger, from_data_list, to_data_list, edge_attrs, target_features, num_examples=3):
     """
-    记录数据集样本示例
+    输出训练集样本示例信息（头部数据）
     
     Args:
         logger: V0TrainingLogger实例
         from_data_list: 起始分子数据列表
         to_data_list: 目标分子数据列表
         edge_attrs: 边特征张量
-        target_features: 目标属性张量
+        target_features: 目标属性特征张量
         num_examples: 示例数量
     """
     logger.info("--- 训练集样本示例 (头部数据) ---")
@@ -48,10 +48,25 @@ def log_dataset_examples(logger, from_data_list, to_data_list, edge_attrs, targe
     
     # 表格内容
     for i in range(num_examples):
-        from_nodes = from_data_list[i].x.size(0)
-        from_edges = from_data_list[i].edge_index.size(1)
-        to_nodes = to_data_list[i].x.size(0)
-        to_edges = to_data_list[i].edge_index.size(1)
+        # 检查数据格式（PyG Data对象还是字典）
+        if hasattr(from_data_list[i], 'x'):
+            # PyG Data对象格式
+            from_nodes = from_data_list[i].x.size(0)
+            from_edges = from_data_list[i].edge_index.size(1)
+        else:
+            # 字典格式（如FragNet）
+            from_nodes = from_data_list[i]['x_atoms'].size(0)
+            from_edges = from_data_list[i]['edge_index'].size(1)
+            
+        if hasattr(to_data_list[i], 'x'):
+            # PyG Data对象格式
+            to_nodes = to_data_list[i].x.size(0)
+            to_edges = to_data_list[i].edge_index.size(1)
+        else:
+            # 字典格式（如FragNet）
+            to_nodes = to_data_list[i]['x_atoms'].size(0)
+            to_edges = to_data_list[i]['edge_index'].size(1)
+            
         edge_attr = str(edge_attrs[i].tolist())
         target_val = f"{target_features[i].item():.6f}"
         
@@ -70,15 +85,32 @@ def log_data_construction_info(logger, from_data_list, model_params, edge_attrs,
         from_data_list: 起始分子数据列表
         model_params: 模型参数字典
         edge_attrs: 边特征张量
-        target_features: 目标属性张量
+        target_features: 目标属性特征张量
     """
     logger.info("\n数据构建完成:")
-    logger.info("  {:<20} {:<20}".format("项目", "值"))
-    logger.info("  " + "-" * 40)
-    logger.info("  {:<20} {:<20}".format("样本数", str(len(from_data_list))))
-    logger.info("  {:<20} {:<20}".format("节点特征维度", str(model_params['node_feature_dim'])))
-    logger.info("  {:<20} {:<20}".format("边特征维度", str(edge_attrs.shape[1] if len(edge_attrs.shape) > 1 else 1)))
-    logger.info("  {:<20} {:<20}".format("目标属性变化维度", str(target_features.shape[1] if len(target_features.shape) > 1 else 1)))
+    
+    # 检查数据格式确定节点特征维度
+    if len(from_data_list) > 0:
+        if hasattr(from_data_list[0], 'x'):
+            # PyG Data对象格式
+            node_feature_dim = from_data_list[0].x.size(1)
+        else:
+            # 字典格式（如FragNet）
+            node_feature_dim = from_data_list[0]['x_atoms'].size(1)
+    else:
+        node_feature_dim = model_params.get("node_feature_dim", 0)
+    
+    table_data = [
+        ["项目", "值"],
+        ["-" * 40, "-" * 20],
+        ["样本数", str(len(from_data_list))],
+        ["节点特征维度", str(node_feature_dim)],
+        ["边特征维度", str(edge_attrs.size(1) if edge_attrs.numel() > 0 else 0)],
+        ["目标属性变化维度", str(target_features.size(1) if target_features.numel() > 0 else 0)]
+    ]
+    
+    for row in table_data:
+        logger.info(f"  {row[0]:<20} {row[1]:<20}")
 
 
 def log_dataset_split_info(logger, train_idx, val_idx, test_idx):
@@ -87,15 +119,19 @@ def log_dataset_split_info(logger, train_idx, val_idx, test_idx):
     
     Args:
         logger: V0TrainingLogger实例
-        train_idx: 训练集索引
-        val_idx: 验证集索引
-        test_idx: 测试集索引
+        train_idx: 训练集索引列表
+        val_idx: 验证集索引列表
+        test_idx: 测试集索引列表
     """
     total_samples = len(train_idx) + len(val_idx) + len(test_idx)
     logger.info("数据集划分完成:")
-    logger.info(f"  - 训练集: {len(train_idx)} ({len(train_idx)/total_samples*100:.1f}%)")
-    logger.info(f"  - 验证集: {len(val_idx)} ({len(val_idx)/total_samples*100:.1f}%)")
-    logger.info(f"  - 测试集: {len(test_idx)} ({len(test_idx)/total_samples*100:.1f}%)")
+    
+    if total_samples > 0:
+        logger.info(f"  - 训练集: {len(train_idx)} ({len(train_idx)/total_samples*100:.1f}%)")
+        logger.info(f"  - 验证集: {len(val_idx)} ({len(val_idx)/total_samples*100:.1f}%)")
+        logger.info(f"  - 测试集: {len(test_idx)} ({len(test_idx)/total_samples*100:.1f}%)")
+    else:
+        logger.info("  - 数据集为空，无法划分")
 
 
 def log_device_info(logger, device):

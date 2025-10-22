@@ -18,6 +18,7 @@ try:
     # 导入特征提取器
     from mol_evo.core.models.v0.molecule_feature_extractors.gcn import GCNMoleculeFeatureExtractor
     from mol_evo.core.models.v0.molecule_feature_extractors.visnet import ViSNet
+    from mol_evo.core.models.v0.molecule_feature_extractors.equiformer_v1 import EquiformerV1MoleculeFeatureExtractor
     
     # 导入工具函数
     from mol_evo.utils.test.feature_extractor_utils import (
@@ -56,6 +57,14 @@ def get_feature_extractor_info_custom(feature_extractor_class):
                 cutoff=5.0,
                 max_z=100
             )
+        elif feature_extractor_class == EquiformerV1MoleculeFeatureExtractor:
+            # EquiformerV1需要特定的初始化参数
+            dummy_model = feature_extractor_class(
+                irreps_in='5x0e',
+                irreps_node_embedding='64x0e+32x1e+16x2e', 
+                num_layers=3,
+                max_radius=5.0
+            )
         else:
             # 其他特征提取器使用默认参数
             dummy_model = feature_extractor_class(node_feature_dim=10)
@@ -83,6 +92,7 @@ def test_molecule_feature_extractor():
     available_extractors = {
         "GCN": GCNMoleculeFeatureExtractor,
         "ViSNet": ViSNet,
+        "EquiformerV1": EquiformerV1MoleculeFeatureExtractor,
     }
     
     # 选择特征提取器
@@ -133,6 +143,14 @@ def test_molecule_feature_extractor():
                     cutoff=5.0,
                     max_z=100
                 )
+            elif feature_extractor_class == EquiformerV1MoleculeFeatureExtractor:
+                # EquiformerV1需要特定的初始化参数
+                model = feature_extractor_class(
+                    irreps_in='5x0e',
+                    irreps_node_embedding='64x0e+32x1e+16x2e', 
+                    num_layers=3,
+                    max_radius=5.0
+                )
             else:
                 # 其他特征提取器使用原始方式初始化
                 node_feature_dim = graph_data.x.size(1)
@@ -151,10 +169,24 @@ def test_molecule_feature_extractor():
                     pos = graph_data.pos if hasattr(graph_data, 'pos') else torch.zeros(graph_data.x.shape[0], 3)
                     batch = torch.zeros(graph_data.x.shape[0], dtype=torch.long)
                     features, graph_features = model(z, pos, batch)
+                elif feature_extractor_class == EquiformerV1MoleculeFeatureExtractor:
+                    # EquiformerV1需要特定的输入格式
+                    # 确保图数据包含必要的属性
+                    if not hasattr(graph_data, 'z'):
+                        # 如果没有原子序数，创建一个简单的原子序数张量
+                        graph_data.z = torch.zeros(graph_data.x.shape[0], dtype=torch.long)
+                    
+                    if not hasattr(graph_data, 'batch'):
+                        # 如果没有批次信息，创建一个零张量
+                        graph_data.batch = torch.zeros(graph_data.x.shape[0], dtype=torch.long)
+                        
+                    features = model(graph_data)
                 else:
                     features = model(graph_data)
             except Exception as e:
                 print(f"模型前向传播时出错: {e}")
+                import traceback
+                traceback.print_exc()
                 continue
         
         # 输出结果

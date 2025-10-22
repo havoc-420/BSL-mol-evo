@@ -12,15 +12,14 @@ import torch
 import pandas as pd
 import numpy as np
 import math
-from torch.utils.data import Dataset
-from torch_geometric.loader import DataLoader
-
-from torch_geometric.data import Batch
-import torch.nn as nn
 from datetime import datetime
 from tqdm import tqdm
 import shutil
 import random
+
+import torch.nn as nn
+from torch_geometric.loader import DataLoader
+
 
 """ BASE SETTINGS """
 
@@ -31,6 +30,50 @@ model_params = {
     "output_dim": 1,  # 单属性预测
     # "hidden_dim": 128,
     # "num_layers": 3
+}
+
+# FragNet模型参数
+fragnet_model_params = {
+    "atom_feature_dim": 167,
+    "frag_feature_dim": 167,
+    "edge_feature_dim": 16,
+    "output_dim": 1,
+    "num_layers": 4,
+    "hidden_dim": 128,
+    "num_heads": 4,
+    "dropout_ratio": 0.15
+}
+
+# Equiformer模型参数
+equiformer_model_params = {
+    "irreps_in": '5x0e',
+    "irreps_node_embedding": '128x0e+64x1e+32x2e', 
+    "num_layers": 6,
+    "irreps_node_attr": '1x0e', 
+    "irreps_sh": '1x0e+1x1e+1x2e',
+    "max_radius": 5.0,
+    "number_of_basis": 128, 
+    "basis_type": 'gaussian', 
+    "fc_neurons": [64, 64], 
+    "irreps_feature": '512x0e',
+    "irreps_head": '32x0e+16x1o+8x2e', 
+    "num_heads": 4, 
+    "irreps_pre_attn": None,
+    "rescale_degree": False, 
+    "nonlinear_message": False,
+    "irreps_mlp_mid": '128x0e+64x1e+32x2e',
+    "norm_layer": 'layer',
+    "alpha_drop": 0.2, 
+    "proj_drop": 0.0, 
+    "out_drop": 0.0,
+    "drop_path_rate": 0.0,
+    "mean": None, 
+    "std": None, 
+    "scale": None, 
+    "atomref": None,
+    "hidden_dims": None,
+    "edge_feature_dim": 11,  # 默认边特征维度
+    "output_dim": 1
 }
 
 # 目标属性名称 - 默认值，将被命令行参数覆盖
@@ -46,6 +89,8 @@ try:
     from mol_evo.core.models.v0 import ModelFactory
     from mol_evo.core.utils.molecule import MoleculeCache
     from mol_evo.core.data.data_v0 import smiles_to_graph_data, prepare_edge_features
+    from mol_evo.core.data.fragnet_data import smile_to_fragnet_features
+    from mol_evo.core.data.pair_data import MoleculePairDataset, pair_collate  # 使用新的数据处理模块
     from mol_evo.utils.training_utils import (
         split_data_indices, 
         save_training_data_as_json, 
@@ -54,6 +99,11 @@ try:
         log_training_start,
         log_model_creation,
         log_training_start_message
+    )
+    from mol_evo.utils.device_utils import (
+        move_data_to_device,
+        move_data_to_device_for_validation,
+        move_data_to_device_for_testing
     )
     from mol_evo.utils.logger_utils import DualLogger
     from mol_evo.utils.logger_v0 import (
@@ -77,40 +127,9 @@ except ImportError as e:
     exit(1)
 
 
-class MoleculePairDataset(Dataset):
-    """返回 (from_graph, to_graph, edge_feature, target) 的数据集"""
-    def __init__(self, from_list, to_list, edge_attrs, targets):
-        assert len(from_list) == len(to_list) == len(edge_attrs) == len(targets)
-        self.from_list = from_list
-        self.to_list   = to_list
-        self.edge_attrs = edge_attrs      # Tensor (N, edge_feature_dim)
-        self.targets    = targets         # Tensor (N, 1)
-
-    def __len__(self):
-        return len(self.from_list)
-
-    def __getitem__(self, idx):
-        # import pdb; pdb.set_trace()
-        return self.from_list[idx], self.to_list[idx],self.edge_attrs[idx], self.targets[idx]
-
-
-def pair_collate(batch):
-    """把若干 (from, to, edge, target) 合并成 batch"""
-    from_list, to_list, edge_list, target_list = zip(*batch)
-
-    # PyG 自动把多个 Data 拼成一个 Batch
-    from_batch = Batch.from_data_list(list(from_list))
-    to_batch   = Batch.from_data_list(list(to_list))
-
-    # edge 特征和目标直接 stack
-    edge_batch = torch.stack(edge_list, dim=0)          # (B, edge_dim)
-    target_batch = torch.stack(target_list, dim=0)      # (B, 1)
-
-    return from_batch, to_batch, edge_batch, target_batch
-
-
 def build_molecule_evolution_dataset_v0(csv_file: str, max_pairs: int = None, 
-                                      target_property: str = 'mu_change', logger=None):
+                                      target_property: str = 'mu_change', logger=None,
+                                      model_type: str = "gcn_linear"):
     """
     构建分子进化数据集，使用smile_to_graph_xyz函数处理分子结构
     参考文档: mol_evo/docs/model-v0/data_preprocessing_and_usage.md
@@ -120,10 +139,16 @@ def build_molecule_evolution_dataset_v0(csv_file: str, max_pairs: int = None,
         max_pairs: 最大对数（用于调试）
         target_property: 目标属性名称
         logger: 日志记录器
+        model_type: 模型类型，用于确定数据预处理方式
         
     Returns:
         起始分子数据列表、目标分子数据列表、边特征张量和目标属性张量
     """
+    # 检查是否是 FragNet 模型类型
+    is_fragnet_model = model_type and "frag" in model_type.lower()
+    # 检查是否是 Equiformer 模型类型
+    is_equiformer_model = model_type and "equiformer" in model_type.lower()
+    
     # 读取数据
     df = pd.read_csv(csv_file)
     
@@ -138,22 +163,6 @@ def build_molecule_evolution_dataset_v0(csv_file: str, max_pairs: int = None,
     else:
         property_stats = {target_property: (0.0, 1.0)}
     
-    # 准备目标属性值
-    target_features = []
-    for _, row in df.iterrows():
-        if target_property in row and not pd.isna(row[target_property]):
-            value = row[target_property]
-            # 标准化目标属性值
-            if target_property in property_stats:
-                mean, std = property_stats[target_property]
-                if std > 0:
-                    value = (value - mean) / std
-            target_features.append([value])
-        else:
-            target_features.append([0.0])
-    
-    target_features = torch.FloatTensor(np.array(target_features))
-    
     # 创建分子缓存实例，并传入logger
     cache = MoleculeCache(csv_file=csv_file, logger=logger)    # UPDATE 避免缓存破坏
     
@@ -161,32 +170,62 @@ def build_molecule_evolution_dataset_v0(csv_file: str, max_pairs: int = None,
     from_data_list = []
     to_data_list = []
     edge_attr_list = []
+    target_features_list = []  # 添加用于收集目标特征的列表
     
-    for _, row in df.iterrows():
-        # 使用smile_to_graph_xyz函数生成起始分子和目标分子的图结构
-        from_data = smiles_to_graph_data(row['smiles_from'], cache)
-        to_data = smiles_to_graph_data(row['smiles_to'], cache)
-        
-        # 检查转换是否成功
-        if from_data is None or to_data is None:
-            # message = f"跳过无法处理的分子对: {row['smiles_from']} -> {row['smiles_to']}"
-            # if logger:
-            #     logger.warning(message)
-            # else:
-            #     print(message)
-            continue
+    for idx, row in df.iterrows():
+        try:
+            # TAG smiles data generation
+            if is_fragnet_model:
+                # 使用 FragNet 数据处理函数
+                from_data = smile_to_fragnet_features(row['smiles_from'])
+                to_data = smile_to_fragnet_features(row['smiles_to'])
+            else:
+                # 使用标准的 smile_to_graph_xyz 函数
+                from_data = smiles_to_graph_data(row['smiles_from'], cache)
+                to_data = smiles_to_graph_data(row['smiles_to'], cache)
+                
+            # 检查数据是否有效
+            if from_data is None or to_data is None:
+                message = f"跳过第{idx}行分子对: {row['smiles_from']} -> {row['smiles_to']} (数据为None)"
+                if logger:
+                    logger.warning(message)
+                continue
+                
+            from_data_list.append(from_data)
+            to_data_list.append(to_data)
             
-        from_data_list.append(from_data)
-        to_data_list.append(to_data)
-        
-        # 准备边特征 (操作信息特征)
-        edge_feat = prepare_edge_features(row, property_stats, include_property_changes=False)
-        edge_attr_list.append(edge_feat)
+            # TAG 准备演化操作边特征 (操作信息特征 Hav)
+            edge_feat = prepare_edge_features(row, property_stats, include_property_changes=False)
+            edge_attr_list.append(edge_feat)
+            
+            # 准备目标属性特征
+            if target_property in row and not pd.isna(row[target_property]):
+                value = row[target_property]
+                # 标准化目标属性值
+                if target_property in property_stats:
+                    mean, std = property_stats[target_property]
+                    if std > 0:
+                        value = (value - mean) / std
+                target_features_list.append([value])
+            else:
+                target_features_list.append([0.0])
+            
+        except Exception as e:
+            message = f"处理第{idx}行分子对时发生错误: {row['smiles_from']} -> {row['smiles_to']}, 错误: {str(e)}"
+            if logger:
+                logger.error(message)
+            continue
     
     if len(edge_attr_list) > 0:
         edge_attrs = torch.FloatTensor(np.array(edge_attr_list))
     else:
         edge_attrs = torch.FloatTensor([])
+        
+    # 转换目标特征为张量
+    if len(target_features_list) > 0:
+        target_features = torch.FloatTensor(np.array(target_features_list))
+    else:
+        target_features = torch.FloatTensor([])
     
     # 打印缓存统计信息
     stats = cache.get_stats()
@@ -222,6 +261,11 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     
+    # INFO 检查是否是 FragNet 模型类型
+    is_fragnet_model = model_type and "frag" in model_type.lower()
+    # 检查是否是 Equiformer 模型类型
+    is_equiformer_model = model_type and "equiformer" in model_type.lower()
+    
     # train-data 存储位置
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     # 模型目录命名规则: train_{TIMESTAMP}_{TARGET-ATTR}_{max-pairs}_{epoches}
@@ -237,7 +281,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         # STAGE 构建图数据 - 使用新的数据处理方法
         logger.info(f"正在构建图数据: {data_file}")  # 默认输出到控制台和文件
         from_data_list, to_data_list, edge_attrs, target_features, property_stats = build_molecule_evolution_dataset_v0(
-            data_file, max_pairs, TARGET_PROPERTY, logger)
+            data_file, max_pairs, TARGET_PROPERTY, logger, model_type)
         
         # 输出训练集的头部信息（前几个样本示例）
         log_dataset_examples(logger, from_data_list, to_data_list, edge_attrs, target_features)
@@ -245,17 +289,37 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         # 记录数据构建信息
         log_data_construction_info(logger, from_data_list, model_params, edge_attrs, target_features)
         
+        # 检查是否有有效数据
+        if len(from_data_list) == 0:
+            logger.error("没有有效的训练数据，请检查数据预处理步骤")
+            return
+            
+        # 检查数据是否匹配
+        if not (len(from_data_list) == len(to_data_list) == len(edge_attrs) == len(target_features)):
+            logger.error(f"数据长度不匹配: from_data_list={len(from_data_list)}, to_data_list={len(to_data_list)}, edge_attrs={len(edge_attrs)}, target_features={len(target_features)}")
+            return
+        
         # 划分数据集
         train_idx, val_idx, test_idx = split_data_indices(len(from_data_list), 0.8, 0.1, 0.1, seed)
         log_dataset_split_info(logger, train_idx, val_idx, test_idx)
         
-        # 创建数据集
+        # 检查训练集是否为空
+        if len(train_idx) == 0:
+            logger.error("训练集为空，请检查数据划分")
+            return
+        
+        # 创建数据集 - 统一使用 MoleculePairDataset
         train_dataset = MoleculePairDataset(
             [from_data_list[i] for i in train_idx],
             [to_data_list[i] for i in train_idx],
             edge_attrs[train_idx],
             target_features[train_idx])
         
+        # 检查训练数据集中是否有有效数据
+        if len(train_dataset) == 0:
+            logger.error("训练数据集为空，请检查数据处理过程")
+            return
+            
         val_dataset = MoleculePairDataset(
             [from_data_list[i] for i in val_idx],
             [to_data_list[i] for i in val_idx],
@@ -269,37 +333,111 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
             target_features[test_idx]) if len(test_idx) > 0 else None
         
         # 创建 DataLoader
-        train_loader = DataLoader(
-            train_dataset,
-            batch_size=batch_size,
-            shuffle=True,
-            num_workers=0,
-            collate_fn=pair_collate,
-            pin_memory=True)
-        
-        val_loader = DataLoader(
-            val_dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            num_workers=0,
-            collate_fn=pair_collate) if val_dataset is not None else None
+        if is_fragnet_model:
+            # 导入FragNet的collate_fn
+            from mol_evo.modules.FragNet.fragnet.dataset.data import collate_fn as fragnet_collate_fn
+            from torch.utils.data import DataLoader as torchDataLoader
+
+            train_loader = torchDataLoader(
+                train_dataset,
+                batch_size=batch_size,
+                shuffle=True,
+                num_workers=0,
+                collate_fn=fragnet_collate_fn,
+                pin_memory=True)
             
-        test_loader = DataLoader(
-            test_dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            num_workers=0,
-            collate_fn=pair_collate) if test_dataset is not None else None
+            val_loader = torchDataLoader(
+                val_dataset,
+                batch_size=batch_size,
+                shuffle=False,
+                num_workers=0,
+                collate_fn=fragnet_collate_fn) if val_dataset is not None else None
+                
+            test_loader = torchDataLoader(
+                test_dataset,
+                batch_size=batch_size,
+                shuffle=False,
+                num_workers=0,
+                collate_fn=fragnet_collate_fn) if test_dataset is not None else None
+        else:
+            train_loader = DataLoader(
+                train_dataset,
+                batch_size=batch_size,
+                shuffle=True,
+                num_workers=0,
+                collate_fn=pair_collate,
+                pin_memory=True)
+            
+            val_loader = DataLoader(
+                val_dataset,
+                batch_size=batch_size,
+                shuffle=False,
+                num_workers=0,
+                collate_fn=pair_collate) if val_dataset is not None else None
+                
+            test_loader = DataLoader(
+                test_dataset,
+                batch_size=batch_size,
+                shuffle=False,
+                num_workers=0,
+                collate_fn=pair_collate) if test_dataset is not None else None
         
         # 创建模型
-        model = ModelFactory.create(
-            model_type,
-            node_feature_dim=model_params["node_feature_dim"],
-            edge_feature_dim=model_params["edge_feature_dim"],
-            output_dim=model_params["output_dim"],
-            # hidden_dim=model_params["hidden_dim"],
-            # num_layers=model_params["num_layers"]
-        )
+        # 根据模型类型传递不同的参数
+        if is_fragnet_model:
+            model = ModelFactory.create(
+                model_type,
+                atom_feature_dim=167,  # FragNet原子特征维度
+                frag_feature_dim=167,  # FragNet片段特征维度
+                edge_feature_dim=16,   # FragNet边特征维度
+                output_dim=model_params["output_dim"],
+                num_layers=4,
+                hidden_dim=128,
+                num_heads=4,
+                dropout_ratio=0.15
+            )
+        elif is_equiformer_model:
+            # 为Equiformer模型使用专用参数
+            model = ModelFactory.create(
+                model_type,
+                irreps_in=equiformer_model_params["irreps_in"],
+                irreps_node_embedding=equiformer_model_params["irreps_node_embedding"],
+                num_layers=equiformer_model_params["num_layers"],
+                irreps_node_attr=equiformer_model_params["irreps_node_attr"],
+                irreps_sh=equiformer_model_params["irreps_sh"],
+                max_radius=equiformer_model_params["max_radius"],
+                number_of_basis=equiformer_model_params["number_of_basis"],
+                basis_type=equiformer_model_params["basis_type"],
+                fc_neurons=equiformer_model_params["fc_neurons"],
+                irreps_feature=equiformer_model_params["irreps_feature"],
+                irreps_head=equiformer_model_params["irreps_head"],
+                num_heads=equiformer_model_params["num_heads"],
+                irreps_pre_attn=equiformer_model_params["irreps_pre_attn"],
+                rescale_degree=equiformer_model_params["rescale_degree"],
+                nonlinear_message=equiformer_model_params["nonlinear_message"],
+                irreps_mlp_mid=equiformer_model_params["irreps_mlp_mid"],
+                norm_layer=equiformer_model_params["norm_layer"],
+                alpha_drop=equiformer_model_params["alpha_drop"],
+                proj_drop=equiformer_model_params["proj_drop"],
+                out_drop=equiformer_model_params["out_drop"],
+                drop_path_rate=equiformer_model_params["drop_path_rate"],
+                mean=equiformer_model_params["mean"],
+                std=equiformer_model_params["std"],
+                scale=equiformer_model_params["scale"],
+                atomref=equiformer_model_params["atomref"],
+                hidden_dims=equiformer_model_params["hidden_dims"],
+                edge_feature_dim=equiformer_model_params["edge_feature_dim"],
+                output_dim=equiformer_model_params["output_dim"]
+            )
+        else:
+            model = ModelFactory.create(
+                model_type,
+                node_feature_dim=model_params["node_feature_dim"],
+                edge_feature_dim=model_params["edge_feature_dim"],
+                output_dim=model_params["output_dim"],
+                # hidden_dim=model_params["hidden_dim"],
+                # num_layers=model_params["num_layers"]
+            )
         log_model_creation(logger, model)
         
         # 设置设备
@@ -319,12 +457,14 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         
         # 记录模型和训练参数
         # 获取模型的实际参数
-        model_actual_params = {
-            "node_feature_dim": model_params["node_feature_dim"],
-            "edge_feature_dim": model_params["edge_feature_dim"],
-            "output_dim": model_params["output_dim"],
-            "model_type": model_type
-        }
+        if is_fragnet_model:
+            model_actual_params = fragnet_model_params.copy()
+        elif is_equiformer_model:
+            model_actual_params = equiformer_model_params.copy()
+        else:
+            model_actual_params = model_params.copy()
+        
+        model_actual_params["model_type"] = model_type
         
         # 如果模型有特定的参数，也可以添加进来
         if hasattr(model, 'get_model_config'):
@@ -364,10 +504,8 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                 optimizer.zero_grad()
                 
                 # 移动到设备
-                from_batch = from_batch.to(device)
-                to_batch = to_batch.to(device)
-                edge_batch = edge_batch.to(device)
-                target_batch = target_batch.to(device)
+                from_batch, to_batch, edge_batch, target_batch = move_data_to_device(
+                    from_batch, to_batch, edge_batch, target_batch, device, is_fragnet_model)
                 
                 # 前向传播
                 predictions = model(from_batch, to_batch, edge_batch)
@@ -417,10 +555,8 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                     
                     for from_batch, to_batch, edge_batch, target_batch in val_loader:
                         # 移动到设备
-                        from_batch = from_batch.to(device)
-                        to_batch = to_batch.to(device)
-                        edge_batch = edge_batch.to(device)
-                        target_batch = target_batch.to(device)
+                        from_batch, to_batch, edge_batch, target_batch = move_data_to_device_for_validation(
+                            from_batch, to_batch, edge_batch, target_batch, device, is_fragnet_model)
                         
                         # 前向传播
                         val_predictions = model(from_batch, to_batch, edge_batch)
@@ -516,9 +652,8 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                 
                 for from_batch, to_batch, edge_batch, target_batch in test_loader:
                     # 移动到设备
-                    from_batch = from_batch.to(device)
-                    to_batch = to_batch.to(device)
-                    edge_batch = edge_batch.to(device)
+                    from_batch, to_batch, edge_batch = move_data_to_device_for_testing(
+                        from_batch, to_batch, edge_batch, device, is_fragnet_model)
                     
                     # 前向传播
                     test_predictions = model(from_batch, to_batch, edge_batch)
@@ -688,7 +823,6 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                 log_training_completion(
                     logger, metrics_recorder.train_losses, metrics_recorder.val_losses, 
                     test_loss, rmse, mae, r2, threshold_accuracies, model_path, pcc, rank_loss)
-                
     except KeyboardInterrupt:
         logger.info("\n训练被用户中断 (Ctrl+C)")
         choice = input("是否要清理模型目录 {}? (Y/n): ".format(model_dir)).strip().lower()
