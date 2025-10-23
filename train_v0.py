@@ -22,63 +22,6 @@ from torch_geometric.loader import DataLoader
 
 
 """ BASE SETTINGS """
-
-# 定义模型参数字典
-model_params = {
-    "node_feature_dim": 11,   # 修改为smile_to_graph_xyz生成的特征维度
-    "edge_feature_dim": 11,   # 保持不变
-    "output_dim": 1,  # 单属性预测
-    # "hidden_dim": 128,
-    # "num_layers": 3
-}
-
-# FragNet模型参数
-fragnet_model_params = {
-    "atom_feature_dim": 167,
-    "frag_feature_dim": 167,
-    "edge_feature_dim": 16,
-    "output_dim": 1,
-    "num_layers": 4,
-    "hidden_dim": 128,
-    "num_heads": 4,
-    "dropout_ratio": 0.15
-}
-
-# Equiformer模型参数
-equiformer_model_params = {
-    "irreps_in": '5x0e',
-    "irreps_node_embedding": '128x0e+64x1e+32x2e', 
-    "num_layers": 6,
-    "irreps_node_attr": '1x0e', 
-    "irreps_sh": '1x0e+1x1e+1x2e',
-    "max_radius": 5.0,
-    "number_of_basis": 128, 
-    "basis_type": 'gaussian', 
-    "fc_neurons": [64, 64], 
-    "irreps_feature": '512x0e',
-    "irreps_head": '32x0e+16x1o+8x2e', 
-    "num_heads": 4, 
-    "irreps_pre_attn": None,
-    "rescale_degree": False, 
-    "nonlinear_message": False,
-    "irreps_mlp_mid": '128x0e+64x1e+32x2e',
-    "norm_layer": 'layer',
-    "alpha_drop": 0.2, 
-    "proj_drop": 0.0, 
-    "out_drop": 0.0,
-    "drop_path_rate": 0.0,
-    "mean": None, 
-    "std": None, 
-    "scale": None, 
-    "atomref": None,
-    "hidden_dims": None,
-    "edge_feature_dim": 11,  # 默认边特征维度
-    "output_dim": 1
-}
-
-# 目标属性名称 - 默认值，将被命令行参数覆盖
-TARGET_PROPERTY = 'mu_change'
-
 # 设置项目根目录路径
 script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.join(script_dir, '..')
@@ -119,12 +62,16 @@ try:
         log_model_saved,
     )
     from mol_evo.utils.training_metrics import TrainingMetricsRecorder
+    from mol_evo.utils.config_utils import load_config_by_model_type  # 新增导入
 except ImportError as e:
     import traceback
     print(f"无法导入所需的模块 train-v0.py: {e}")
     print("详细错误堆栈信息:")
     traceback.print_exc()
     exit(1)
+
+# 目标属性名称 - 默认值，将被命令行参数覆盖
+TARGET_PROPERTY = 'mu_change'
 
 
 def build_molecule_evolution_dataset_v0(csv_file: str, max_pairs: int = None, 
@@ -266,6 +213,9 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
     # 检查是否是 Equiformer 模型类型
     is_equiformer_model = model_type and "equiformer" in model_type.lower()
     
+    # 加载模型配置
+    model_config = load_config_by_model_type(model_type)
+    
     # train-data 存储位置
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     # 模型目录命名规则: train_{TIMESTAMP}_{TARGET-ATTR}_{max-pairs}_{epoches}
@@ -287,7 +237,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         log_dataset_examples(logger, from_data_list, to_data_list, edge_attrs, target_features)
 
         # 记录数据构建信息
-        log_data_construction_info(logger, from_data_list, model_params, edge_attrs, target_features)
+        log_data_construction_info(logger, from_data_list, model_config, edge_attrs, target_features)
         
         # 检查是否有有效数据
         if len(from_data_list) == 0:
@@ -384,60 +334,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         
         # 创建模型
         # 根据模型类型传递不同的参数
-        if is_fragnet_model:
-            model = ModelFactory.create(
-                model_type,
-                atom_feature_dim=167,  # FragNet原子特征维度
-                frag_feature_dim=167,  # FragNet片段特征维度
-                edge_feature_dim=16,   # FragNet边特征维度
-                output_dim=model_params["output_dim"],
-                num_layers=4,
-                hidden_dim=128,
-                num_heads=4,
-                dropout_ratio=0.15
-            )
-        elif is_equiformer_model:
-            # 为Equiformer模型使用专用参数
-            model = ModelFactory.create(
-                model_type,
-                irreps_in=equiformer_model_params["irreps_in"],
-                irreps_node_embedding=equiformer_model_params["irreps_node_embedding"],
-                num_layers=equiformer_model_params["num_layers"],
-                irreps_node_attr=equiformer_model_params["irreps_node_attr"],
-                irreps_sh=equiformer_model_params["irreps_sh"],
-                max_radius=equiformer_model_params["max_radius"],
-                number_of_basis=equiformer_model_params["number_of_basis"],
-                basis_type=equiformer_model_params["basis_type"],
-                fc_neurons=equiformer_model_params["fc_neurons"],
-                irreps_feature=equiformer_model_params["irreps_feature"],
-                irreps_head=equiformer_model_params["irreps_head"],
-                num_heads=equiformer_model_params["num_heads"],
-                irreps_pre_attn=equiformer_model_params["irreps_pre_attn"],
-                rescale_degree=equiformer_model_params["rescale_degree"],
-                nonlinear_message=equiformer_model_params["nonlinear_message"],
-                irreps_mlp_mid=equiformer_model_params["irreps_mlp_mid"],
-                norm_layer=equiformer_model_params["norm_layer"],
-                alpha_drop=equiformer_model_params["alpha_drop"],
-                proj_drop=equiformer_model_params["proj_drop"],
-                out_drop=equiformer_model_params["out_drop"],
-                drop_path_rate=equiformer_model_params["drop_path_rate"],
-                mean=equiformer_model_params["mean"],
-                std=equiformer_model_params["std"],
-                scale=equiformer_model_params["scale"],
-                atomref=equiformer_model_params["atomref"],
-                hidden_dims=equiformer_model_params["hidden_dims"],
-                edge_feature_dim=equiformer_model_params["edge_feature_dim"],
-                output_dim=equiformer_model_params["output_dim"]
-            )
-        else:
-            model = ModelFactory.create(
-                model_type,
-                node_feature_dim=model_params["node_feature_dim"],
-                edge_feature_dim=model_params["edge_feature_dim"],
-                output_dim=model_params["output_dim"],
-                # hidden_dim=model_params["hidden_dim"],
-                # num_layers=model_params["num_layers"]
-            )
+        model = ModelFactory.create(model_type, **model_config)
         log_model_creation(logger, model)
         
         # 设置设备
@@ -457,13 +354,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         
         # 记录模型和训练参数
         # 获取模型的实际参数
-        if is_fragnet_model:
-            model_actual_params = fragnet_model_params.copy()
-        elif is_equiformer_model:
-            model_actual_params = equiformer_model_params.copy()
-        else:
-            model_actual_params = model_params.copy()
-        
+        model_actual_params = model_config.copy()
         model_actual_params["model_type"] = model_type
         
         # 如果模型有特定的参数，也可以添加进来
@@ -807,7 +698,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                 }
                 save_training_data_as_json(
                     metrics_recorder.train_losses, metrics_recorder.val_losses, test_metrics, 
-                    model_dir, model_params, training_params=training_params, 
+                    model_dir, model_config, training_params=training_params, 
                     property_stats=property_stats, val_metrics_history=metrics_recorder.val_metrics_history)
                 
                 # 生成训练趋势图
@@ -823,6 +714,11 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                 log_training_completion(
                     logger, metrics_recorder.train_losses, metrics_recorder.val_losses, 
                     test_loss, rmse, mae, r2, threshold_accuracies, model_path, pcc, rank_loss)
+                
+                # 输出训练结果文件路径，方便查看
+                result_file = os.path.join(model_dir, "training_results.json")
+                logger.info(f"训练结果已保存到: {result_file}")
+                logger.info(f"模型目录: {model_dir}")
     except KeyboardInterrupt:
         logger.info("\n训练被用户中断 (Ctrl+C)")
         choice = input("是否要清理模型目录 {}? (Y/n): ".format(model_dir)).strip().lower()

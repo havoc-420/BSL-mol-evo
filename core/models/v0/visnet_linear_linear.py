@@ -20,7 +20,7 @@ from .fusion_predictors import MLPFusionPredictor
 from . import register_model
 
 
-@register_model(display_name="VisNet Linear-Linear 模型")
+@register_model(display_name="VisNet Linear-Linear 模型", save_dir_name="visnet_linear_linear")
 class MoleculeEvolutionVisnetLinearPredictor(nn.Module):
     """
     基于VisNet的分子进化预测器 (Linear-Linear版本)

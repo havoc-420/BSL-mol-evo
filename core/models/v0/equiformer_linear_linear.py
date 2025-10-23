@@ -20,7 +20,7 @@ from .edge_feature_extractors.linear import LinearEdgeFeatureExtractor
 from . import register_model
 
 
-@register_model(display_name="Equiformer Linear-Linear 模型")
+@register_model(display_name="Equiformer Linear-Linear 模型", save_dir_name="equiformer_linear_linear")
 class MoleculeEvolutionEquiformerLinearPredictor(nn.Module):
     """
     基于EquiformerV1的分子进化预测器 (Linear-Linear版本)

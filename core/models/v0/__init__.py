@@ -16,14 +16,16 @@ _model_entrypoints = {}  # mapping of model names to entrypoint fns
 _model_to_module = {}  # mapping of model names to module names
 _module_to_models = defaultdict(set)  # dict of sets to check membership of model in module
 _model_display_names = {}  # mapping of model names to display names
+_model_save_dir_names = {}  # mapping of model names to save directory names
 
 
-def register_model(name=None, display_name=None):
+def register_model(name=None, display_name=None, save_dir_name=None):
     """注册模型的装饰器
     
     Args:
         name: 模型注册名称，默认为函数/类名
         display_name: 模型显示名称，用于用户界面展示
+        save_dir_name: 模型保存目录名称，用于模型文件存储
     """
     def _register_model(fn):
         # lookup containing module
@@ -48,6 +50,12 @@ def register_model(name=None, display_name=None):
             _model_display_names[model_name] = display_name
         else:
             _model_display_names[model_name] = model_name
+            
+        # 设置保存目录名称
+        if save_dir_name is not None:
+            _model_save_dir_names[model_name] = save_dir_name
+        else:
+            _model_save_dir_names[model_name] = model_name
         
         # 同时注册到ModelFactory
         ModelFactory.register(model_name, fn)
@@ -71,6 +79,11 @@ def model_entrypoint(model_name):
 def get_model_display_name(model_name):
     """获取模型显示名称"""
     return _model_display_names.get(model_name, model_name)
+
+
+def get_model_save_dir_name(model_name):
+    """获取模型保存目录名称"""
+    return _model_save_dir_names.get(model_name, model_name)
 
 
 class BaseMoleculeEvolutionPredictor(nn.Module):
@@ -151,6 +164,7 @@ try:
     from .gcn_transformer_linear import MoleculeEvolutionGCNTransformerLinearPredictor
     from .frag_linear_linear import MoleculeEvolutionFragLinearPredictor
     from .equiformer_linear_linear import MoleculeEvolutionEquiformerLinearPredictor
+    from .tensornet_linear_linear import MoleculeEvolutionTensornetLinearPredictor
     
     # 确保触发模块导入，使装饰器得以执行
     _ = [
@@ -159,7 +173,8 @@ try:
         MoleculeEvolutionVisnetLinearPredictor,
         MoleculeEvolutionGCNTransformerLinearPredictor,
         MoleculeEvolutionFragLinearPredictor,
-        MoleculeEvolutionEquiformerLinearPredictor
+        MoleculeEvolutionEquiformerLinearPredictor,
+        MoleculeEvolutionTensornetLinearPredictor
     ]
 except ImportError as e:
     print(f"❌ 无法导入某些模型模块: {e}. 请确保所有依赖项已安装.")

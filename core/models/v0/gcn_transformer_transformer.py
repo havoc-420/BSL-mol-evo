@@ -20,7 +20,7 @@ from .fusion_predictors import TransformerFusionPredictor
 from . import register_model
 
 
-@register_model(display_name="GCN-Transformer-Transformer 模型")
+@register_model(display_name="GCN-Transformer-Transformer 模型", save_dir_name="gcn_transformer_transformer")
 class MoleculeEvolutionGCNTransformerPredictor(nn.Module):
     """
     基于GCN和Transformer的分子进化预测器 (GCN-GCN-Transformer版本)

@@ -8,7 +8,7 @@ from .fusion_predictors import MLPFusionPredictor
 from . import register_model
 
 
-@register_model(display_name="FragNet Linear-Linear 模型")
+@register_model(display_name="FragNet Linear-Linear 模型", save_dir_name="frag_linear_linear")
 class MoleculeEvolutionFragLinearPredictor(nn.Module):
     """
     基于FragNet的分子进化预测器 (Linear-Linear版本)

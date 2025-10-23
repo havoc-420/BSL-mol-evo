@@ -6,6 +6,7 @@ import math
 import torch
 from torch import nn, Tensor
 import torch.nn.functional as F
+from torch_cluster import radius_graph
 
 class CosineCutoff(nn.Module):
     def __init__(self, cutoff_lower=0.0, cutoff_upper=5.0):
@@ -126,6 +127,83 @@ class Swish(nn.Module):
 
     def forward(self, x):
         return x * torch.sigmoid(self.beta * x)
+
+
+class OptimizedDistance(nn.Module):
+    """Compute the neighbor list for a given cutoff.
+    
+    This is a simplified version of the OptimizedDistance from torchmdnet,
+    using radius_graph for neighbor computation.
+    """
+
+    def __init__(
+        self,
+        cutoff_lower=0.0,
+        cutoff_upper=5.0,
+        max_num_pairs=-32,
+        return_vecs=False,
+        loop=False,
+        strategy="brute",
+        include_transpose=True,
+        resize_to_fit=True,
+        check_errors=True,
+        box=None,
+        long_edge_index=True,
+    ):
+        super(OptimizedDistance, self).__init__()
+        self.cutoff_lower = cutoff_lower
+        self.cutoff_upper = cutoff_upper
+        self.max_num_pairs = max_num_pairs
+        self.return_vecs = return_vecs
+        self.loop = loop
+        self.include_transpose = include_transpose
+        self.resize_to_fit = resize_to_fit
+        self.check_errors = check_errors
+        self.long_edge_index = long_edge_index
+
+    def forward(self, pos, batch=None, box=None):
+        """Compute distances between particles.
+        
+        Args:
+            pos: Particle positions with shape (N, 3)
+            batch: Batch indices with shape (N)
+            box: Simulation box (not supported in this simplified version)
+            
+        Returns:
+            edge_index: Pairs of particles with shape (2, M)
+            edge_weight: Distances between particles with shape (M)
+            edge_vec: Vectors between particles with shape (M, 3) or None
+        """
+        if batch is None:
+            batch = torch.zeros(pos.shape[0], dtype=torch.long, device=pos.device)
+            
+        # Use radius_graph to compute neighbors
+        edge_index = radius_graph(
+            pos,
+            r=self.cutoff_upper,
+            batch=batch,
+            loop=self.loop,
+            max_num_neighbors=abs(self.max_num_pairs) if self.max_num_pairs < 0 else self.max_num_pairs,
+        )
+
+        # Compute distance vectors
+        edge_vec = pos[edge_index[0]] - pos[edge_index[1]]
+        
+        # Compute distances
+        edge_weight = torch.norm(edge_vec, dim=-1)
+        
+        # Apply lower cutoff
+        if self.cutoff_lower > 0.0:
+            mask = edge_weight >= self.cutoff_lower
+            edge_index = edge_index[:, mask]
+            edge_weight = edge_weight[mask]
+            edge_vec = edge_vec[mask]
+            
+        # Return vectors if requested
+        if not self.return_vecs:
+            edge_vec = None
+            
+        return edge_index, edge_weight, edge_vec
 
 
 rbf_class_mapping = {"gauss": None, "expnorm": ExpNormalSmearing}
