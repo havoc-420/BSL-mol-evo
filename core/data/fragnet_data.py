@@ -5,12 +5,24 @@ FragNet数据预处理模块
 直接使用FragNet官方的CreateData类进行数据处理，确保特征提取的一致性。
 """
 
+import sys
+import os
 import torch
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-# 直接使用 FragNet 的代码
-from mol_evo.modules.FragNet.fragnet.dataset.data import CreateData, collate_fn
+# 添加项目根目录到Python路径，解决导入问题
+project_root = os.path.join(os.path.dirname(__file__), '..', '..', '..')
+sys.path.insert(0, project_root)
+
+# 使用相对导入或通过添加路径后的绝对导入
+try:
+    # 尝试使用绝对导入
+    from mol_evo.modules.FragNet.fragnet.dataset.data import CreateData, collate_fn
+except ImportError:
+    # 如果失败，尝试使用相对导入
+    sys.path.append(os.path.join(project_root, 'mol_evo', 'modules', 'FragNet'))
+    from fragnet.dataset.data import CreateData, collate_fn
 
 
 def smile_to_fragnet_features(smile):

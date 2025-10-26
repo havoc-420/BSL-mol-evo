@@ -8,7 +8,8 @@ class MoleculeEvolver:
     def __init__(self, smiles: str):
         self.smiles = smiles
         self.mol = Chem.MolFromSmiles(smiles)
-        if not self.mol: raise ValueError(f"无效的SMILES: {smiles}")
+        if not self.mol:
+            raise ValueError(f"无效的SMILES: {smiles}")
         
         # 核心属性，将在解析过程中被填充
         self.ranks = Chem.CanonicalRankAtoms(self.mol, breakTies=True)
@@ -67,6 +68,8 @@ class MoleculeEvolver:
 
         # --- 附件、额外键和立体化学 ---
         non_backbone_atoms = [a.GetIdx() for a in self.mol.GetAtoms() if a.GetIdx() not in self.backbone_set]
+        # 构建骨架键集合，只包含DFS遍历过程中形成的键（父子连接）
+        # 这确保了即使是骨架上的环内键也会被正确识别为"额外键"
         backbone_bonds = {tuple(sorted((self.backbone_indices[i], self.backbone_indices[i-1]))) for i in range(1, len(self.backbone_indices))}
         
         # --- 附件处理 ---
@@ -77,13 +80,16 @@ class MoleculeEvolver:
 
         # --- 额外键处理 (成环、多重键) ---
         extra_bond_ops = []
+        # 检查分子是否有环结构，如果没有环，则不应该有任何成环操作
+        has_rings = len(Chem.GetSymmSSSR(self.mol)) > 0
+        
         for bond in self.mol.GetBonds():
             b, e = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
             bond_tuple = tuple(sorted((b, e)))
             
             # 检查此键是否是骨架、附件内部或附件到骨架的连接键
             is_backbone_bond = bond_tuple in backbone_bonds
-            is_attachment_bond = not (self.mol.GetAtomWithIdx(b) in self.backbone_set and self.mol.GetAtomWithIdx(e) in self.backbone_set)
+            both_in_backbone = self.mol.GetAtomWithIdx(b).GetIdx() in self.backbone_set and self.mol.GetAtomWithIdx(e).GetIdx() in self.backbone_set
 
             if is_backbone_bond and bond.GetBondType() != Chem.BondType.SINGLE:
                 if bond.GetBondType() == Chem.BondType.DOUBLE:
@@ -95,7 +101,8 @@ class MoleculeEvolver:
                 else:
                     op = f"形成{bond.GetBondType()}键"
                 extra_bond_ops.append(f"{op} @({self.backbone_map[b]}-{self.backbone_map[e]})")
-            elif not is_backbone_bond and not is_attachment_bond:
+            elif not is_backbone_bond and both_in_backbone and has_rings:
+                # 只有当两个原子都在骨架中，键不是骨架键，且分子有环结构时，才是成环操作
                 extra_bond_ops.append(f"成环 @({self.backbone_map[b]}-{self.backbone_map[e]})")
         
         path += sorted(extra_bond_ops)
