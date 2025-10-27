@@ -1,0 +1,356 @@
+[
+    {
+        "name": "己烷(链状)",
+        "smiles": "CCCCCC",
+        "type": "simple_chain_alkane",
+        "expected_path_dict": [
+            {
+                "op": "起始",
+                "atom": "C",
+                "position": 0
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 0
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 1
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 2
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 3
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 4
+            }
+        ],
+        "expectations": {
+            "has_ring_closure": false,
+            "start_with_heteroatom": false,
+            "has_attachment": false,
+            "has_double_bond": false,
+            "has_aromatic_bond": false
+        }
+    },
+    {
+        "name": "环己烷(环状)",
+        "smiles": "C1CCCCC1",
+        "type": "simple_cyclic_alkane",
+        "expected_path_dict": [
+            {
+                "op": "起始",
+                "atom": "C",
+                "position": 0
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 0
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 1
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 2
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 3
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 4
+            },
+            {
+                "op": "成环",
+                "positions": [0, 5]
+            }
+        ],
+        "expectations": {
+            "has_ring_closure": true,
+            "start_with_heteroatom": false,
+            "has_attachment": false,
+            "has_double_bond": false,
+            "has_aromatic_bond": false
+        }
+    },
+    {
+        "name": "2-甲基戊烷(支链)",
+        "smiles": "CCC(C)CC",
+        "type": "branched_alkane",
+        "expected_path_dict": [
+            {
+                "op": "起始",
+                "atom": "C",
+                "position": 0
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 0
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 1
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 2
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 3
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 4
+            }
+        ],
+        "expectations": {
+            "has_ring_closure": false,
+            "start_with_heteroatom": false,
+            "has_attachment": false,
+            "has_double_bond": false,
+            "has_aromatic_bond": false
+        }
+    },
+    {
+        "name": "乙醇(含杂原子)",
+        "smiles": "CCO",
+        "type": "molecule_with_heteroatoms",
+        "expected_path_dict": [
+            {
+                "op": "起始",
+                "atom": "O",
+                "position": 0
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 0
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 1
+            }
+        ],
+        "expectations": {
+            "has_ring_closure": false,
+            "start_with_heteroatom": true,
+            "has_attachment": false,
+            "has_double_bond": false,
+            "has_aromatic_bond": false
+        }
+    },
+    {
+        "name": "1-己烯(含双键)",
+        "smiles": "C=CCCCC",
+        "type": "molecule_with_double_bond",
+        "expected_path_dict": [
+            {
+                "op": "起始",
+                "atom": "C",
+                "position": 0
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 0
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 1
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 2
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 3
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 4
+            },
+            {
+                "op": "形成双键",
+                "positions": [0, 1]
+            }
+        ],
+        "expectations": {
+            "has_ring_closure": false,
+            "start_with_heteroatom": false,
+            "has_attachment": false,
+            "has_double_bond": true,
+            "has_aromatic_bond": false
+        }
+    },
+    {
+        "name": "苯(芳香)",
+        "smiles": "c1ccccc1",
+        "type": "aromatic_compound",
+        "expected_path_dict": [
+            {
+                "op": "起始",
+                "atom": "C",
+                "position": 0
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 0
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 1
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 2
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 3
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 4
+            },
+            {
+                "op": "形成芳香键",
+                "positions": [0, 1]
+            },
+            {
+                "op": "形成芳香键",
+                "positions": [1, 2]
+            },
+            {
+                "op": "形成芳香键",
+                "positions": [2, 3]
+            },
+            {
+                "op": "形成芳香键",
+                "positions": [3, 4]
+            },
+            {
+                "op": "形成芳香键",
+                "positions": [4, 5]
+            },
+            {
+                "op": "成环",
+                "positions": [0, 5]
+            }
+        ],
+        "expectations": {
+            "has_ring_closure": true,
+            "start_with_heteroatom": false,
+            "has_attachment": false,
+            "has_double_bond": false,
+            "has_aromatic_bond": true
+        }
+    },
+    {
+        "name": "甲苯(复杂芳香)",
+        "smiles": "c1ccccc1C",
+        "type": "complex_molecule",
+        "expected_path_dict": [
+            {
+                "op": "起始",
+                "atom": "C",
+                "position": 0
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 0
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 1
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 2
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 3
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 4
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 5
+            },
+            {
+                "op": "形成芳香键",
+                "positions": [2, 3]
+            },
+            {
+                "op": "形成芳香键",
+                "positions": [3, 4]
+            },
+            {
+                "op": "形成芳香键",
+                "positions": [4, 5]
+            },
+            {
+                "op": "形成芳香键",
+                "positions": [5, 6]
+            },
+            {
+                "op": "成环",
+                "positions": [0, 2]
+            },
+            {
+                "op": "成环",
+                "positions": [0, 6]
+            }
+        ],
+        "expectations": {
+            "has_ring_closure": true,
+            "start_with_heteroatom": false,
+            "has_attachment": false,
+            "has_double_bond": false,
+            "has_aromatic_bond": true
+        }
+    }
+]
