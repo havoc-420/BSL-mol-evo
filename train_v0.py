@@ -346,7 +346,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         
         # TAG 定义优化器和损失函数
         optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=10, factor=0.5, min_lr=1e-6)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=3, factor=0.5, min_lr=1e-8)  # TODO ...
         criterion = nn.L1Loss()
         
         # 创建训练指标记录器
@@ -386,6 +386,10 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         patience_counter = 0
         patience_limit = 50
         best_model_state = None
+        should_stop = False  # 初始化 should_stop 变量
+        
+        # INFO 开始训练
+        logger.info(f"开始训练 ({epochs} 轮)...")
         
         # STAGE 训练循环
         model.train()
@@ -407,6 +411,8 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                 # 检查是否有NaN或inf值
                 if math.isnan(train_loss.item()) or math.isinf(train_loss.item()):
                     log_training_interrupted(logger, epoch)
+                    # 确保训练真正停止
+                    should_stop = True
                     break
                 
                 # 反向传播
@@ -418,6 +424,10 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                 optimizer.step()
                 
                 epoch_loss += train_loss.item() * target_batch.size(0)
+            
+            # 如果需要停止训练，则跳出训练循环
+            if should_stop:
+                break
             
             # 计算平均epoch损失
             epoch_loss /= len(train_dataset)
@@ -464,6 +474,16 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                     # 检查验证损失是否有NaN或inf
                     if math.isnan(val_loss) or math.isinf(val_loss):
                         log_training_interrupted(logger, epoch, "NaN或inf验证损失值")
+                        # 确保训练真正停止
+                        should_stop = True
+                        break  # 立即跳出验证数据加载器的循环
+                    
+                    # 如果需要停止训练，则跳出训练循环
+                    if should_stop:
+                        # 恢复最佳模型状态
+                        if best_model_state is not None:
+                            model.load_state_dict(best_model_state)
+                        break
                     
                     # 更新学习率调度器
                     scheduler.step(val_loss)
@@ -474,7 +494,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                         all_val_predictions = torch.cat(all_val_predictions, dim=0)
                         all_val_targets = torch.cat(all_val_targets, dim=0)
                         
-                        # RMSE
+                        # MARK RMSE
                         val_mse = torch.mean((all_val_targets - all_val_predictions) ** 2)
                         val_rmse = torch.sqrt(val_mse)
                         
@@ -525,12 +545,17 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                 if patience_counter >= patience_limit:
                     log_early_stopping(logger, epoch)
                     # 恢复最佳模型状态
-                    model.load_state_dict(best_model_state)
+                    if best_model_state is not None:
+                        model.load_state_dict(best_model_state)
                     break
             
             # 每10个epoch输出一次信息
             if (epoch + 1) % 10 == 0:
                 metrics_recorder.log_epoch_progress(logger, epoch, epochs, epoch_loss, val_loss, log_epoch_progress=log_epoch_progress)
+        
+        # 如果训练因NaN/inf而停止，也要记录早停信息
+        if should_stop:
+            log_early_stopping(logger, epoch)
         
         log_training_start_message(logger, epochs)
 

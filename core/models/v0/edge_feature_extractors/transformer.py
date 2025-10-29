@@ -76,7 +76,8 @@ class TransformerEdgeFeatureExtractor(nn.Module):
         x = self.transformer_encoder(x)
         
         # 全局平均池化，将序列维度合并
-        x = x.mean(dim=1)
+        x = x.mean(dim=1)    # TODO ...
+        
         
         # 输出投影
         x = self.output_projection(x)

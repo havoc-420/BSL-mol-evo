@@ -64,8 +64,8 @@ class MoleculeEvolutionGCNTransformerPredictor(nn.Module):
         self.fusion_predictor = TransformerFusionPredictor(
             node_dim=hidden_dims[-1] * 2,  # GCN输出是mean和max拼接的结果
             edge_dim=hidden_dims[-1],
-            hidden_dim=hidden_dims[-1],
-            num_heads=num_heads,
+            d_model=hidden_dims[-1],
+            nhead=num_heads,
             num_layers=num_layers,
             output_dim=output_dim
         )
