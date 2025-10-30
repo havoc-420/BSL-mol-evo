@@ -36,7 +36,7 @@ class MoleculeEvolutionEquiformerLinearPredictor(nn.Module):
                  radius: float = 5.0,
                  num_basis: int = 128,
                  hidden_dims: list = [128, 256, 256],
-                 edge_feature_dim: int = 15,
+                 edge_feature_dim: int = 11,
                  output_dim: int = 1,
                  **kwargs):
         """
@@ -63,16 +63,14 @@ class MoleculeEvolutionEquiformerLinearPredictor(nn.Module):
         # molecule组件: EquiformerV1分子特征提取器
         self.molecule_extractor_from = EquiformerV1MoleculeFeatureExtractor(
             irreps_in=irreps_in,
-            radius=radius,
-            num_basis=num_basis,
-            **kwargs
+            max_radius=radius,
+            number_of_basis=num_basis,
         )
         
         self.molecule_extractor_to = EquiformerV1MoleculeFeatureExtractor(
             irreps_in=irreps_in,
-            radius=radius,
-            num_basis=num_basis,
-            **kwargs
+            max_radius=radius,
+            number_of_basis=num_basis,
         )
         
         # edge组件: 线性边特征编码器
@@ -104,9 +102,6 @@ class MoleculeEvolutionEquiformerLinearPredictor(nn.Module):
         
         # edge组件: 编码边特征
         edge_features = self.edge_encoder(edge_attr)
-
-        # TEST
-        # print('😀', from_features.shape, to_features.shape, edge_features.shape)
 
         # fusion组件: 融合特征并预测属性变化
         property_changes = self.fusion_predictor(from_features, to_features, edge_features)

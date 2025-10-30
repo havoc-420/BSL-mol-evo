@@ -321,7 +321,7 @@ def build_molecule_graph_with_fingerprints(csv_file: str, max_molecules: int = N
     smiles_to_idx = {smiles: idx for idx, smiles in enumerate(all_smiles)}
 
     # 构建节点特征 (使用Morgan指纹)
-    num_nodes = len(all_smiles)
+    # num_nodes = len(all_smiles)
     node_features = []
 
     for smiles in all_smiles:

@@ -32,6 +32,11 @@ from .pair_data import (
     pair_collate,
 )
 
+from .unified_processing import (
+    build_molecule_evolution_dataset_v0,
+    build_molecule_evolution_dataset_unified,
+)
+
 __all__ = [
     'smiles_to_fingerprint',
     'atom_type_to_onehot',
@@ -49,4 +54,6 @@ __all__ = [
     'fragnet_collate',
     'MoleculePairDataset',
     'pair_collate',
+    'build_molecule_evolution_dataset_v0',
+    'build_molecule_evolution_dataset_unified',
 ]

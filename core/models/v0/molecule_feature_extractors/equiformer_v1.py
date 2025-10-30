@@ -140,9 +140,7 @@ class EquiformerV1MoleculeFeatureExtractor(nn.Module):
         node_atom = data.z
         
         # 获取分子级别的特征表示
-        # 注意：这里假设equiformer返回的是每个节点的特征，而不是整个图的特征
         node_features = self.equiformer(f_in, pos, batch, node_atom, return_features=True) # edge_d_index=edge_d_index, edge_d_attr=edge_d_attr)
-        # print('😺', node_features.shape)
         
         # 对节点特征进行池化，得到图级别的特征
         # 使用mean和max池化来捕获不同的特征信息

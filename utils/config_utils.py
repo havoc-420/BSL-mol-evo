@@ -42,6 +42,10 @@ def load_model_config(config_name: str, config_dir: str = None) -> dict:
     try:
         with open(config_path, 'r', encoding='utf-8') as file:
             config = yaml.safe_load(file)
+        # 如果配置文件有model部分，返回model部分的内容
+        # 否则返回整个配置
+        if config and 'model' in config:
+            return config['model']
         return config if config is not None else {}
     except yaml.YAMLError as e:
         raise yaml.YAMLError(f"YAML文件格式错误: {config_path}\n{str(e)}")
@@ -64,6 +68,10 @@ def get_model_config_type(model_type: str) -> str:
     # 检查是否是 Equiformer 模型类型
     if model_type and "equiformer" in model_type.lower():
         return "equiformer"
+    
+    # 检查是否是 GCN-Transformer-Transformer 模型类型
+    if model_type and "gcn" in model_type.lower() and "transformer" in model_type.lower():
+        return "gcn-tf-tf"
     
     # 默认返回基础配置
     return "base"

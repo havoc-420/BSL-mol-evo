@@ -1,0 +1,33 @@
+# 训练配置文件模板
+# 可以通过 -c 或 --config-file 参数指定此文件来配置训练参数
+
+# ==================== 训练相关参数 ====================
+# 这些参数用于控制训练过程，不会传递给模型构造函数
+train:
+  data_file: "mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.csv"
+  max_pairs: 30000
+  epochs: 200
+  batch_size: 1024
+  learning_rate: 0.0001
+  seed: 42
+  target_property: "mu_change"
+  
+  # 学习率调度器参数
+  min_lr: 1e-7
+  
+  # 其他训练参数
+  # patience_limit: 50
+  # weight_decay: 1e-5
+
+# ==================== 模型相关参数 ====================
+# 这些参数会传递给模型构造函数
+model:
+  # 模型类型 (如果未指定，将使用CLI交互式选择)
+  # model_type: "gcn_linear"
+  
+  node_feature_dim: 11
+  edge_feature_dim: 11
+  output_dim: 1
+  hidden_dims: [128, 256, 256]
+  num_heads: 8
+  num_layers: 2

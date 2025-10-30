@@ -78,8 +78,23 @@ class TransformerFusionPredictor(nn.Module):
         Returns:
             属性变化预测值 [B, output_dim]
         """
-        # 拼接所有特征: [B, 512+512+128] = [B, 1152]
-        x = torch.cat([from_feat, to_feat, edge_feat], dim=-1)
+        # 确保所有特征都有相同的batch维度
+        batch_size = from_feat.size(0)
+        
+        # 如果edge_feat是2D的，需要扩展为与from_feat和to_feat相同的维度
+        if edge_feat.dim() == 2 and from_feat.dim() == 2 and to_feat.dim() == 2:
+            # 拼接所有特征: [B, 512+512+128] = [B, 1152]
+            x = torch.cat([from_feat, to_feat, edge_feat], dim=-1)
+        elif edge_feat.dim() == 3 and from_feat.dim() == 3 and to_feat.dim() == 3:
+            # 如果所有特征都是3D的，直接拼接
+            x = torch.cat([from_feat, to_feat, edge_feat], dim=-1)
+        else:
+            # 处理维度不一致的情况
+            # 确保所有特征都被展平到2D
+            from_feat_flat = from_feat.view(batch_size, -1)
+            to_feat_flat = to_feat.view(batch_size, -1)
+            edge_feat_flat = edge_feat.view(batch_size, -1)
+            x = torch.cat([from_feat_flat, to_feat_flat, edge_feat_flat], dim=-1)
         
         # 投影到d_model维度: [B, d_model]
         x = self.token_proj(x)

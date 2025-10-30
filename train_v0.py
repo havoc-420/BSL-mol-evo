@@ -9,7 +9,6 @@ import sys
 import os
 import argparse
 import torch
-import pandas as pd
 import numpy as np
 import math
 from datetime import datetime
@@ -30,9 +29,9 @@ sys.path.insert(0, project_root)
 # 导入自定义模块
 try:
     from mol_evo.core.models.v0 import ModelFactory
-    from mol_evo.core.utils.molecule import MoleculeCache
-    from mol_evo.core.data.data_v0 import smiles_to_graph_data, prepare_edge_features
-    from mol_evo.core.data.fragnet_data import smile_to_fragnet_features
+    from mol_evo.core.data import (
+        build_molecule_evolution_dataset_v0,  # 从新的统一模块导入
+    )
     from mol_evo.core.data.pair_data import MoleculePairDataset, pair_collate  # 使用新的数据处理模块
     from mol_evo.utils.training_utils import (
         split_data_indices, 
@@ -62,7 +61,7 @@ try:
         log_model_saved,
     )
     from mol_evo.utils.training_metrics import TrainingMetricsRecorder
-    from mol_evo.utils.config_utils import load_config_by_model_type  # 新增导入
+    from mol_evo.utils.config_utils import load_config_by_model_type
 except ImportError as e:
     import traceback
     print(f"无法导入所需的模块 train-v0.py: {e}")
@@ -74,120 +73,9 @@ except ImportError as e:
 TARGET_PROPERTY = 'mu_change'
 
 
-def build_molecule_evolution_dataset_v0(csv_file: str, max_pairs: int = None, 
-                                      target_property: str = 'mu_change', logger=None,
-                                      model_type: str = "gcn_linear"):
-    """
-    构建分子进化数据集，使用smile_to_graph_xyz函数处理分子结构
-    参考文档: mol_evo/docs/model-v0/data_preprocessing_and_usage.md
-    
-    Args:
-        csv_file: CSV文件路径
-        max_pairs: 最大对数（用于调试）
-        target_property: 目标属性名称
-        logger: 日志记录器
-        model_type: 模型类型，用于确定数据预处理方式
-        
-    Returns:
-        起始分子数据列表、目标分子数据列表、边特征张量和目标属性张量
-    """
-    # 检查是否是 FragNet 模型类型
-    is_fragnet_model = model_type and "frag" in model_type.lower()
-    # 检查是否是 Equiformer 模型类型
-    is_equiformer_model = model_type and "equiformer" in model_type.lower()
-    
-    # 读取数据
-    df = pd.read_csv(csv_file)
-    
-    if max_pairs:
-        df = df.head(max_pairs)
-    
-    # 计算目标属性的统计信息
-    if target_property in df.columns:
-        mean = df[target_property].mean()
-        std = df[target_property].std()
-        property_stats = {target_property: (mean, std)}
-    else:
-        property_stats = {target_property: (0.0, 1.0)}
-    
-    # 创建分子缓存实例，并传入logger
-    cache = MoleculeCache(csv_file=csv_file, logger=logger)    # UPDATE 避免缓存破坏
-    
-    # 构建分子数据列表
-    from_data_list = []
-    to_data_list = []
-    edge_attr_list = []
-    target_features_list = []  # 添加用于收集目标特征的列表
-    
-    for idx, row in df.iterrows():
-        try:
-            # TAG smiles data generation
-            if is_fragnet_model:
-                # 使用 FragNet 数据处理函数
-                from_data = smile_to_fragnet_features(row['smiles_from'])
-                to_data = smile_to_fragnet_features(row['smiles_to'])
-            else:
-                # 使用标准的 smile_to_graph_xyz 函数
-                from_data = smiles_to_graph_data(row['smiles_from'], cache)
-                to_data = smiles_to_graph_data(row['smiles_to'], cache)
-                
-            # 检查数据是否有效
-            if from_data is None or to_data is None:
-                message = f"跳过第{idx}行分子对: {row['smiles_from']} -> {row['smiles_to']} (数据为None)"
-                if logger:
-                    logger.warning(message)
-                continue
-                
-            from_data_list.append(from_data)
-            to_data_list.append(to_data)
-            
-            # TAG 准备演化操作边特征 (操作信息特征 Hav)
-            edge_feat = prepare_edge_features(row, property_stats, include_property_changes=False)
-            edge_attr_list.append(edge_feat)
-            
-            # 准备目标属性特征
-            if target_property in row and not pd.isna(row[target_property]):
-                value = row[target_property]
-                # 标准化目标属性值
-                if target_property in property_stats:
-                    mean, std = property_stats[target_property]
-                    if std > 0:
-                        value = (value - mean) / std
-                target_features_list.append([value])
-            else:
-                target_features_list.append([0.0])
-            
-        except Exception as e:
-            message = f"处理第{idx}行分子对时发生错误: {row['smiles_from']} -> {row['smiles_to']}, 错误: {str(e)}"
-            if logger:
-                logger.error(message)
-            continue
-    
-    if len(edge_attr_list) > 0:
-        edge_attrs = torch.FloatTensor(np.array(edge_attr_list))
-    else:
-        edge_attrs = torch.FloatTensor([])
-        
-    # 转换目标特征为张量
-    if len(target_features_list) > 0:
-        target_features = torch.FloatTensor(np.array(target_features_list))
-    else:
-        target_features = torch.FloatTensor([])
-    
-    # 打印缓存统计信息
-    stats = cache.get_stats()
-    message = f"分子处理统计: 总数={stats['total']}, 命中={stats['hits']}, 未命中={stats['misses']}, 命中率={stats['hit_rate']:.2%}"
-    if logger:
-        logger.info(message)
-    else:
-        print(message)
-    
-    return from_data_list, to_data_list, edge_attrs, target_features, property_stats
-
-
 def train_model(data_file: str, max_pairs: int = None, epochs: int = 100, 
                 seed: int = 42, batch_size: int = 64, learning_rate: float = 0.01,
-                model_type: str = "gcn_linear"):
+                model_type: str = "gcn_linear", model_config: dict = None):
     """
     训练v0版本的分子进化预测器模型（单属性预测）
     
@@ -199,6 +87,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         batch_size: 批处理大小
         learning_rate: 学习率
         model_type: 模型类型
+        model_config: 模型配置参数字典
     """
     # 设置所有随机种子以确保可重复性
     torch.manual_seed(seed)
@@ -210,11 +99,26 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
     
     # INFO 检查是否是 FragNet 模型类型
     is_fragnet_model = model_type and "frag" in model_type.lower()
-    # 检查是否是 Equiformer 模型类型
-    is_equiformer_model = model_type and "equiformer" in model_type.lower()
+        
+    # 初始化最终使用的模型配置
+    final_model_config = {}
     
-    # 加载模型配置
-    model_config = load_config_by_model_type(model_type)
+    # 如果提供了 model_config（来自配置文件），则优先使用它
+    if model_config:
+        # 从配置中获取训练参数，并覆盖函数的默认参数
+        train_config = model_config.get('train', {})
+        data_file = train_config.get('data_file', data_file)
+        epochs = train_config.get('epochs', epochs)
+        seed = train_config.get('seed', seed)
+        batch_size = train_config.get('batch_size', batch_size)
+        learning_rate = train_config.get('learning_rate', learning_rate)
+        max_pairs = train_config.get('max_pairs', max_pairs)
+
+        # 提取模型本身的参数，用于创建模型
+        final_model_config = model_config.get('model', {}).copy()  # 使用 copy() 避免原地修改
+    else:
+        # 只有在没有提供外部配置时，才从默认路径加载模型配置
+        final_model_config = load_config_by_model_type(model_type)
     
     # train-data 存储位置
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -334,7 +238,8 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         
         # 创建模型
         # 根据模型类型传递不同的参数
-        model = ModelFactory.create(model_type, **model_config)
+        # 创建模型，直接使用最终的模型配置
+        model = ModelFactory.create(model_type, **final_model_config)
         log_model_creation(logger, model)
         
         # 设置设备
@@ -346,7 +251,12 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         
         # TAG 定义优化器和损失函数
         optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=3, factor=0.5, min_lr=1e-8)  # TODO ...
+        # 从配置中获取min_lr参数，如果不存在则默认为1e-8
+        min_lr = model_config.get('min_lr', 1e-8) if model_config and 'min_lr' in model_config else \
+                (model_config or {}).get('train', {}).get('min_lr', 1e-6)
+        # 确保min_lr是浮点数类型，避免字符串和数字比较的错误
+        min_lr = float(min_lr)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=3, factor=0.5, min_lr=min_lr)
         criterion = nn.L1Loss()
         
         # 创建训练指标记录器
@@ -354,7 +264,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         
         # 记录模型和训练参数
         # 获取模型的实际参数
-        model_actual_params = model_config.copy()
+        model_actual_params = final_model_config.copy()
         model_actual_params["model_type"] = model_type
         
         # 如果模型有特定的参数，也可以添加进来
@@ -778,12 +688,26 @@ def main():
     parser.add_argument('-lr', '--learning-rate', type=float, default=0.01, help='学习率')
     parser.add_argument('-mt', '--model-type', type=str, default=None, 
                        help='模型类型: 可通过交互式方式选择')
+    parser.add_argument('-c', '--config-file', type=str, default=None,
+                       help='YAML配置文件路径: 可直接指定模型配置文件')
     
     args = parser.parse_args()
     
+    # 如果提供了配置文件，则使用配置文件中的参数
+    model_config = {}
+    if args.config_file:
+        import yaml
+        try:
+            with open(args.config_file, 'r', encoding='utf-8') as f:
+                model_config = yaml.safe_load(f)
+            print(f"已加载配置文件: {args.config_file}")
+        except Exception as e:
+            print(f"加载配置文件失败: {e}")
+            return
+    
     # 如果没有提供模型类型，则交互式选择
     model_type = args.model_type
-    if model_type is None:
+    if model_type is None and not args.config_file:
         try:
             from mol_evo.utils.train.model_utils import select_model_type_interactively
             model_type = select_model_type_interactively()
@@ -794,6 +718,23 @@ def main():
             print(f"无法导入交互式选择工具: {e}")
             print("请提供 --model-type 参数")
             return
+    elif args.config_file and not model_type:
+        # 如果提供了配置文件但没有指定模型类型，可以根据配置文件名推断模型类型
+        config_name = os.path.splitext(os.path.basename(args.config_file))[0]
+        model_type = config_name
+        # 验证推断的模型类型是否有效
+        if model_type not in ModelFactory.list_models():
+            # 如果推断的模型类型无效，则使用交互式选择
+            try:
+                from mol_evo.utils.train.model_utils import select_model_type_interactively
+                model_type = select_model_type_interactively()
+                if model_type is None:
+                    print("未选择模型类型，退出训练")
+                    return
+            except ImportError as e:
+                print(f"无法导入交互式选择工具: {e}")
+                print("请提供 --model-type 参数")
+                return
     
     # 验证模型类型是否有效
     if model_type not in ModelFactory.list_models():
@@ -803,12 +744,17 @@ def main():
     
     # 使用命令行参数设置目标属性
     global TARGET_PROPERTY
-    TARGET_PROPERTY = args.target_property
+    if model_config and 'train' in model_config and 'target_property' in model_config['train']:
+        TARGET_PROPERTY = model_config['train']['target_property']
+    elif model_config and 'target_property' in model_config:
+        TARGET_PROPERTY = model_config['target_property']
+    else:
+        TARGET_PROPERTY = args.target_property
     
     try:
         train_model(
             args.data_file, args.max_pairs, args.epochs, args.seed, args.batch_size, args.learning_rate,
-            model_type
+            model_type, model_config
         )
     except Exception as e:
         print(f"训练过程中发生错误: {e}")

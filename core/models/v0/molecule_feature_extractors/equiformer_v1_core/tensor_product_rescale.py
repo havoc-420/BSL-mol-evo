@@ -121,7 +121,6 @@ class TensorProductRescale(torch.nn.Module):
                 
 
     def forward_tp_rescale_bias(self, x, y, weight=None):
-        
         out = self.tp(x, y, weight)
         
         #if self.rescale and self.tp.internal_weights:

@@ -114,3 +114,89 @@
 - 不使用边网络动态生成权重矩阵
 - 采用静态的特征拼接方式
 - 更加简洁明了，易于理解和实现
+
+# v0版本模型训练说明
+
+## 基本用法
+
+```bash
+cd /home/data2/rhj/project/mol_editor
+python mol_evo/train_v0.py
+```
+
+## 命令行参数训练
+
+通过命令行参数指定训练参数：
+
+```bash
+python mol_evo/train_v0.py \
+  --data-file path/to/data.csv \
+  --max-pairs 10000 \
+  --epochs 200 \
+  --batch-size 256 \
+  --learning-rate 0.001 \
+  --seed 12345 \
+  --target-property homo_change \
+  --model-type gcn_linear
+```
+
+## YAML配置文件训练（推荐）
+
+可以通过指定YAML配置文件来配置训练参数，这种方式更加灵活且易于管理：
+
+```bash
+python mol_evo/train_v0.py --config-file mol_evo/configs/train_config_template.yaml
+```
+
+### 配置文件格式
+
+YAML配置文件采用了分层结构，明确区分了训练参数和模型参数：
+
+```yaml
+# ==================== 训练相关参数 ====================
+# 这些参数用于控制训练过程，不会传递给模型构造函数
+train:
+  data_file: "path/to/data.csv"
+  max_pairs: 30000
+  epochs: 100
+  batch_size: 512
+  learning_rate: 0.01
+  seed: 42
+  target_property: "mu_change"
+  
+  # 学习率调度器参数
+  min_lr: 1e-8
+  
+  # 其他训练参数
+  # patience_limit: 50
+  # weight_decay: 1e-5
+
+# ==================== 模型相关参数 ====================
+# 这些参数会传递给模型构造函数
+model:
+  # 模型类型 (如果未指定，将使用CLI交互式选择)
+  # model_type: "gcn_linear"
+  
+  node_feature_dim: 11
+  edge_feature_dim: 15
+  output_dim: 1
+  hidden_dims: [128, 256, 256]
+  num_heads: 8
+  num_layers: 2
+```
+
+配置文件中的参数分为两类：
+1. **训练相关参数**：这些参数控制训练过程，位于[train](file:///home/data2/rhj/project/mol_editor/mol_evo/modules/equiformer/ocpmodels/common/relaxation/optimizers.py#L0-L0)部分下，如[epochs](file:///home/data2/rhj/project/mol_editor/mol_evo/core/models/v0/gcn_transformer_transformer.py#L41-L41)、[batch_size](file:///home/data2/rhj/project/mol_editor/mol_evo/modules/equiformer/deps/fairchem/ocpmodels/common/data_parallel.py#L0-L0)、[learning_rate](file:///home/data2/rhj/project/mol_editor/mol_evo/modules/equiformer/deps/fairchem/configs/s2ef/200k/cgcnn/cgcnn.yml#L11-L11)等，不会传递给模型构造函数
+2. **模型相关参数**：这些参数会传递给模型构造函数，位于[model](file:///home/data2/rhj/project/mol_editor/mol_evo/modules/equiformer/ocpmodels/common/relaxation/optimizers.py#L0-L0)部分下，用于初始化模型，如[node_feature_dim](file:///home/data2/rhj/project/mol_editor/mol_evo/core/models/v0/gcn_transformer_transformer.py#L31-L31)、[hidden_dims](file:///home/data2/rhj/project/mol_editor/mol_evo/core/models/v0/gcn_transformer_transformer.py#L33-L33)等
+
+当使用配置文件时，如果未指定[model_type](file:///home/data2/rhj/project/mol_editor/mol_evo/core/models/v0/gcn_transformer_transformer.py#L32-L32)，系统会尝试根据配置文件名推断模型类型。例如，使用[gcn-tf-tf.yaml](file:///home/data2/rhj/project/mol_editor/mol_evo/configs/gcn-tf-tf.yaml)配置文件时，模型类型会被设置为`gcn-tf-tf`。
+
+如果根据配置文件名无法推断出有效的模型类型，系统将使用CLI交互式选择方式让用户选择模型类型。
+
+也可以同时指定配置文件和模型类型：
+
+```bash
+python mol_evo/train_v0.py --config-file mol_evo/configs/train_config_template.yaml --model-type gcn_linear
+```
+
+这种方式下，配置文件中的模型参数会覆盖默认参数，而命令行指定的模型类型优先级最高。

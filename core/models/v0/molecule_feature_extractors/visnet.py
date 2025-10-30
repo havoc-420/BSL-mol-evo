@@ -1220,7 +1220,7 @@ class VisNetMoleculeFeatureExtractor(nn.Module):
         
         # 全连接层：64 -> 128 -> 256
         self.fc_layers = nn.ModuleList()
-        input_dim = node_feature_dim
+        input_dim = 64  # VisNet输出维度固定为64，不使用传入的node_feature_dim
         for hidden_dim in self.hidden_dims:
             self.fc_layers.append(nn.Linear(input_dim, hidden_dim))
             input_dim = hidden_dim
