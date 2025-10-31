@@ -1,0 +1,380 @@
+[
+    {
+        "name": "甲烷",
+        "smiles": "C",
+        "type": "minimal_molecule",
+        "expected_path_dict": [
+            {
+                "op": "起始",
+                "atom": "C",
+                "position": 0
+            }
+        ],
+        "expectations": {
+            "has_ring_closure": false,
+            "start_with_heteroatom": false,
+            "has_attachment": false,
+            "has_double_bond": false,
+            "has_aromatic_bond": false,
+            "has_triple_bond": false,
+            "has_stereochemistry": false
+        }
+    },
+    {
+        "name": "乙炔",
+        "smiles": "C#C",
+        "type": "triple_bond",
+        "expected_path_dict": [
+            {
+                "op": "起始",
+                "atom": "C",
+                "position": 0
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 0
+            },
+            {
+                "op": "形成三键",
+                "positions": [0, 1]
+            }
+        ],
+        "expectations": {
+            "has_ring_closure": false,
+            "start_with_heteroatom": false,
+            "has_attachment": false,
+            "has_double_bond": false,
+            "has_aromatic_bond": false,
+            "has_triple_bond": true,
+            "has_stereochemistry": false
+        }
+    },
+    {
+        "name": "乙醚",
+        "smiles": "CCOCC",
+        "type": "molecule_with_heteroatoms",
+        "expected_path_dict": [
+            {
+                "op": "起始",
+                "atom": "O",
+                "position": 0
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 0
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 0
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 2
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 2
+            }
+        ],
+        "expectations": {
+            "has_ring_closure": false,
+            "start_with_heteroatom": true,
+            "has_attachment": false,
+            "has_double_bond": false,
+            "has_aromatic_bond": false,
+            "has_triple_bond": false,
+            "has_stereochemistry": false
+        }
+    },
+    {
+        "name": "吡啶",
+        "smiles": "c1ccccn1",
+        "type": "heterocyclic_aromatic",
+        "expected_path_dict": [
+            {
+                "op": "起始",
+                "atom": "N",
+                "position": 0
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 0
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 1
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 2
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 3
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 4
+            },
+            {
+                "op": "形成芳香键",
+                "positions": [0, 1]
+            },
+            {
+                "op": "形成芳香键",
+                "positions": [1, 2]
+            },
+            {
+                "op": "形成芳香键",
+                "positions": [2, 3]
+            },
+            {
+                "op": "形成芳香键",
+                "positions": [3, 4]
+            },
+            {
+                "op": "形成芳香键",
+                "positions": [4, 5]
+            },
+            {
+                "op": "成环",
+                "positions": [0, 5]
+            }
+        ],
+        "expectations": {
+            "has_ring_closure": true,
+            "start_with_heteroatom": true,
+            "has_attachment": false,
+            "has_double_bond": false,
+            "has_aromatic_bond": true,
+            "has_triple_bond": false,
+            "has_stereochemistry": false
+        }
+    },
+    {
+        "name": "噻吩",
+        "smiles": "c1cscc1",
+        "type": "heterocyclic_aromatic",
+        "expected_path_dict": [
+            {
+                "op": "起始",
+                "atom": "S",
+                "position": 0
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 0
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 1
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 2
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 3
+            },
+            {
+                "op": "形成芳香键",
+                "positions": [0, 1]
+            },
+            {
+                "op": "形成芳香键",
+                "positions": [1, 2]
+            },
+            {
+                "op": "形成芳香键",
+                "positions": [2, 3]
+            },
+            {
+                "op": "形成芳香键",
+                "positions": [3, 4]
+            },
+            {
+                "op": "成环",
+                "positions": [0, 4]
+            }
+        ],
+        "expectations": {
+            "has_ring_closure": true,
+            "start_with_heteroatom": true,
+            "has_attachment": false,
+            "has_double_bond": false,
+            "has_aromatic_bond": true,
+            "has_triple_bond": false,
+            "has_stereochemistry": false
+        }
+    },
+    {
+        "name": "萘",
+        "smiles": "c1ccc2ccccc2c1",
+        "type": "polycyclic_aromatic",
+        "expected_path_dict": [],
+        "expectations": {
+            "has_ring_closure": true,
+            "start_with_heteroatom": false,
+            "has_attachment": false,
+            "has_double_bond": false,
+            "has_aromatic_bond": true,
+            "has_triple_bond": false,
+            "has_stereochemistry": false
+        }
+    },
+    {
+        "name": "丁烯",
+        "smiles": "C/C=C/C",
+        "type": "molecule_with_stereochemistry",
+        "expected_path_dict": [],
+        "expectations": {
+            "has_ring_closure": false,
+            "start_with_heteroatom": false,
+            "has_attachment": false,
+            "has_double_bond": true,
+            "has_aromatic_bond": false,
+            "has_triple_bond": false,
+            "has_stereochemistry": true
+        }
+    },
+    {
+        "name": "乳酸",
+        "smiles": "CC(O)C(=O)O",
+        "type": "molecule_with_multiple_features",
+        "expected_path_dict": [],
+        "expectations": {
+            "has_ring_closure": false,
+            "start_with_heteroatom": true,
+            "has_attachment": false,
+            "has_double_bond": true,
+            "has_aromatic_bond": false,
+            "has_triple_bond": false,
+            "has_stereochemistry": false
+        }
+    },
+    {
+        "name": "环丙烷",
+        "smiles": "C1CC1",
+        "type": "small_ring",
+        "expected_path_dict": [
+            {
+                "op": "起始",
+                "atom": "C",
+                "position": 0
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 0
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 1
+            },
+            {
+                "op": "成环",
+                "positions": [0, 2]
+            }
+        ],
+        "expectations": {
+            "has_ring_closure": true,
+            "start_with_heteroatom": false,
+            "has_attachment": false,
+            "has_double_bond": false,
+            "has_aromatic_bond": false,
+            "has_triple_bond": false,
+            "has_stereochemistry": false
+        }
+    },
+    {
+        "name": "立方烷",
+        "smiles": "C12C3C4C1C5C2C3C45",
+        "type": "complex_polycyclic",
+        "expected_path_dict": [],
+        "expectations": {
+            "has_ring_closure": true,
+            "start_with_heteroatom": false,
+            "has_attachment": false,
+            "has_double_bond": false,
+            "has_aromatic_bond": false,
+            "has_triple_bond": false,
+            "has_stereochemistry": false
+        }
+    },
+    {
+        "name": "联苯",
+        "smiles": "c1ccc(cc1)c2ccccc2",
+        "type": "large_aromatic_system",
+        "expected_path_dict": [],
+        "expectations": {
+            "has_ring_closure": true,
+            "start_with_heteroatom": false,
+            "has_attachment": false,
+            "has_double_bond": false,
+            "has_aromatic_bond": true,
+            "has_triple_bond": false,
+            "has_stereochemistry": false
+        }
+    },
+    {
+        "name": "四氢呋喃",
+        "smiles": "C1CCOC1",
+        "type": "heterocyclic_aliphatic",
+        "expected_path_dict": [
+            {
+                "op": "起始",
+                "atom": "O",
+                "position": 0
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 0
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 1
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 2
+            },
+            {
+                "op": "添加原子",
+                "atom": "C",
+                "position": 3
+            },
+            {
+                "op": "成环",
+                "positions": [0, 4]
+            }
+        ],
+        "expectations": {
+            "has_ring_closure": true,
+            "start_with_heteroatom": true,
+            "has_attachment": false,
+            "has_double_bond": false,
+            "has_aromatic_bond": false,
+            "has_triple_bond": false,
+            "has_stereochemistry": false
+        }
+    }
+]

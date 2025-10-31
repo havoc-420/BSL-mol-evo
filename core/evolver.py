@@ -1,13 +1,21 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+强大的分子进化路径生成器，能够将任意SMILES解析为原子级的、可重现的构建序列。
+"""
+
 from rdkit import Chem
 from collections import deque
-from .attachment import Attachment
 import re
 
+from .attachment import Attachment
 
 class MoleculeEvolver:
     """一个封装了所有逻辑的、强大的分子路径生成器。"""
     def __init__(self, smiles: str):
         self.smiles = smiles
+        if not smiles or not isinstance(smiles, str):
+            raise ValueError(f"无效的SMILES: {smiles}")
         self.mol = Chem.MolFromSmiles(smiles)
         if not self.mol:
             raise ValueError(f"无效的SMILES: {smiles}")
@@ -73,10 +81,19 @@ class MoleculeEvolver:
         """更准确的环检测方法"""
         try:
             # 使用RDKit的环信息检测
-            return self.mol.GetRingInfo().NumRings() > 0
+            if self.mol.GetRingInfo().NumRings() > 0:
+                return True
         except:
+            pass
+            
+        try:
             # 备用方法：通过SSSR检测
-            return len(Chem.GetSymmSSSR(self.mol)) > 0
+            if len(Chem.GetSymmSSSR(self.mol)) > 0:
+                return True
+        except:
+            pass
+            
+        return False
 
     def _get_bond_sort_key(self, bond_op_str):
         """为键操作生成排序键"""
@@ -237,34 +254,26 @@ class MoleculeEvolver:
                 if is_backbone_bond and bond.GetBondType() != Chem.BondType.SINGLE:
                     positions = [self.backbone_map[b], self.backbone_map[e]]
                     positions.sort()  # 确保顺序一致
-                    
-                    if bond.GetBondType() == Chem.BondType.DOUBLE:
-                        op = "形成双键"
+                    op = self._get_bond_operation(bond)
+                    if op:  # 确保不是单键
+                        extra_bond_ops.append({
+                            "op": op,
+                            "positions": positions
+                        })
+                elif not is_backbone_bond and both_in_backbone:
+                    # 修复：成环操作同时考虑键的类型
+                    if bond.GetBondType() == Chem.BondType.AROMATIC:
+                        op = "形成芳香环键"
+                    elif bond.GetBondType() == Chem.BondType.DOUBLE:
+                        op = "形成双键环"
                     elif bond.GetBondType() == Chem.BondType.TRIPLE:
-                        op = "形成三键"
-                    elif bond.GetBondType() == Chem.BondType.AROMATIC:
-                        op = "形成芳香键"
+                        op = "形成三键环"
                     else:
-                        op = f"形成{bond.GetBondType()}键"
-                        
-                    extra_bond_ops.append({
-                        "op": op,
-                        "positions": positions
-                    })
-                elif not is_backbone_bond and both_in_backbone and has_rings:
-                    # 只有当两个原子都在骨架中，键不是骨架键，且分子有环结构时，才是成环操作
-                    positions = [self.backbone_map[b], self.backbone_map[e]]
-                    positions.sort()  # 确保顺序一致
+                        op = "成环"  # 默认单键环
                     
-                    bond_type_op = self._get_bond_operation(bond)
-                    if bond_type_op and bond_type_op != "形成单键":
-                        op = f"成环并{bond_type_op}"
-                    else:
-                        op = "成环"
-                        
                     extra_bond_ops.append({
                         "op": op,
-                        "positions": positions,
+                        "positions": sorted([self.backbone_map[b], self.backbone_map[e]]),
                         "bond_type": str(bond.GetBondType())
                     })
             

@@ -1,0 +1,58 @@
+# MoleculeEvolver 测试配置文件
+
+# 测试套件配置
+test_suites:
+  basic:
+    name: "基础功能测试"
+    description: "测试MoleculeEvolver的基本功能"
+    pattern: "tests/test_basic.py"
+    tags: ["basic", "functional"]
+    
+  extended:
+    name: "扩展测试"
+    description: "包含更多复杂分子的测试"
+    pattern: "tests/test_extended.py"
+    tags: ["extended", "complex"]
+    
+  performance:
+    name: "性能测试"
+    description: "测试MoleculeEvolver的性能指标"
+    pattern: "runners/run_extended_tests.py"
+    tags: ["performance", "benchmark"]
+
+# 测试选项
+options:
+  verbosity: 2
+  fail_fast: false
+  capture_output: true
+
+# 报告配置
+reporting:
+  generate_html: false
+  generate_json: true
+  output_directory: "./reports"
+
+# 性能测试配置
+performance:
+  iterations: 5
+  warmup_runs: 2
+  timeout: 30
+
+# 分子测试集
+molecules:
+  simple:
+    - "C"        # 甲烷
+    - "CC"       # 乙烷
+    - "CCC"      # 丙烷
+    - "CCCC"     # 丁烷
+    - "CO"       # 甲醇
+    - "CN"       # 乙胺
+  
+  complex:
+    - "c1ccccc1"        # 苯
+    - "C1CCCCC1"        # 环己烷
+    - "CC(C)C"          # 异丁烷
+    - "C=C"             # 乙烯
+    - "C#C"             # 乙炔
+    - "c1ccccn1"        # 吡啶
+    - "c1cscc1"         # 噻吩
