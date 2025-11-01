@@ -44,7 +44,7 @@ sys.path.insert(0, project_root)
 
 # 导入自定义模块
 try: 
-    from mol_evo.core.models.v1.nnconv import MoleculeEvolutionNNConvPredictor
+    from mol_evo.core.models.vo.nnconv import MoleculeEvolutionNNConvPredictor
     from mol_evo.core.data.processing import build_molecule_graph_with_fingerprints
     from mol_evo.core.utils.training import train_gnn_model
     from mol_evo.utils.training_utils import (
