@@ -35,7 +35,7 @@ class MoleculeEvolutionGCNLinearPredictorV01(nn.Module):
     与v0版本相比，新增了特征差值计算模块
     """
     
-    def __init__(self, node_feature_dim: int = 11, edge_feature_dim: int = 15,
+    def __init__(self, node_feature_dim: int = 11, edge_feature_dim: int = 11,
                  hidden_dims: list = [128, 256, 256], output_dim: int = 1):
         """
         初始化预测器
@@ -57,9 +57,18 @@ class MoleculeEvolutionGCNLinearPredictorV01(nn.Module):
         self.molecule_extractor_from = GCNMoleculeFeatureExtractor(node_feature_dim, hidden_dims)
         self.molecule_extractor_to = GCNMoleculeFeatureExtractor(node_feature_dim, hidden_dims)
         
+        # 添加MLP来处理特征差值: 512 -> 256 -> 128
+        self.feature_diff_mlp = nn.Sequential(
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, 128),
+            nn.ReLU()
+        )
+        
         # edge组件: 线性边特征编码器
-        # 输入维度需要增加特征差值维度 (512)
-        self.edge_encoder = LinearEdgeFeatureExtractor(edge_feature_dim + 512, hidden_dims[-1], [512, 256])
+        # 输入维度需要增加特征差值维度 (现在是128，原来是512)
+        # self.edge_encoder = LinearEdgeFeatureExtractor(edge_feature_dim + 128, hidden_dims[-1], [128])
+        self.edge_encoder = LinearEdgeFeatureExtractor(edge_feature_dim, hidden_dims[-1])
         
         # fusion组件: 线性特征融合预测器
         self.fusion_predictor = MLPFusionPredictor(
@@ -85,14 +94,16 @@ class MoleculeEvolutionGCNLinearPredictorV01(nn.Module):
         from_features = self.molecule_extractor_from(from_data)
         to_features = self.molecule_extractor_to(to_data)
         
-        # INFO 计算特征差值: to_features - from_features
-        feature_diff = to_features - from_features
-        
-        # 将特征差值与原始边特征拼接
-        enhanced_edge_attr = torch.cat([edge_attr, feature_diff], dim=-1)
-        
+        # # INFO 计算特征差值: to_features - from_features
+        # feature_diff = to_features - from_features
+        # # 通过MLP处理特征差值: 512 -> 256 -> 128
+        # processed_feature_diff = self.feature_diff_mlp(feature_diff)
+        # # 将处理后的特征差值与原始边特征拼接
+        # enhanced_edge_attr = torch.cat([edge_attr, processed_feature_diff], dim=-1)
         # edge组件: 编码边特征
-        edge_features = self.edge_encoder(enhanced_edge_attr)
+        # edge_features = self.edge_encoder(enhanced_edge_attr)
+        
+        edge_features = self.edge_encoder(edge_attr)
         
         # fusion组件: 融合特征并预测属性变化
         property_changes = self.fusion_predictor(from_features, to_features, edge_features)

@@ -31,7 +31,7 @@ class MoleculeEvolutionGCNLinearPredictor(nn.Module):
     - fusion: MLPFusionPredictor (线性特征融合预测器)
     """
     
-    def __init__(self, node_feature_dim: int = 11, edge_feature_dim: int = 15,
+    def __init__(self, node_feature_dim: int = 11, edge_feature_dim: int = 11,
                  hidden_dims: list = [128, 256, 256], output_dim: int = 1):
         """
         初始化预测器
