@@ -35,8 +35,14 @@ class TransformerEdgeFeatureExtractor(nn.Module):
         self.input_dim = input_dim
         self.d_model = d_model
         
-        # 输入线性投影层，将输入维度映射到d_model
-        self.input_projection = nn.Linear(input_dim, d_model)
+        # 渐进维度扩展: 11 -> 64 -> 128 -> d_model
+        self.input_projection = nn.Sequential(
+            nn.Linear(input_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 128),
+            nn.ReLU(),
+            nn.Linear(128, d_model)
+        )
         
         # Transformer编码器层
         encoder_layer = nn.TransformerEncoderLayer(
@@ -53,9 +59,6 @@ class TransformerEdgeFeatureExtractor(nn.Module):
             num_layers=num_layers
         )
         
-        # 输出投影层，将d_model映射到目标维度
-        self.output_projection = nn.Linear(d_model, d_model)
-        
     def forward(self, edge_attr: torch.Tensor) -> torch.Tensor:
         """
         前向传播
@@ -71,14 +74,13 @@ class TransformerEdgeFeatureExtractor(nn.Module):
         
         # 输入投影
         x = self.input_projection(x)
-        
+            
         # Transformer编码
         x = self.transformer_encoder(x)
         
+        # print('😀', x.shape)
         # 全局平均池化，将序列维度合并
         x = x.mean(dim=1)
-        
-        # 输出投影
-        x = self.output_projection(x)
+        # print(x.shape)
         
         return x

@@ -250,13 +250,15 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         model = model.to(device)
         
         # TAG 定义优化器和损失函数
-        optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
+        # 换用AdamW优化器，它通常对Transformer模型更稳定
+        optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-2)
         # 从配置中获取min_lr参数，如果不存在则默认为1e-8
         min_lr = model_config.get('min_lr', 1e-8) if model_config and 'min_lr' in model_config else \
                 (model_config or {}).get('train', {}).get('min_lr', 1e-6)
         # 确保min_lr是浮点数类型，避免字符串和数字比较的错误
         min_lr = float(min_lr)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=3, factor=0.5, min_lr=min_lr)
+        # 使用更积极的学习率衰减策略
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=3, factor=0.3, min_lr=min_lr)
         criterion = nn.L1Loss()
         
         # 创建训练指标记录器
@@ -343,18 +345,18 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
             epoch_loss /= len(train_dataset)
             metrics_recorder.record_train_loss(epoch_loss)
             
-            # 每100轮保存一次checkpoint
-            if (epoch + 1) % 100 == 0:
-                checkpoint_path = os.path.join(model_dir, f"checkpoint_epoch_{epoch+1}.pth")
-                torch.save({
-                    'epoch': epoch + 1,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'train_loss': epoch_loss,
-                    'best_val_loss': best_val_loss,
-                    'patience_counter': patience_counter,
-                }, checkpoint_path)
-                log_checkpoint_saved(logger, checkpoint_path)
+            # TEST 每100轮保存一次checkpoint
+            # if (epoch + 1) % 100 == 0:
+            #     checkpoint_path = os.path.join(model_dir, f"checkpoint_epoch_{epoch+1}.pth")
+            #     torch.save({
+            #         'epoch': epoch + 1,
+            #         'model_state_dict': model.state_dict(),
+            #         'optimizer_state_dict': optimizer.state_dict(),
+            #         'train_loss': epoch_loss,
+            #         'best_val_loss': best_val_loss,
+            #         'patience_counter': patience_counter,
+            #     }, checkpoint_path)
+            #     log_checkpoint_saved(logger, checkpoint_path)
             
             # STAGE 验证阶段
             if val_loader is not None:
@@ -690,6 +692,8 @@ def main():
                        help='模型类型: 可通过交互式方式选择')
     parser.add_argument('-c', '--config-file', type=str, default=None,
                        help='YAML配置文件路径: 可直接指定模型配置文件')
+    parser.add_argument('--min-lr', type=float, default=None,
+                       help='学习率调度器的最小学习率')
     
     args = parser.parse_args()
     
@@ -704,6 +708,12 @@ def main():
         except Exception as e:
             print(f"加载配置文件失败: {e}")
             return
+    
+    # 如果通过CLI指定了min_lr，则优先使用CLI的值
+    if args.min_lr is not None:
+        if 'train' not in model_config:
+            model_config['train'] = {}
+        model_config['train']['min_lr'] = args.min_lr
     
     # 如果没有提供模型类型，则交互式选择
     model_type = args.model_type
