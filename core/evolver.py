@@ -196,6 +196,7 @@ class MoleculeEvolver:
         """
         生成格式化的进化路径，返回字典格式的操作列表。
         每个操作都是一个字典，包含操作类型、位置和相关原子等信息。
+        直接输出最终格式，与qm9-evo-pairs-step-1.json中的格式一致。
         """
         try:
             start_idx = self._find_canonical_start_atom()
@@ -203,23 +204,23 @@ class MoleculeEvolver:
             
             # 检查骨架是否为空
             if not self.backbone_indices:
-                return [{"op": "错误", "message": "无法构建分子骨架"}]
+                return [{"position": "", "atom": None, "operation": "error"}]
 
             # --- 骨架路径 ---
             start_atom = self.mol.GetAtomWithIdx(self.backbone_indices[0])
             path = [{
-                "op": "起始",
+                "position": str(self.backbone_map[start_atom.GetIdx()]),
                 "atom": start_atom.GetSymbol(),
-                "position": self.backbone_map[start_atom.GetIdx()]
+                "operation": "init_atom"
             }]
             
             for i in range(1, len(self.backbone_indices)):
                 parent_new_idx = self.backbone_map[self.backbone_indices[i-1]]
                 current_atom = self.mol.GetAtomWithIdx(self.backbone_indices[i])
                 path.append({
-                    "op": "添加原子",
+                    "position": str(parent_new_idx),
                     "atom": current_atom.GetSymbol(),
-                    "position": parent_new_idx
+                    "operation": "add_atom"
                 })
 
             # --- 附件、额外键和立体化学 ---
@@ -233,9 +234,9 @@ class MoleculeEvolver:
             for att in attachments:
                 conn_points = sorted(list(att.connection_points))
                 path.append({
-                    "op": "添加附件",
-                    "fragment": att.mol_frag_smiles,
-                    "positions": conn_points
+                    "position": str(conn_points[0]) if conn_points else "",
+                    "atom": att.mol_frag_smiles,
+                    "operation": "add_fragment"
                 })
 
             # --- 额外键处理 (成环、多重键) ---
@@ -254,31 +255,45 @@ class MoleculeEvolver:
                 if is_backbone_bond and bond.GetBondType() != Chem.BondType.SINGLE:
                     positions = [self.backbone_map[b], self.backbone_map[e]]
                     positions.sort()  # 确保顺序一致
-                    op = self._get_bond_operation(bond)
-                    if op:  # 确保不是单键
-                        extra_bond_ops.append({
-                            "op": op,
-                            "positions": positions
-                        })
-                elif not is_backbone_bond and both_in_backbone:
-                    # 修复：成环操作同时考虑键的类型
-                    if bond.GetBondType() == Chem.BondType.AROMATIC:
-                        op = "形成芳香环键"
-                    elif bond.GetBondType() == Chem.BondType.DOUBLE:
-                        op = "形成双键环"
+                    
+                    # 根据键类型确定操作类型
+                    if bond.GetBondType() == Chem.BondType.DOUBLE:
+                        op_type = "form_double_bond"
                     elif bond.GetBondType() == Chem.BondType.TRIPLE:
-                        op = "形成三键环"
+                        op_type = "form_triple_bond"
+                    elif bond.GetBondType() == Chem.BondType.AROMATIC:
+                        op_type = "form_aromatic_bond"
+                    elif bond.GetBondType() == Chem.BondType.DATIVE:
+                        op_type = "form_dative_bond"
                     else:
-                        op = "成环"  # 默认单键环
+                        op_type = "form_bond"
+                        
+                    extra_bond_ops.append({
+                        "position": f"{positions[0]}-{positions[1]}",
+                        "atom": None,
+                        "operation": op_type
+                    })
+                elif not is_backbone_bond and both_in_backbone and has_rings:
+                    # 成环操作同时考虑键的类型
+                    positions = sorted([self.backbone_map[b], self.backbone_map[e]])
+                    
+                    if bond.GetBondType() == Chem.BondType.AROMATIC:
+                        op_type = "form_aromatic_ring"
+                    elif bond.GetBondType() == Chem.BondType.DOUBLE:
+                        op_type = "form_double_ring"
+                    elif bond.GetBondType() == Chem.BondType.TRIPLE:
+                        op_type = "form_triple_ring"
+                    else:
+                        op_type = "form_ring"  # 默认单键环
                     
                     extra_bond_ops.append({
-                        "op": op,
-                        "positions": sorted([self.backbone_map[b], self.backbone_map[e]]),
-                        "bond_type": str(bond.GetBondType())
+                        "position": f"{positions[0]}-{positions[1]}",
+                        "atom": None,
+                        "operation": op_type
                     })
             
             # 按照位置对额外键操作进行排序
-            extra_bond_ops.sort(key=lambda x: x["positions"])
+            extra_bond_ops.sort(key=lambda x: x["position"])
             path += extra_bond_ops
 
             # --- 立体化学处理 ---
@@ -287,8 +302,9 @@ class MoleculeEvolver:
             for center_idx, stereo in chiral_centers:
                 if center_idx in self.backbone_map:
                     stereo_ops.append({
-                        "op": f"指定手性({stereo})",
-                        "position": self.backbone_map[center_idx]
+                        "position": str(self.backbone_map[center_idx]),
+                        "atom": None,
+                        "operation": "add_stereo"
                     })
             
             for bond in self.mol.GetBonds():
@@ -299,24 +315,34 @@ class MoleculeEvolver:
                         positions.sort()  # 确保顺序一致
                         
                         stereo_ops.append({
-                            "op": f"指定顺反({bond.GetStereo()})",
-                            "positions": positions
+                            "position": f"{positions[0]}-{positions[1]}",
+                            "atom": None,
+                            "operation": "add_stereo"
                         })
             
             # 按照位置对立体化学操作进行排序
             def sort_key(op_dict):
-                if "position" in op_dict:
-                    return [op_dict["position"]]
-                elif "positions" in op_dict:
-                    return op_dict["positions"]
+                # 分解位置字符串以进行正确的排序
+                pos = op_dict["position"]
+                if "-" in pos:
+                    parts = pos.split("-")
+                    return [int(p) for p in parts]
                 else:
-                    return []
+                    return [int(pos)]
                     
             stereo_ops.sort(key=lambda x: sort_key(x))
-            return path + stereo_ops
+            path_result = path + stereo_ops
+            
+            # 移除起始原子操作，因为它不是"变化"操作
+            # 只保留除了第一个起始操作之外的所有操作
+            if len(path_result) > 1:
+                return path_result[1:]
+            else:
+                # 如果只有起始操作，返回空列表
+                return []
             
         except Exception as e:
-            return [{"op": "错误", "message": f"路径生成错误: {str(e)}"}]
+            return [{"position": "", "atom": None, "operation": "error"}]
 
     def _get_sorted_attachments(self, non_backbone_atoms):
         """识别所有附件并进行绝对规范的排序。"""
