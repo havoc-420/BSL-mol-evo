@@ -49,3 +49,8 @@ cd /home/data2/rhj/project/mol_editor && python mol_evo/predict_v0_testset.py --
 ```bash
 CUDA_VISIBLE_DEVICES=1 python mol_evo/train_v0.py --data-file mol_evo/dataset/data/MMF/MMF-GNN_RTI_neg_Covered_by_Model.csv --target-property Pred_RTI_Negative_ESI --epochs 20
 ```
+
+# MOL_EVO
+```bash
+python extract_evolution_pairs.py --debug-from "C" --debug-to "CO" --log DEBUG
+```
