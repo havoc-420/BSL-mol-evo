@@ -8,6 +8,7 @@
 import pandas as pd
 import numpy as np
 import torch
+import json
 from torch_geometric.data import Data
 from rdkit import Chem
 from rdkit.Chem import AllChem
@@ -55,8 +56,40 @@ def prepare_edge_features(row: pd.Series, property_stats: Dict[str, Tuple[float,
     return processing_prepare_edge_features(row, property_stats, include_property_changes)
 
 
+def load_json_data(json_file: str) -> pd.DataFrame:
+    """
+    从JSON文件加载数据并转换为DataFrame格式
+    
+    Args:
+        json_file: JSON文件路径
+        
+    Returns:
+        包含分子对数据的DataFrame
+    """
+    with open(json_file, 'r', encoding='utf-8') as f:
+        content = f.read().strip()
+        
+    # 检查是否是JSON数组格式
+    if content.startswith('['):
+        data = json.loads(content)
+    else:
+        # 处理JSON行格式文件
+        lines = content.splitlines()
+        data = []
+        for line in lines:
+            if line.strip():  # 跳过空行
+                try:
+                    item = json.loads(line.strip())
+                    data.append(item)
+                except json.JSONDecodeError:
+                    # 跳过无效的JSON行
+                    continue
+    
+    return pd.DataFrame(data)
+
+
 def build_molecule_evolution_dataset_v0(
-    csv_file: str, 
+    data_file: str, 
     max_pairs: int = None, 
     target_property: str = 'mu_change', 
     logger=None,
@@ -67,7 +100,7 @@ def build_molecule_evolution_dataset_v0(
     参考文档: mol_evo/docs/model-v0/data_preprocessing_and_usage.md
     
     Args:
-        csv_file: CSV文件路径
+        data_file: 数据文件路径 (支持CSV和JSON格式)
         max_pairs: 最大对数（用于调试）
         target_property: 目标属性名称
         logger: 日志记录器
@@ -81,8 +114,8 @@ def build_molecule_evolution_dataset_v0(
     # 检查是否是 Equiformer 模型类型
     is_equiformer_model = model_type and "equiformer" in model_type.lower()
     
-    # 读取数据
-    df = pd.read_csv(csv_file)
+    # 根据文件扩展名自动选择加载方式
+    df = load_json_data(data_file) if data_file.endswith('.json') else pd.read_csv(data_file)
     
     if max_pairs:
         df = df.head(max_pairs)
@@ -96,7 +129,7 @@ def build_molecule_evolution_dataset_v0(
         property_stats = {target_property: (0.0, 1.0)}
     
     # 创建分子缓存实例，并传入logger
-    cache = MoleculeCache(csv_file=csv_file, logger=logger)    # UPDATE 避免缓存破坏
+    cache = MoleculeCache(csv_file=data_file, logger=logger)    # UPDATE 避免缓存破坏
     
     # 构建分子数据列表
     from_data_list = []
@@ -171,7 +204,7 @@ def build_molecule_evolution_dataset_v0(
 
 
 def build_molecule_evolution_dataset_unified(
-    csv_file: str,
+    data_file: str,
     model_type: str = "gcn_linear",
     max_pairs: Optional[int] = None,
     target_property: str = 'mu_change',
@@ -182,7 +215,7 @@ def build_molecule_evolution_dataset_unified(
     统一的分子进化数据集构建函数，支持多种模型类型
     
     Args:
-        csv_file: CSV文件路径
+        data_file: 数据文件路径 (支持CSV和JSON格式)
         model_type: 模型类型 ("gcn_linear", "frag*", "equiformer*", 等)
         max_pairs: 最大对数（用于调试）
         target_property: 目标属性名称
@@ -196,8 +229,11 @@ def build_molecule_evolution_dataset_unified(
     is_fragnet_model = model_type and "frag" in model_type.lower()
     is_equiformer_model = model_type and "equiformer" in model_type.lower()
     
-    # 读取数据
-    df = pd.read_csv(csv_file)
+    # 根据文件扩展名自动选择加载方式
+    if data_file.endswith('.json'):
+        df = load_json_data(data_file)
+    else:
+        df = pd.read_csv(data_file)
     
     if max_pairs:
         df = df.head(max_pairs)
@@ -225,7 +261,7 @@ def build_molecule_evolution_dataset_unified(
     # 创建分子缓存实例（仅对非FragNet模型使用）
     cache = None
     if not is_fragnet_model:
-        cache = MoleculeCache(csv_file=csv_file, logger=logger)
+        cache = MoleculeCache(csv_file=data_file, logger=logger)
     
     # 构建分子数据列表
     from_data_list = []

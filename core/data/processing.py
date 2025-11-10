@@ -75,7 +75,21 @@ def operation_type_to_onehot(operation_type: str) -> List[int]:
     Returns:
         独热编码向量
     """
-    op_types = ['add', 'replace', 'del', 'add_multi', 'del_multi', 'complex']
+    # 支持的操作类型（兼容CSV和JSON格式）
+    op_types = [
+        # TODO check all operation types
+        'add_atom',        # 添加原子
+        'replace_atom',    # 替换原子
+        'form_double_bond', # 形成双键
+        'form_triple_bond', # 形成三键
+        'form_ring',       # 形成环
+        # 'add',             # 保留以兼容旧的CSV格式
+        # 'replace',         # 保留以兼容旧的CSV格式
+        # 'del',             # 保留以兼容旧的CSV格式
+        # 'add_multi',       # 保留以兼容旧的CSV格式
+        # 'del_multi',       # 保留以兼容旧的CSV格式
+        'complex'          # 保留以兼容旧的CSV格式
+    ]
     onehot = [0] * len(op_types)
     
     if operation_type in op_types:
@@ -132,11 +146,22 @@ def prepare_edge_features(row: pd.Series, property_stats: Dict[str, Tuple[float,
     Returns:
         边特征向量
     """
+    # 从JSON数据中提取操作信息
+    if 'operations' in row and isinstance(row['operations'], list) and len(row['operations']) > 0:
+        # 使用JSON数据中的操作信息
+        operation = row['operations'][0]  # 取第一个操作
+        atom_symbol = operation.get('atom', '')
+        operation_type = operation.get('operation', 'unknown')
+    else:
+        # 使用CSV数据中的操作信息
+        atom_symbol = row['to_atom_symbol'] if 'to_atom_symbol' in row else ''
+        operation_type = row['operation_type'] if 'operation_type' in row else 'unknown'
+        
     # 原子类型特征（5维）
-    atom_features = atom_type_to_onehot(row['to_atom_symbol'] if 'to_atom_symbol' in row else '')
+    atom_features = atom_type_to_onehot(atom_symbol)
     
     # 操作类型特征（6维）
-    op_features = operation_type_to_onehot(row['operation_type'] if 'operation_type' in row else 'unknown')
+    op_features = operation_type_to_onehot(operation_type)
 
     # TODO 还有一个 op-position 这个特征可以加上
     

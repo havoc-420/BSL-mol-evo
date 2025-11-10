@@ -8,12 +8,17 @@ from tqdm import tqdm
 import json
 import numpy as np
 import inquirer
+from multiprocessing import Pool, Manager, cpu_count
+from functools import partial
+import pickle
 
 # 添加项目根目录到sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from mol_evo.core.similarity import calculate_evolutionary_similarity
 from mol_evo.core.evolver import MoleculeEvolver
+
+""" utils """
 
 def load_dataset(file_path):
     """
@@ -41,159 +46,6 @@ def convert_types(obj):
 # 注意：旧的 `_convert_operation_dict` 函数已被删除。
 # 因为 MoleculeEvolver 的 `generate_path_dict()` 方法现在直接输出符合分析需求的标准格式，
 # 所以该转换函数已不再需要。
-
-def analyze_evolution_operation_dict(path1_dict, path2_dict):
-    """
-    基于结构化字典分析两个进化路径之间的差异，确定操作类型和详情
-    """
-    # 将字典列表转换为字符串集合以便比较
-    set1_str = {str(op) for op in path1_dict}
-    set2_str = {str(op) for op in path2_dict}
-    
-    # 找出新增的操作（在path2中但不在path1中）
-    added_ops = set2_str - set1_str
-    # 找出删除的操作（在path1中但不在path2中）
-    removed_ops = set1_str - set2_str
-    
-    # 将字符串操作转换回字典形式
-    added_ops_dict = [op for op in path2_dict if str(op) in added_ops]
-    removed_ops_dict = [op for op in path1_dict if str(op) in removed_ops]
-    
-    operation_type = "unknown"
-    operations = []
-    
-    # 根据差异判断操作类型
-    if len(added_ops_dict) == 1 and len(removed_ops_dict) == 0:
-        operation_type = "add"
-        operations = added_ops_dict  # 直接使用evolver的输出格式
-        
-    elif len(removed_ops_dict) == 1 and len(added_ops_dict) == 0:
-        operation_type = "del"
-        operations = removed_ops_dict  # 直接使用evolver的输出格式
-        
-    elif len(added_ops_dict) == 1 and len(removed_ops_dict) == 1:
-        operation_type = "replace"
-        # 对于替换操作，我们只关注新增的操作
-        operations = added_ops_dict  # 直接使用evolver的输出格式
-        
-    elif len(added_ops_dict) > 1 and len(removed_ops_dict) == 0:
-        operation_type = "add_multi"
-        operations = added_ops_dict  # 直接使用evolver的输出格式
-        
-    elif len(removed_ops_dict) > 1 and len(added_ops_dict) == 0:
-        operation_type = "del_multi"
-        operations = removed_ops_dict  # 直接使用evolver的输出格式
-        
-    else:
-        operation_type = "complex"
-        # 复杂操作，添加所有新增的操作
-        operations = added_ops_dict  # 直接使用evolver的输出格式
-        if not operations:
-            # 如果没有新增操作，使用删除的操作
-            operations = removed_ops_dict  # 直接使用evolver的输出格式
-    
-    return {
-        'type': operation_type,
-        'operations': operations
-    }
-
-def find_step_pairs(heavy_n_df, heavy_m_df, n_atoms, m_atoms, step, max_pairs=None, logger=None, preview_mode=False):
-    """
-    寻找适合指定步数进化的SMILES对
-    从n个重原子的分子到m个重原子的分子（包括n==m的情况）
-    
-    Args:
-        heavy_n_df: 源分子数据集
-        heavy_m_df: 目标分子数据集  
-        n_atoms: 源分子重原子数
-        m_atoms: 目标分子重原子数
-        step: 编辑距离步数
-        max_pairs: 最大配对数，达到此数量后停止
-        logger: 日志记录器
-        preview_mode: 预览模式，只提取少量数据用于预览
-    
-    Returns:
-        配对结果列表
-    """
-    if logger is None:
-        # 如果没有提供logger，创建一个默认的
-        logging.basicConfig(level=logging.INFO)
-        logger = logging.getLogger(__name__)
-    
-    pairs = []
-    
-    # 限制搜索范围以提高效率
-    # 只检查前N个分子，避免计算量过大
-    if preview_mode:
-        search_limit_n = min(3, len(heavy_n_df))
-        search_limit_m = min(3, len(heavy_m_df))
-    else:
-        search_limit_n = min(500, len(heavy_n_df))
-        search_limit_m = min(500, len(heavy_m_df))
-    
-    logger.info(f"正在从{search_limit_n}个{n_atoms}重原子分子和{search_limit_m}个{m_atoms}重原子分子中寻找编辑距离为{step}的配对...")
-    
-    # 使用tqdm显示进度条
-    for i in tqdm(range(search_limit_n), desc=f"处理{n_atoms}→{m_atoms}原子对", unit="mol"):
-        smiles_n = heavy_n_df.iloc[i]['smiles']
-        mol_n = Chem.MolFromSmiles(smiles_n)
-        
-        if mol_n is None:
-            continue
-            
-        # 内层循环也添加进度条
-        inner_pbar = tqdm(range(search_limit_m), desc=f"内层循环", leave=False, unit="mol")
-        for j in inner_pbar:
-            smiles_m = heavy_m_df.iloc[j]['smiles']
-            mol_m = Chem.MolFromSmiles(smiles_m)
-            
-            if mol_m is None:
-                continue
-                
-            # 更新内层进度条描述
-            inner_pbar.set_description(f"比较 {i+1}:{smiles_n[:15]}... -> {j+1}:{smiles_m[:15]}...")
-                
-            # 检查是否可以通过指定步数操作从smiles_n得到smiles_m
-            try:
-                distance, path_n, path_m = calculate_evolutionary_similarity(smiles_n, smiles_m)
-                
-                # 如果编辑距离等于指定步数，则认为是符合要求的进化
-                if distance == step:
-                    # 获取进化操作详情
-                    evolver_n = MoleculeEvolver(smiles_n)
-                    evolver_m = MoleculeEvolver(smiles_m)
-                    
-                    # 获取结构化进化路径
-                    path_n_dict = evolver_n.generate_path_dict()
-                    path_m_dict = evolver_m.generate_path_dict()
-                    
-                    # 分析进化操作
-                    operation_result = analyze_evolution_operation_dict(path_n_dict, path_m_dict)
-                    
-                    # 按照指定顺序创建pair_data字典
-                    pair_data = {
-                        'smiles_from': smiles_n,
-                        'smiles_to': smiles_m,
-                        'operations': operation_result['operations']
-                    }
-                    
-                    pairs.append(pair_data)
-                    
-                    logger.info(f"找到一对{step}步进化分子: {smiles_n} ({n_atoms}重原子) -> {smiles_m} ({m_atoms}重原子)，编辑距离: {distance}")
-                    logger.info(f"  操作类型: {operation_result['type']}")
-                    logger.info(f"  操作数量: {len(operation_result['operations'])}")
-                    
-                    # 检查是否达到最大配对数
-                    if max_pairs and len(pairs) >= max_pairs:
-                        logger.info(f"已达到最大配对数 {max_pairs}，停止搜索...")
-                        inner_pbar.close()
-                        return pairs
-                        
-            except Exception as e:
-                continue
-        inner_pbar.close()
-                
-    return pairs
 
 def save_pairs_to_json(pairs, output_file, compact=False):
     """
@@ -227,6 +79,7 @@ def save_pairs_to_json(pairs, output_file, compact=False):
             json.dump(pairs, f, ensure_ascii=False, indent=2)
     print(f"已保存 {len(pairs)} 对分子到 {output_file}")
 
+
 def preview_pairs_as_json(pairs, compact=False):
     """
     将配对结果以JSON格式预览到控制台
@@ -256,25 +109,341 @@ def preview_pairs_as_json(pairs, compact=False):
         # 标准格式，带缩进便于阅读
         print(json.dumps(pairs, ensure_ascii=False, indent=2))
 
-def select_mode_interactively():
-    """
-    交互式选择模式
-    """
-    questions = [
-        inquirer.List('mode',
-                     message="请选择运行模式",
-                     choices=[
-                         ('全量处理并保存到文件', 'full'),
-                         ('预览模式（仅输出到控制台）', 'preview'),
-                         ('预览并保存到文件', 'preview_with_file'),
-                         ('全量处理并保存到文件（紧凑格式）', 'full_compact'),
-                         ('预览并保存到文件（紧凑格式）', 'preview_with_file_compact')
-                     ])
-    ]
-    
-    answers = inquirer.prompt(questions)
-    return answers['mode'] if answers else None
 
+""" MAIN TASK """
+
+def analyze_evolution_operation_dict(path1_dict, path2_dict):
+    """
+    基于结构化字典分析两个进化路径之间的差异
+    优化：对于位置相同的操作，使用替换而不是先删后加
+    """
+    # 将操作转换为可比较的字符串形式
+    def op_to_str(op):
+        return f"{op.get('operation', '')}@{op.get('position', '')}@{op.get('atom', '')}"
+    
+    # 将路径转换为字符串集合
+    set1_str = {op_to_str(op) for op in path1_dict}
+    set2_str = {op_to_str(op) for op in path2_dict}
+    
+    # 找出path1中独有的操作（需要删除的）
+    removed_ops_str = set1_str - set2_str
+    # 找出path2中独有的操作（需要添加的）
+    added_ops_str = set2_str - set1_str
+    
+    # 将字符串操作转换回字典形式
+    removed_ops = [op for op in path1_dict if op_to_str(op) in removed_ops_str]
+    added_ops = [op for op in path2_dict if op_to_str(op) in added_ops_str]
+    
+    operations = []
+    
+    # 查找可以优化为替换操作的情况
+    replace_ops = []
+    remaining_removed = []
+    remaining_added = added_ops.copy()  # 初始化为所有添加操作
+    
+    # 检查每个被删除的操作是否可以与添加的操作配对成替换
+    for removed_op in removed_ops:
+        found_replace = False
+        for added_op in added_ops:
+            # 如果操作类型和位置相同，但原子不同，则可以替换
+            if (removed_op.get('operation') == added_op.get('operation') and 
+                removed_op.get('position') == added_op.get('position') and
+                removed_op.get('atom') != added_op.get('atom')):
+                
+                # 创建替换操作
+                replace_ops.append({
+                    "position": added_op.get('position'),
+                    "atom": added_op.get('atom'),
+                    "operation": "replace_atom",
+                    "from_atom": removed_op.get('atom')
+                })
+                found_replace = True
+                # 从remaining_added中移除已配对的添加操作
+                if added_op in remaining_added:
+                    remaining_added.remove(added_op)
+                break
+        
+        if not found_replace:
+            remaining_removed.append(removed_op)
+    
+    # 修改：将需要删除的操作标记为remove而不是简单拼接
+    # 组合操作序列：先删除，再替换，最后添加
+    marked_removed_ops = []
+    for op in remaining_removed:
+        new_op = op.copy()
+        new_op["operation"] = "remove_" + op.get("operation", "")
+        marked_removed_ops.append(new_op)
+    
+    operations = marked_removed_ops + replace_ops + remaining_added
+    
+    return operations
+
+def process_molecule_pair(args, evolver_cache_dict=None):
+    """
+    处理单个分子对的函数，用于多进程处理
+    参数 args 是一个元组，包含 (i, j, smiles_n, smiles_m, step)
+    """
+    _, _, smiles_n, smiles_m, step = args
+    mol_n = Chem.MolFromSmiles(smiles_n)
+    mol_m = Chem.MolFromSmiles(smiles_m)
+    
+    if mol_n is None or mol_m is None:
+        return None
+    
+    try:
+        # 使用共享的evolver缓存避免重复创建MoleculeEvolver实例
+        if evolver_cache_dict is not None:
+            # 从共享字典中获取或创建evolver实例
+            if smiles_n in evolver_cache_dict:
+                path_n_dict = evolver_cache_dict[smiles_n]
+            else:
+                evolver_n = MoleculeEvolver(smiles_n)
+                path_n_dict = evolver_n.get_full_path_dict()
+                evolver_cache_dict[smiles_n] = path_n_dict
+            
+            if smiles_m in evolver_cache_dict:
+                path_m_dict = evolver_cache_dict[smiles_m]
+            else:
+                evolver_m = MoleculeEvolver(smiles_m)
+                path_m_dict = evolver_m.get_full_path_dict()
+                evolver_cache_dict[smiles_m] = path_m_dict
+        else:
+            # 没有共享缓存时，直接创建evolver实例
+            evolver_n = MoleculeEvolver(smiles_n)
+            evolver_m = MoleculeEvolver(smiles_m)
+            
+            # 获取结构化进化路径
+            path_n_dict = evolver_n.get_full_path_dict()
+            path_m_dict = evolver_m.get_full_path_dict()
+        
+        # 分析进化操作
+        operation_result = analyze_evolution_operation_dict(path_n_dict, path_m_dict)
+        
+        # 检查操作序列长度是否等于step
+        if len(operation_result) != step:
+            return None
+        
+        # 按照指定顺序创建pair_data字典
+        pair_data = {
+            'smiles_from': smiles_n,
+            'smiles_to': smiles_m,
+            'operations': operation_result
+        }
+        
+        return pair_data
+        
+    except Exception as e:
+        return None
+
+
+def find_step_pairs(heavy_n_df, heavy_m_df, n_atoms, m_atoms, step, max_pairs=None, logger=None, preview_mode=False, 
+                   checkpoint_file=None, start_index=0):
+    """
+    寻找适合指定步数进化的SMILES对
+    从n个重原子的分子到m个重原子的分子（包括n==m的情况）
+    
+    Args:
+        heavy_n_df: 源分子数据集
+        heavy_m_df: 目标分子数据集  
+        n_atoms: 源分子重原子数
+        m_atoms: 目标分子重原子数
+        step: 编辑距离步数
+        max_pairs: 最大配对数，达到此数量后停止
+        logger: 日志记录器
+        preview_mode: 预览模式，只提取少量数据用于预览
+        checkpoint_file: 检查点文件路径，用于断点续传
+        start_index: 开始索引，用于断点续传
+    
+    Returns:
+        配对结果列表
+    """
+    if logger is None:
+        # 如果没有提供logger，创建一个默认的
+        logging.basicConfig(level=logging.INFO)
+        logger = logging.getLogger(__name__)
+    
+    pairs = []
+    
+    # 限制搜索范围以提高效率
+    # 只检查前N个分子，避免计算量过大
+    if preview_mode:
+        search_limit_n = min(3, len(heavy_n_df))
+        search_limit_m = min(3, len(heavy_m_df))
+    else:
+        # 全量搜索，不限制搜索范围
+        search_limit_n = len(heavy_n_df)
+        search_limit_m = len(heavy_m_df)
+    
+    if preview_mode:
+        logger.info(f"正在从{search_limit_n}个{n_atoms}重原子分子和{search_limit_m}个{m_atoms}重原子分子中寻找编辑距离为{step}的配对...")
+    
+    # 准备所有需要处理的分子对
+    tasks = []
+    unique_smiles = set()  # 收集所有唯一的SMILES以进行预处理
+    
+    # 添加tqdm进度条以显示收集唯一SMILES的过程
+    start_i = start_index // search_limit_m  # 计算起始的i值
+    start_j = start_index % search_limit_m   # 计算起始的j值
+    
+    logger.info(f"从索引 {start_index} (i={start_i}, j={start_j}) 开始处理")
+    
+    for i in tqdm(range(start_i, search_limit_n), desc=f"收集{n_atoms}原子分子", unit="mol"):
+        smiles_n = heavy_n_df.iloc[i]['smiles']
+        unique_smiles.add(smiles_n)
+        for j in range(search_limit_m):
+            # 如果是第一行(i==start_i)，则从start_j开始，否则从0开始
+            if i == start_i and j < start_j:
+                continue
+            smiles_m = heavy_m_df.iloc[j]['smiles']
+            unique_smiles.add(smiles_m)
+            tasks.append((i, j, smiles_n, smiles_m, step))
+    
+    # 在预览模式下保持原有逻辑，便于调试
+    if preview_mode:
+        evolver_cache = {}
+        # 使用tqdm显示进度条
+        task_index = 0
+        for i in tqdm(range(start_i, search_limit_n), desc=f"处理{n_atoms}→{m_atoms}原子对", unit="mol"):
+            smiles_n = heavy_n_df.iloc[i]['smiles']
+            mol_n = Chem.MolFromSmiles(smiles_n)
+            
+            if mol_n is None:
+                continue
+                
+            # 内层循环也添加进度条
+            inner_pbar = tqdm(range(search_limit_m), desc=f"内层循环", leave=False, unit="mol")
+            for j in inner_pbar:
+                # 如果是第一行(i==start_i)，则从start_j开始，否则从0开始
+                if i == start_i and j < start_j:
+                    continue
+                    
+                smiles_m = heavy_m_df.iloc[j]['smiles']
+                mol_m = Chem.MolFromSmiles(smiles_m)
+                
+                if mol_m is None:
+                    continue
+                    
+                # 更新内层进度条描述
+                inner_pbar.set_description(f"比较 {i+1}:{smiles_n[:15]}... -> {j+1}:{smiles_m[:15]}...")
+                    
+                # 检查是否可以通过指定步数操作从smiles_n得到smiles_m
+                try:
+                    # 使用缓存避免重复创建MoleculeEvolver实例
+                    if smiles_n not in evolver_cache:
+                        evolver_cache[smiles_n] = MoleculeEvolver(smiles_n)
+                    if smiles_m not in evolver_cache:
+                        evolver_cache[smiles_m] = MoleculeEvolver(smiles_m)
+                    
+                    evolver_n = evolver_cache[smiles_n]
+                    evolver_m = evolver_cache[smiles_m]
+                    
+                    # 获取结构化进化路径
+                    path_n_dict = evolver_n.get_full_path_dict()
+                    path_m_dict = evolver_m.get_full_path_dict()
+                    
+                    # 分析进化操作
+                    operation_result = analyze_evolution_operation_dict(path_n_dict, path_m_dict)
+                    
+                    # 检查操作序列长度是否等于step
+                    if len(operation_result) != step:
+                        continue
+                    
+                    # 按照指定顺序创建pair_data字典
+                    pair_data = {
+                        'smiles_from': smiles_n,
+                        'smiles_to': smiles_m,
+                        'operations': operation_result
+                    }
+                    
+                    pairs.append(pair_data)
+                    task_index += 1
+                    
+                    # 保存检查点
+                    if checkpoint_file and task_index % 1000 == 0:  # 每1000个任务保存一次检查点
+                        checkpoint_data = {
+                            'processed_index': i * search_limit_m + j,
+                            'pairs': pairs
+                        }
+                        with open(checkpoint_file, 'w') as f:
+                            json.dump(checkpoint_data, f)
+                        logger.info(f"检查点已保存到 {checkpoint_file}，处理索引: {i * search_limit_m + j}")
+                    
+                    # 检查是否达到最大配对数
+                    if max_pairs and len(pairs) >= max_pairs:
+                        logger.info(f"已达到最大配对数 {max_pairs}，停止搜索...")
+                        inner_pbar.close()
+                        return pairs
+                            
+                except Exception as e:
+                    continue
+            inner_pbar.close()
+    else:
+        # 非预览模式：使用多进程处理，并预处理常用的MoleculeEvolver实例
+        num_processes = min(cpu_count(), 8)  # 使用CPU核心数，但不超过8个
+        logger.info(f"使用 {num_processes} 个进程进行并行计算")
+        
+        # 创建缓存文件路径
+        cache_dir = os.path.join(os.path.dirname(__file__), 'cache')
+        os.makedirs(cache_dir, exist_ok=True)
+        cache_file = os.path.join(cache_dir, f'molecule_evolver_cache_step{step}.pkl')
+        
+        # 尝试加载现有的缓存文件
+        evolver_cache_dict = {}
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file, 'rb') as f:
+                    evolver_cache_dict = pickle.load(f)
+                logger.info(f"从缓存文件 {cache_file} 加载了 {len(evolver_cache_dict)} 个分子处理结果")
+            except Exception as e:
+                logger.warning(f"加载缓存文件时出错: {e}，将重新创建缓存")
+                evolver_cache_dict = {}
+        
+        # 确定需要处理的新分子
+        new_smiles = unique_smiles - set(evolver_cache_dict.keys())
+        logger.info(f"总共 {len(unique_smiles)} 个唯一分子，其中 {len(new_smiles)} 个需要预处理")
+        
+        # 预处理所有新的唯一SMILES，创建MoleculeEvolver实例并缓存它们的路径字典
+        if new_smiles:
+            for smiles in tqdm(new_smiles, desc="预处理新分子"):
+                try:
+                    evolver = MoleculeEvolver(smiles)
+                    path_dict = evolver.get_full_path_dict()
+                    # 存储path_dict到缓存字典中
+                    evolver_cache_dict[smiles] = path_dict
+                except Exception as e:
+                    logger.warning(f"预处理分子 {smiles} 时出错: {e}")
+                    continue
+            
+            # 保存更新后的缓存到文件
+            try:
+                with open(cache_file, 'wb') as f:
+                    pickle.dump(evolver_cache_dict, f)
+                logger.info(f"已将 {len(evolver_cache_dict)} 个分子处理结果保存到缓存文件 {cache_file}")
+            except Exception as e:
+                logger.warning(f"保存缓存文件时出错: {e}")
+        
+        # 创建一个管理器字典用于进程间共享evolver缓存
+        manager = Manager()
+        shared_evolver_cache_dict = manager.dict(evolver_cache_dict)
+        
+        # 使用partial固定evolver_cache_dict参数
+        process_func = partial(process_molecule_pair, evolver_cache_dict=shared_evolver_cache_dict)
+        
+        with Pool(processes=num_processes) as pool:
+            results = list(tqdm(pool.imap(process_func, tasks), total=len(tasks), 
+                               desc=f"处理{n_atoms}→{m_atoms}原子对", unit="pair"))
+        
+        # 过滤出有效的结果
+        pairs = [result for result in results if result is not None]
+    
+    # 如果设置了最大配对数，截取相应数量
+    if max_pairs and len(pairs) > max_pairs:
+        pairs = pairs[:max_pairs]
+                
+    return pairs
+
+
+# TAG Task-II
 def debug_pair(smiles_from, smiles_to, logger=None):
     """
     调试特定的分子对，分析它们之间的进化操作
@@ -311,9 +480,9 @@ def debug_pair(smiles_from, smiles_to, logger=None):
         evolver_from = MoleculeEvolver(smiles_from)
         evolver_to = MoleculeEvolver(smiles_to)
         
-        # 获取结构化进化路径
-        path_from_dict = evolver_from.generate_path_dict()
-        path_to_dict = evolver_to.generate_path_dict()
+        # 获取完整路径（包括起始操作）
+        full_path_from_dict = evolver_from.get_full_path_dict()
+        full_path_to_dict = evolver_to.get_full_path_dict()
         
         logger.info("起始分子进化路径（字符串形式）:")
         for i, op in enumerate(path_from):
@@ -323,20 +492,16 @@ def debug_pair(smiles_from, smiles_to, logger=None):
         for i, op in enumerate(path_to):
             logger.info(f"  {i}: {op}")
         
-        logger.info("起始分子进化路径（字典形式）:")
-        for i, op in enumerate(path_from_dict):
+        logger.info("起始分子完整进化路径（字典形式）:")
+        for i, op in enumerate(full_path_from_dict):
             logger.info(f"  {i}: {op}")
             
-        logger.info("目标分子进化路径（字典形式）:")
-        for i, op in enumerate(path_to_dict):
+        logger.info("目标分子完整进化路径（字典形式）:")
+        for i, op in enumerate(full_path_to_dict):
             logger.info(f"  {i}: {op}")
         
-        # 分析进化操作
-        operation_result = analyze_evolution_operation_dict(path_from_dict, path_to_dict)
-        
-        logger.info(f"操作分析详情:")
-        logger.info(f"  新增操作数量: {len([op for op in path_to_dict if str(op) not in [str(o) for o in path_from_dict]])}")
-        logger.info(f"  删除操作数量: {len([op for op in path_from_dict if str(op) not in [str(o) for o in path_to_dict]])}")
+        # 分析进化操作（基于包括起始操作的完整路径）
+        operation_result = analyze_evolution_operation_dict(full_path_from_dict, full_path_to_dict)
         
         # 创建结果数据
         pair_data = {
@@ -345,14 +510,13 @@ def debug_pair(smiles_from, smiles_to, logger=None):
             'distance': distance,
             'path_from': path_from,
             'path_to': path_to,
-            'path_from_dict': path_from_dict,
-            'path_to_dict': path_to_dict,
-            'operations': operation_result['operations']
+            'full_path_from_dict': full_path_from_dict,
+            'full_path_to_dict': full_path_to_dict,
+            'operations': operation_result
         }
         
-        logger.info(f"操作类型: {operation_result['type']}")
         logger.info(f"操作详情:")
-        for i, op in enumerate(operation_result['operations']):
+        for i, op in enumerate(operation_result):
             logger.info(f"  {i}: {op}")
             
         # 转换数据类型以确保可以被JSON序列化
@@ -366,7 +530,30 @@ def debug_pair(smiles_from, smiles_to, logger=None):
         logger.error(traceback.format_exc())
         return None
 
-def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, debug_to=None):
+
+# TAG select task
+def select_mode_interactively():
+    """
+    交互式选择模式
+    """
+    questions = [
+        inquirer.List('mode',
+                     message="请选择运行模式",
+                     choices=[
+                         ('全量处理并保存到文件', 'full'),
+                         ('预览模式（仅输出到控制台）', 'preview'),
+                         ('预览并保存到文件', 'preview_with_file'),
+                         ('全量处理并保存到文件（紧凑格式）', 'full_compact'),
+                         ('预览并保存到文件（紧凑格式）', 'preview_with_file_compact')
+                     ])
+    ]
+    
+    answers = inquirer.prompt(questions)
+    return answers['mode'] if answers else None
+
+
+def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, debug_to=None, num_processes=None, 
+         resume=False):
     """
     主函数
     
@@ -377,6 +564,7 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
         mode: 运行模式
         debug_from: 调试模式下的起始分子SMILES
         debug_to: 调试模式下的目标分子SMILES
+        resume: 是否从检查点恢复
     """
     # 检查是否是调试模式
     if debug_from is not None and debug_to is not None:
@@ -430,12 +618,23 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
     # 设置数据目录
     data_dir = os.path.join(os.path.dirname(__file__), 'data')
     output_file = os.path.join(data_dir, f'qm9-evo-pairs-step-{step}.json')
+    checkpoint_file = os.path.join(data_dir, f'qm9-evo-pairs-step-{step}-checkpoint.json')
     
     # 创建输出目录（如果不存在）
     os.makedirs(data_dir, exist_ok=True)
     
-    # 存储所有指定步数进化对
+    # 检查是否有检查点文件
+    start_index = 0
     all_pairs = []
+    if resume and os.path.exists(checkpoint_file):
+        try:
+            with open(checkpoint_file, 'r') as f:
+                checkpoint_data = json.load(f)
+                start_index = checkpoint_data.get('processed_index', 0) + 1
+                all_pairs = checkpoint_data.get('pairs', [])
+            logger.info(f"从检查点恢复，从索引 {start_index} 开始处理")
+        except Exception as e:
+            logger.warning(f"加载检查点文件时出错: {e}，将从头开始处理")
     
     # 加载所有数据集
     datasets = {}
@@ -465,42 +664,37 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
     else:
         outer_pbar = tqdm(total=total_combinations, desc="整体处理进度", unit="组合")
     
-    # 查找相邻原子数之间的进化对（1->2, 2->3, ..., 8->9）
-    for heavy_atoms in range(1, 9):
-        if heavy_atoms in datasets and (heavy_atoms + 1) in datasets:
-            df_from = datasets[heavy_atoms]
-            df_to = datasets[heavy_atoms + 1]
-            
-            logger.info(f"查找{heavy_atoms}->{heavy_atoms+1}重原子的{step}步进化对...")
-            
-            # 查找指定步数进化对
-            pairs = find_step_pairs(df_from, df_to, heavy_atoms, heavy_atoms + 1, step, max_pairs=max_pairs, logger=logger, preview_mode=(preview_mode or preview_with_file))
-            all_pairs.extend(pairs)
-            
-            if preview_mode or preview_with_file:
-                # 预览模式下找到3个配对就停止
-                if len(all_pairs) >= 3:
-                    logger.info("预览模式：已找到3个配对，停止搜索...")
-                    break
-            else:
-                outer_pbar.update(1)
-            
-            # 检查是否达到最大配对数
-            if max_pairs and len(all_pairs) >= max_pairs:
-                logger.info(f"已达到最大配对数 {max_pairs}，停止搜索...")
-                break
-    
-    # 如果还没有达到最大配对数，继续查找相同原子数内部的进化对
-    if not (max_pairs and len(all_pairs) >= max_pairs):
-        if not preview_mode and not preview_with_file or len(all_pairs) < 3:
-            for heavy_atoms in range(1, 10):
-                if heavy_atoms in datasets:
-                    df = datasets[heavy_atoms]
-                    logger.info(f"查找{heavy_atoms}重原子内部的{step}步进化对...")
+    # 统一处理所有可能的原子数对组合
+    # 遍历所有可能的起始原子数
+    for from_heavy_atoms in range(1, 10):
+        # 遍历所有可能的目标原子数
+        # 对于step=n的情况，我们考虑从from_heavy_atoms到from_heavy_atoms+n的所有可能
+        for to_heavy_atoms in range(from_heavy_atoms, min(from_heavy_atoms + step + 1, 10)):
+            # 检查数据集是否存在
+            if from_heavy_atoms in datasets and to_heavy_atoms in datasets:
+                # 计算实际的原子数差值
+                atom_diff = to_heavy_atoms - from_heavy_atoms
+                
+                # 只有当原子数差值在合理范围内时才处理
+                # 1. 相邻原子数（差值为1）总是处理
+                # 2. 相同原子数内部（差值为0）总是处理
+                # 3. 跨越多个原子数（差值>1）只在step足够大时处理
+                if atom_diff <= step:
+                    df_from = datasets[from_heavy_atoms]
+                    df_to = datasets[to_heavy_atoms]
+                    
+                    # logger.info(f"查找{from_heavy_atoms}->{to_heavy_atoms}重原子的{step}步进化对...")
                     
                     # 查找指定步数进化对
-                    pairs = find_step_pairs(df, df, heavy_atoms, heavy_atoms, step, max_pairs=max_pairs, logger=logger, preview_mode=(preview_mode or preview_with_file))
+                    pairs = find_step_pairs(df_from, df_to, from_heavy_atoms, to_heavy_atoms, step, 
+                                          max_pairs=max_pairs, logger=logger, 
+                                          preview_mode=(preview_mode or preview_with_file),
+                                          checkpoint_file=checkpoint_file if not preview_mode else None,
+                                          start_index=start_index)
                     all_pairs.extend(pairs)
+                    
+                    # 重置起始索引，以便下一个组合从头开始
+                    start_index = 0
                     
                     if preview_mode or preview_with_file:
                         # 预览模式下找到3个配对就停止
@@ -509,15 +703,33 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
                             break
                     else:
                         if 'outer_pbar' in locals():
+                            # 更新外层进度条描述，显示当前已找到的配对数量
+                            outer_pbar.set_description(f"整体处理进度 (已找到 {len(all_pairs)} 对)")
                             outer_pbar.update(1)
                     
                     # 检查是否达到最大配对数
                     if max_pairs and len(all_pairs) >= max_pairs:
                         logger.info(f"已达到最大配对数 {max_pairs}，停止搜索...")
                         break
+        
+        # 预览模式下的额外终止条件
+        if preview_mode or preview_with_file:
+            if len(all_pairs) >= 3:
+                logger.info("预览模式：已找到3个配对，停止搜索...")
+                break
+        
+        # 检查是否达到最大配对数
+        if max_pairs and len(all_pairs) >= max_pairs:
+            logger.info(f"已达到最大配对数 {max_pairs}，停止搜索...")
+            break
     
     if 'outer_pbar' in locals():
         outer_pbar.close()
+    
+    # 删除检查点文件（任务完成）
+    if os.path.exists(checkpoint_file) and not preview_mode:
+        os.remove(checkpoint_file)
+        logger.info(f"任务完成，已删除检查点文件 {checkpoint_file}")
     
     # 根据模式决定输出方式
     if preview_mode and not preview_with_file:
@@ -548,6 +760,8 @@ if __name__ == "__main__":
                         help='运行模式。使用 --mode 不带参数可触发交互式选择')
     parser.add_argument('--debug-from', type=str, help='调试模式：起始分子的SMILES')
     parser.add_argument('--debug-to', type=str, help='调试模式：目标分子的SMILES')
+    parser.add_argument('--processes', type=int, default=None, help='使用的进程数，默认使用所有可用CPU核心')
+    parser.add_argument('--resume', action='store_true', help='从检查点恢复处理')
     
     args = parser.parse_args()
     
@@ -557,4 +771,5 @@ if __name__ == "__main__":
         raise ValueError('无效的日志等级: %s' % args.log)
     
     main(step=args.step, max_pairs=args.max_pairs, log_level=numeric_level, mode=args.mode,
-         debug_from=args.debug_from, debug_to=args.debug_to)
+         debug_from=args.debug_from, debug_to=args.debug_to, num_processes=args.processes,
+         resume=args.resume)

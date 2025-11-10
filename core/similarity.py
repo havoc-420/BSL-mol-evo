@@ -3,6 +3,7 @@ from .evolver import MoleculeEvolver
 
 
 def calculate_path_edit_distance(path1, path2):
+    # TODO 需要改进
     len1, len2 = len(path1), len(path2)
     dp = np.zeros((len1 + 1, len2 + 1), dtype=int)
     for i in range(len1 + 1): dp[i][0] = i
