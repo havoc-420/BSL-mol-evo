@@ -30,7 +30,7 @@ python extract_evolution_pairs.py --step 1 --max-pairs 100
 python extract_evolution_pairs.py --step 2 --max-pairs 2005
 
 # 如果任务中断，使用以下命令从检查点恢复
-python extract_evolution_pairs.py --step 2 --max-pairs 3000 --resume
+python extract_evolution_pairs.py --step 2 --resume
 ```
 
 # Calculate Prop Changes

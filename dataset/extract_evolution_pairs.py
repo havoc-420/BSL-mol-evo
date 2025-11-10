@@ -181,9 +181,18 @@ def analyze_evolution_operation_dict(path1_dict, path2_dict):
 def process_molecule_pair(args, evolver_cache_dict=None):
     """
     处理单个分子对的函数，用于多进程处理
-    参数 args 是一个元组，包含 (i, j, smiles_n, smiles_m, step)
+    参数 args 是一个元组，包含 (task_id, i, j, smiles_n, smiles_m, step) 或 (i, j, smiles_n, smiles_m, step)
     """
-    _, _, smiles_n, smiles_m, step = args
+    # 兼容两种格式的任务参数
+    if len(args) == 6:
+        # 新格式：包含task_id
+        _, _, _, smiles_n, smiles_m, step = args
+    elif len(args) == 5:
+        # 旧格式：不包含task_id
+        _, _, smiles_n, smiles_m, step = args
+    else:
+        return None
+    
     mol_n = Chem.MolFromSmiles(smiles_n)
     mol_m = Chem.MolFromSmiles(smiles_m)
     
@@ -236,8 +245,82 @@ def process_molecule_pair(args, evolver_cache_dict=None):
         return None
 
 
+def process_molecule_pair_with_tracking(args, evolver_cache_dict=None, tracking_dict=None):
+    """
+    处理单个分子对的函数，用于多进程处理，同时支持进度跟踪
+    参数 args 是一个元组，包含 (task_id, i, j, smiles_n, smiles_m, step) 或 (i, j, smiles_n, smiles_m, step)
+    """
+    # 兼容两种格式的任务参数
+    if len(args) == 6:
+        # 新格式：包含task_id
+        task_id, _, _, smiles_n, smiles_m, step = args
+    elif len(args) == 5:
+        # 旧格式：不包含task_id
+        _, _, smiles_n, smiles_m, step = args
+        task_id = None
+    else:
+        return None
+    
+    mol_n = Chem.MolFromSmiles(smiles_n)
+    mol_m = Chem.MolFromSmiles(smiles_m)
+    
+    if mol_n is None or mol_m is None:
+        return None
+    
+    try:
+        # 使用共享的evolver缓存避免重复创建MoleculeEvolver实例
+        if evolver_cache_dict is not None:
+            # 从共享字典中获取或创建evolver实例
+            if smiles_n in evolver_cache_dict:
+                path_n_dict = evolver_cache_dict[smiles_n]
+            else:
+                evolver_n = MoleculeEvolver(smiles_n)
+                path_n_dict = evolver_n.get_full_path_dict()
+                evolver_cache_dict[smiles_n] = path_n_dict
+            
+            if smiles_m in evolver_cache_dict:
+                path_m_dict = evolver_cache_dict[smiles_m]
+            else:
+                evolver_m = MoleculeEvolver(smiles_m)
+                path_m_dict = evolver_m.get_full_path_dict()
+                evolver_cache_dict[smiles_m] = path_m_dict
+        else:
+            # 没有共享缓存时，直接创建evolver实例
+            evolver_n = MoleculeEvolver(smiles_n)
+            evolver_m = MoleculeEvolver(smiles_m)
+            
+            # 获取结构化进化路径
+            path_n_dict = evolver_n.get_full_path_dict()
+            path_m_dict = evolver_m.get_full_path_dict()
+        
+        # 分析进化操作
+        operation_result = analyze_evolution_operation_dict(path_n_dict, path_m_dict)
+        
+        # 检查操作序列长度是否等于step
+        if len(operation_result) != step:
+            return None
+        
+        # 按照指定顺序创建pair_data字典
+        pair_data = {
+            'smiles_from': smiles_n,
+            'smiles_to': smiles_m,
+            'operations': operation_result
+        }
+        
+        # 如果提供了跟踪字典，则更新处理计数
+        if tracking_dict is not None:
+            with tracking_dict['lock']:
+                tracking_dict['processed_count'].value += 1
+                
+        return pair_data
+        
+    except Exception as e:
+        return None
+
+
 def find_step_pairs(heavy_n_df, heavy_m_df, n_atoms, m_atoms, step, max_pairs=None, logger=None, preview_mode=False, 
-                   checkpoint_file=None, start_index=0):
+                   checkpoint_file=None, start_index=0, from_heavy_atoms_checkpoint=None, to_heavy_atoms_checkpoint=None,
+                   all_pairs_checkpoint=None):
     """
     寻找适合指定步数进化的SMILES对
     从n个重原子的分子到m个重原子的分子（包括n==m的情况）
@@ -253,6 +336,9 @@ def find_step_pairs(heavy_n_df, heavy_m_df, n_atoms, m_atoms, step, max_pairs=No
         preview_mode: 预览模式，只提取少量数据用于预览
         checkpoint_file: 检查点文件路径，用于断点续传
         start_index: 开始索引，用于断点续传
+        from_heavy_atoms_checkpoint: 起始重原子数，用于断点续传
+        to_heavy_atoms_checkpoint: 目标重原子数，用于断点续传
+        all_pairs_checkpoint: 用于恢复的已找到的配对
     
     Returns:
         配对结果列表
@@ -282,11 +368,17 @@ def find_step_pairs(heavy_n_df, heavy_m_df, n_atoms, m_atoms, step, max_pairs=No
     unique_smiles = set()  # 收集所有唯一的SMILES以进行预处理
     
     # 添加tqdm进度条以显示收集唯一SMILES的过程
-    start_i = start_index // search_limit_m  # 计算起始的i值
-    start_j = start_index % search_limit_m   # 计算起始的j值
+    # 只有当我们正在处理与检查点相同的原子数组合时才使用start_index
+    if from_heavy_atoms_checkpoint == n_atoms and to_heavy_atoms_checkpoint == m_atoms:
+        start_i = start_index // search_limit_m  # 计算起始的i值
+        start_j = start_index % search_limit_m   # 计算起始的j值
+        logger.info(f"从索引 {start_index} (i={start_i}, j={start_j}) 开始处理{n_atoms}->{m_atoms}原子对")
+    else:
+        start_i = 0
+        start_j = 0
+        logger.info(f"开始处理{n_atoms}->{m_atoms}原子对")
     
-    logger.info(f"从索引 {start_index} (i={start_i}, j={start_j}) 开始处理")
-    
+    task_id = 0
     for i in tqdm(range(start_i, search_limit_n), desc=f"收集{n_atoms}原子分子", unit="mol"):
         smiles_n = heavy_n_df.iloc[i]['smiles']
         unique_smiles.add(smiles_n)
@@ -296,7 +388,8 @@ def find_step_pairs(heavy_n_df, heavy_m_df, n_atoms, m_atoms, step, max_pairs=No
                 continue
             smiles_m = heavy_m_df.iloc[j]['smiles']
             unique_smiles.add(smiles_m)
-            tasks.append((i, j, smiles_n, smiles_m, step))
+            tasks.append((task_id, i, j, smiles_n, smiles_m, step))
+            task_id += 1
     
     # 在预览模式下保持原有逻辑，便于调试
     if preview_mode:
@@ -362,7 +455,9 @@ def find_step_pairs(heavy_n_df, heavy_m_df, n_atoms, m_atoms, step, max_pairs=No
                     if checkpoint_file and task_index % 1000 == 0:  # 每1000个任务保存一次检查点
                         checkpoint_data = {
                             'processed_index': i * search_limit_m + j,
-                            'pairs': pairs
+                            'from_heavy_atoms': n_atoms,
+                            'to_heavy_atoms': m_atoms,
+                            'pairs': all_pairs_checkpoint + pairs if all_pairs_checkpoint is not None else pairs,
                         }
                         with open(checkpoint_file, 'w') as f:
                             json.dump(checkpoint_data, f)
@@ -429,12 +524,64 @@ def find_step_pairs(heavy_n_df, heavy_m_df, n_atoms, m_atoms, step, max_pairs=No
         # 使用partial固定evolver_cache_dict参数
         process_func = partial(process_molecule_pair, evolver_cache_dict=shared_evolver_cache_dict)
         
-        with Pool(processes=num_processes) as pool:
-            results = list(tqdm(pool.imap(process_func, tasks), total=len(tasks), 
-                               desc=f"处理{n_atoms}→{m_atoms}原子对", unit="pair"))
+        # 分批处理任务以支持检查点
+        batch_size = 1000  # 每批处理1000个任务
+        all_results = []
         
-        # 过滤出有效的结果
-        pairs = [result for result in results if result is not None]
+        # 如果有起始索引，调整任务列表
+        start_task_index = start_index if (from_heavy_atoms_checkpoint == n_atoms and to_heavy_atoms_checkpoint == m_atoms) else 0
+        remaining_tasks = tasks[start_task_index:] if start_task_index < len(tasks) else []
+        
+        # 计算总批次数
+        total_batches = (len(remaining_tasks) + batch_size - 1) // batch_size
+        
+        with Pool(processes=num_processes) as pool:
+            # 使用总批次数作为主进度条
+            batch_pbar = tqdm(total=total_batches, desc=f"处理{n_atoms}→{m_atoms}原子对", unit="批")
+            
+            # 分批处理任务
+            total_processed = start_task_index
+            for i in range(0, len(remaining_tasks), batch_size):
+                batch = remaining_tasks[i:i+batch_size]
+                batch_num = i // batch_size + 1
+                
+                # 处理当前批次，显示子进度条
+                batch_results = list(tqdm(pool.imap(process_func, batch), total=len(batch), 
+                                         desc=f"批次 {batch_num}/{total_batches}", 
+                                         leave=False, unit="pair"))
+                
+                # 过滤出有效的结果并添加到总结果中
+                valid_results = [result for result in batch_results if result is not None]
+                all_results.extend(valid_results)
+                total_processed += len(batch)
+                
+                # 更新主进度条
+                batch_pbar.update(1)
+                
+                # 每处理完一批，保存检查点（如果启用了检查点）
+                if checkpoint_file:
+                    checkpoint_pairs = (all_pairs_checkpoint + all_results 
+                                      if all_pairs_checkpoint is not None else all_results)
+                    
+                    checkpoint_info = {
+                        'processed_index': total_processed,
+                        'from_heavy_atoms': n_atoms,
+                        'to_heavy_atoms': m_atoms,
+                        'pairs': checkpoint_pairs,
+                    }
+                    
+                    with open(checkpoint_file, 'w') as f:
+                        json.dump(checkpoint_info, f)
+                
+                # 检查是否达到最大配对数
+                if max_pairs and len(all_results) >= max_pairs:
+                    logger.info(f"已达到最大配对数 {max_pairs}，停止搜索...")
+                    batch_pbar.close()
+                    break
+            
+            batch_pbar.close()
+        
+        pairs = all_results
     
     # 如果设置了最大配对数，截取相应数量
     if max_pairs and len(pairs) > max_pairs:
@@ -626,13 +773,17 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
     # 检查是否有检查点文件
     start_index = 0
     all_pairs = []
+    from_heavy_atoms_checkpoint = None
+    to_heavy_atoms_checkpoint = None
     if resume and os.path.exists(checkpoint_file):
         try:
             with open(checkpoint_file, 'r') as f:
                 checkpoint_data = json.load(f)
                 start_index = checkpoint_data.get('processed_index', 0) + 1
                 all_pairs = checkpoint_data.get('pairs', [])
-            logger.info(f"从检查点恢复，从索引 {start_index} 开始处理")
+                from_heavy_atoms_checkpoint = checkpoint_data.get('from_heavy_atoms')
+                to_heavy_atoms_checkpoint = checkpoint_data.get('to_heavy_atoms')
+            logger.info(f"从检查点恢复，从索引 {start_index} 开始处理 ({from_heavy_atoms_checkpoint}->{to_heavy_atoms_checkpoint}原子对)")
         except Exception as e:
             logger.warning(f"加载检查点文件时出错: {e}，将从头开始处理")
     
@@ -666,6 +817,7 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
     
     # 统一处理所有可能的原子数对组合
     # 遍历所有可能的起始原子数
+    resume_point_reached = False if resume and from_heavy_atoms_checkpoint is not None else True
     for from_heavy_atoms in range(1, 10):
         # 遍历所有可能的目标原子数
         # 对于step=n的情况，我们考虑从from_heavy_atoms到from_heavy_atoms+n的所有可能
@@ -680,6 +832,14 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
                 # 2. 相同原子数内部（差值为0）总是处理
                 # 3. 跨越多个原子数（差值>1）只在step足够大时处理
                 if atom_diff <= step:
+                    # 如果我们处于恢复模式，但还没有到达恢复点，则跳过
+                    if resume and not resume_point_reached:
+                        if from_heavy_atoms == from_heavy_atoms_checkpoint and to_heavy_atoms == to_heavy_atoms_checkpoint:
+                            resume_point_reached = True
+                        else:
+                            logger.info(f"跳过 {from_heavy_atoms}->{to_heavy_atoms} 原子对（恢复模式）")
+                            continue
+                    
                     df_from = datasets[from_heavy_atoms]
                     df_to = datasets[to_heavy_atoms]
                     
@@ -690,7 +850,10 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
                                           max_pairs=max_pairs, logger=logger, 
                                           preview_mode=(preview_mode or preview_with_file),
                                           checkpoint_file=checkpoint_file if not preview_mode else None,
-                                          start_index=start_index)
+                                          start_index=start_index if (from_heavy_atoms == from_heavy_atoms_checkpoint and to_heavy_atoms == to_heavy_atoms_checkpoint) else 0,
+                                          from_heavy_atoms_checkpoint=from_heavy_atoms_checkpoint,
+                                          to_heavy_atoms_checkpoint=to_heavy_atoms_checkpoint,
+                                          all_pairs_checkpoint=all_pairs)
                     all_pairs.extend(pairs)
                     
                     # 重置起始索引，以便下一个组合从头开始
