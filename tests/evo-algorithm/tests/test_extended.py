@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-MoleculeEvolver扩展测试
+MoleculeEvolverAnalysis扩展测试
 """
 
 import sys
@@ -15,7 +15,7 @@ sys.path.insert(0, project_root)
 
 try:
     from rdkit import Chem
-    from mol_evo.core.evolver import MoleculeEvolver
+    from mol_evo.core.evolver import MoleculeEvolverAnalysis
 except Exception as e:
     print(f"导入模块时发生错误: {e}")
     sys.exit(1)
@@ -36,8 +36,8 @@ def load_test_data(filename='testcases/extended/extended_test_data.json'):
         return json.load(f)
 
 
-class TestExtendedMoleculeEvolver(unittest.TestCase):
-    """MoleculeEvolver扩展测试类"""
+class TestExtendedMoleculeEvolverAnalysis(unittest.TestCase):
+    """MoleculeEvolverAnalysis扩展测试类"""
     
     @classmethod
     def setUpClass(cls):
@@ -58,7 +58,7 @@ class TestExtendedMoleculeEvolver(unittest.TestCase):
                     mol = Chem.MolFromSmiles(smiles)
                     self.assertIsNotNone(mol, f"无效的SMILES: {smiles}")
                     
-                    evolver = MoleculeEvolver(smiles)
+                    evolver = MoleculeEvolverAnalysis(smiles)
                     path = evolver.generate_path()
                     
                     # 基本验证

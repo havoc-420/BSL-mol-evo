@@ -4,7 +4,7 @@
 分子进化路径生成器测试用例
 
 这个文件包含了针对特定分子的测试用例，专门测试CCCCCC和C1CCCCC1，
-用于验证MoleculeEvolver在这两个特定分子结构上的表现。
+用于验证MoleculeEvolverAnalysis在这两个特定分子结构上的表现。
 
 ## example
 python mol_evo/examples/molecule_evolution_test_cases.py
@@ -20,7 +20,7 @@ sys.path.insert(0, project_root)
 
 try:
     from rdkit import Chem
-    from mol_evo.core.evolver import MoleculeEvolver
+    from mol_evo.core.evolver import MoleculeEvolverAnalysis
 except Exception as e:
     print(f"导入模块时发生错误: {e}")
     sys.exit(1)
@@ -36,7 +36,7 @@ def test_linear_alkane():
             return
         
         # 生成进化路径
-        evolver = MoleculeEvolver(smiles)
+        evolver = MoleculeEvolverAnalysis(smiles)
         path = evolver.generate_path()
         
         print(f"直链烷烃 {smiles} 进化路径 (步骤数: {len(path)}):")
@@ -61,7 +61,7 @@ def test_cyclic_alkane():
             return
         
         # 生成进化路径
-        evolver = MoleculeEvolver(smiles)
+        evolver = MoleculeEvolverAnalysis(smiles)
         path = evolver.generate_path()
         
         print(f"环烷烃 {smiles} 进化路径 (步骤数: {len(path)}):")

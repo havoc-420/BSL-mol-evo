@@ -1,8 +1,8 @@
-# MoleculeEvolver 测试报告
+# MoleculeEvolverAnalysis 测试报告
 
 ## 1. 概述
 
-本文档记录了对 [MoleculeEvolver](file:///home/data2/rhj/project/mol_editor/mol_evo/core/evolver.py#L25-L341) 类的系统化测试结果，包括功能测试、边界条件测试和性能测试。
+本文档记录了对 [MoleculeEvolverAnalysis](file:///home/data2/rhj/project/mol_editor/mol_evo/core/evolver.py#L25-L341) 类的系统化测试结果，包括功能测试、边界条件测试和性能测试。
 
 ## 2. 测试环境
 
@@ -104,4 +104,4 @@
 
 ## 7. 结论
 
-本次测试验证了 [MoleculeEvolver](file:///home/data2/rhj/project/mol_editor/mol_evo/core/evolver.py#L25-L341) 类在处理多种分子结构方面的基本功能。测试结果表明，该类能够正确处理大部分常见分子结构，但在某些复杂情况和边界条件下仍有改进空间。
+本次测试验证了 [MoleculeEvolverAnalysis](file:///home/data2/rhj/project/mol_editor/mol_evo/core/evolver.py#L25-L341) 类在处理多种分子结构方面的基本功能。测试结果表明，该类能够正确处理大部分常见分子结构，但在某些复杂情况和边界条件下仍有改进空间。

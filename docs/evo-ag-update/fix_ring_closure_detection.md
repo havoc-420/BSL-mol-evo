@@ -6,7 +6,7 @@
 
 ## 问题分析
 
-通过调试发现，问题出在`MoleculeEvolver`类的骨架键构建逻辑和成环检测逻辑中。对于环己烷C1CCCCC1：
+通过调试发现，问题出在`MoleculeEvolverAnalysis`类的骨架键构建逻辑和成环检测逻辑中。对于环己烷C1CCCCC1：
 
 1. 分子通过DFS遍历构建骨架，得到骨架顺序[2, 1, 0, 5, 4, 3]
 2. 骨架键只包含DFS遍历路径中的键：{(0, 1), (1, 2), (3, 4), (4, 5), (0, 5)}
@@ -17,7 +17,7 @@
 
 ## 修复方案
 
-在`MoleculeEvolver.generate_path()`方法中，增加对分子是否具有环结构的检查：
+在`MoleculeEvolverAnalysis.generate_path()`方法中，增加对分子是否具有环结构的检查：
 
 ```python
 # 检查分子是否有环结构，如果没有环，则不应该有任何成环操作

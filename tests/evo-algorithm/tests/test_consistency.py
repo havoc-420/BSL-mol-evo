@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-MoleculeEvolver一致性测试
+MoleculeEvolverAnalysis一致性测试
 验证不同输出格式之间的一致性
 """
 
@@ -16,7 +16,7 @@ sys.path.insert(0, project_root)
 
 try:
     from rdkit import Chem
-    from mol_evo.core.evolver import MoleculeEvolver
+    from mol_evo.core.evolver import MoleculeEvolverAnalysis
 except Exception as e:
     print(f"导入模块时发生错误: {e}")
     sys.exit(1)
@@ -37,8 +37,8 @@ def load_test_data(filename='testcases/basic/test_data.json'):
         return json.load(f)
 
 
-class TestConsistencyMoleculeEvolver(unittest.TestCase):
-    """MoleculeEvolver一致性测试类"""
+class TestConsistencyMoleculeEvolverAnalysis(unittest.TestCase):
+    """MoleculeEvolverAnalysis一致性测试类"""
     
     @classmethod
     def setUpClass(cls):
@@ -55,7 +55,7 @@ class TestConsistencyMoleculeEvolver(unittest.TestCase):
                 smiles = test_case['smiles']
                 
                 try:
-                    evolver = MoleculeEvolver(smiles)
+                    evolver = MoleculeEvolverAnalysis(smiles)
                     path_str = evolver.generate_path()
                     path_dict = evolver.generate_path_dict()
                     

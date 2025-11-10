@@ -17,7 +17,7 @@ import time
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from mol_evo.core.similarity import calculate_evolutionary_similarity
-from mol_evo.core.evolver import MoleculeEvolver
+from mol_evo.core.evolver import MoleculeEvolverAnalysis
 
 """ utils """
 
@@ -45,7 +45,7 @@ def convert_types(obj):
         return obj
 
 # 注意：旧的 `_convert_operation_dict` 函数已被删除。
-# 因为 MoleculeEvolver 的 `generate_path_dict()` 方法现在直接输出符合分析需求的标准格式，
+# 因为 MoleculeEvolverAnalysis 的 `generate_path_dict()` 方法现在直接输出符合分析需求的标准格式，
 # 所以该转换函数已不再需要。
 
 def save_pairs_to_json(pairs, output_file, compact=False):
@@ -201,26 +201,26 @@ def process_molecule_pair(args, evolver_cache_dict=None):
         return None
     
     try:
-        # 使用共享的evolver缓存避免重复创建MoleculeEvolver实例
+        # 使用共享的evolver缓存避免重复创建MoleculeEvolverAnalysis实例
         if evolver_cache_dict is not None:
             # 从共享字典中获取或创建evolver实例
             if smiles_n in evolver_cache_dict:
                 path_n_dict = evolver_cache_dict[smiles_n]
             else:
-                evolver_n = MoleculeEvolver(smiles_n)
+                evolver_n = MoleculeEvolverAnalysis(smiles_n)
                 path_n_dict = evolver_n.get_full_path_dict()
                 evolver_cache_dict[smiles_n] = path_n_dict
             
             if smiles_m in evolver_cache_dict:
                 path_m_dict = evolver_cache_dict[smiles_m]
             else:
-                evolver_m = MoleculeEvolver(smiles_m)
+                evolver_m = MoleculeEvolverAnalysis(smiles_m)
                 path_m_dict = evolver_m.get_full_path_dict()
                 evolver_cache_dict[smiles_m] = path_m_dict
         else:
             # 没有共享缓存时，直接创建evolver实例
-            evolver_n = MoleculeEvolver(smiles_n)
-            evolver_m = MoleculeEvolver(smiles_m)
+            evolver_n = MoleculeEvolverAnalysis(smiles_n)
+            evolver_m = MoleculeEvolverAnalysis(smiles_m)
             
             # 获取结构化进化路径
             path_n_dict = evolver_n.get_full_path_dict()
@@ -269,26 +269,26 @@ def process_molecule_pair_with_tracking(args, evolver_cache_dict=None, tracking_
         return None
     
     try:
-        # 使用共享的evolver缓存避免重复创建MoleculeEvolver实例
+        # 使用共享的evolver缓存避免重复创建MoleculeEvolverAnalysis实例
         if evolver_cache_dict is not None:
             # 从共享字典中获取或创建evolver实例
             if smiles_n in evolver_cache_dict:
                 path_n_dict = evolver_cache_dict[smiles_n]
             else:
-                evolver_n = MoleculeEvolver(smiles_n)
+                evolver_n = MoleculeEvolverAnalysis(smiles_n)
                 path_n_dict = evolver_n.get_full_path_dict()
                 evolver_cache_dict[smiles_n] = path_n_dict
             
             if smiles_m in evolver_cache_dict:
                 path_m_dict = evolver_cache_dict[smiles_m]
             else:
-                evolver_m = MoleculeEvolver(smiles_m)
+                evolver_m = MoleculeEvolverAnalysis(smiles_m)
                 path_m_dict = evolver_m.get_full_path_dict()
                 evolver_cache_dict[smiles_m] = path_m_dict
         else:
             # 没有共享缓存时，直接创建evolver实例
-            evolver_n = MoleculeEvolver(smiles_n)
-            evolver_m = MoleculeEvolver(smiles_m)
+            evolver_n = MoleculeEvolverAnalysis(smiles_n)
+            evolver_m = MoleculeEvolverAnalysis(smiles_m)
             
             # 获取结构化进化路径
             path_n_dict = evolver_n.get_full_path_dict()
@@ -427,11 +427,11 @@ def find_step_pairs(heavy_n_df, heavy_m_df, n_atoms, m_atoms, step, max_pairs=No
                     
                 # 检查是否可以通过指定步数操作从smiles_n得到smiles_m
                 try:
-                    # 使用缓存避免重复创建MoleculeEvolver实例
+                    # 使用缓存避免重复创建MoleculeEvolverAnalysis实例
                     if smiles_n not in evolver_cache:
-                        evolver_cache[smiles_n] = MoleculeEvolver(smiles_n)
+                        evolver_cache[smiles_n] = MoleculeEvolverAnalysis(smiles_n)
                     if smiles_m not in evolver_cache:
-                        evolver_cache[smiles_m] = MoleculeEvolver(smiles_m)
+                        evolver_cache[smiles_m] = MoleculeEvolverAnalysis(smiles_m)
                     
                     evolver_n = evolver_cache[smiles_n]
                     evolver_m = evolver_cache[smiles_m]
@@ -478,7 +478,7 @@ def find_step_pairs(heavy_n_df, heavy_m_df, n_atoms, m_atoms, step, max_pairs=No
                     continue
             inner_pbar.close()
     else:
-        # 非预览模式：使用多进程处理，并预处理常用的MoleculeEvolver实例
+        # 非预览模式：使用多进程处理，并预处理常用的MoleculeEvolverAnalysis实例
         num_processes = min(cpu_count(), 8)  # 使用CPU核心数，但不超过8个
         logger.info(f"使用 {num_processes} 个进程进行并行计算")
         
@@ -502,11 +502,11 @@ def find_step_pairs(heavy_n_df, heavy_m_df, n_atoms, m_atoms, step, max_pairs=No
         new_smiles = unique_smiles - set(evolver_cache_dict.keys())
         logger.info(f"总共 {len(unique_smiles)} 个唯一分子，其中 {len(new_smiles)} 个需要预处理")
         
-        # 预处理所有新的唯一SMILES，创建MoleculeEvolver实例并缓存它们的路径字典
+        # 预处理所有新的唯一SMILES，创建MoleculeEvolverAnalysis实例并缓存它们的路径字典
         if new_smiles:
             for smiles in tqdm(new_smiles, desc="预处理新分子"):
                 try:
-                    evolver = MoleculeEvolver(smiles)
+                    evolver = MoleculeEvolverAnalysis(smiles)
                     path_dict = evolver.get_full_path_dict()
                     # 存储path_dict到缓存字典中
                     evolver_cache_dict[smiles] = path_dict
@@ -679,8 +679,8 @@ def debug_pair(smiles_from, smiles_to, logger=None):
         logger.info(f"编辑距离: {distance}")
         
         # 获取进化操作详情
-        evolver_from = MoleculeEvolver(smiles_from)
-        evolver_to = MoleculeEvolver(smiles_to)
+        evolver_from = MoleculeEvolverAnalysis(smiles_from)
+        evolver_to = MoleculeEvolverAnalysis(smiles_to)
         
         # 获取完整路径（包括起始操作）
         full_path_from_dict = evolver_from.get_full_path_dict()

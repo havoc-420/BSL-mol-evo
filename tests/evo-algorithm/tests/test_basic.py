@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-MoleculeEvolver基础功能测试
+MoleculeEvolverAnalysis基础功能测试
 """
 
 import sys
@@ -15,7 +15,7 @@ sys.path.insert(0, project_root)
 
 try:
     from rdkit import Chem
-    from mol_evo.core.evolver import MoleculeEvolver
+    from mol_evo.core.evolver import MoleculeEvolverAnalysis
 except Exception as e:
     print(f"导入模块时发生错误: {e}")
     sys.exit(1)
@@ -36,8 +36,8 @@ def load_test_data(filename='testcases/basic/test_data.json'):
         return json.load(f)
 
 
-class TestBasicMoleculeEvolver(unittest.TestCase):
-    """MoleculeEvolver基础功能测试类"""
+class TestBasicMoleculeEvolverAnalysis(unittest.TestCase):
+    """MoleculeEvolverAnalysis基础功能测试类"""
     
     @classmethod
     def setUpClass(cls):
@@ -58,7 +58,7 @@ class TestBasicMoleculeEvolver(unittest.TestCase):
                     mol = Chem.MolFromSmiles(smiles)
                     self.assertIsNotNone(mol, f"无效的SMILES: {smiles}")
                     
-                    evolver = MoleculeEvolver(smiles)
+                    evolver = MoleculeEvolverAnalysis(smiles)
                     path = evolver.generate_path()
                     
                     # 基本验证
@@ -98,7 +98,7 @@ class TestBasicMoleculeEvolver(unittest.TestCase):
             with self.subTest(smiles=invalid_smiles):
                 try:
                     with self.assertRaises(ValueError):
-                        MoleculeEvolver(invalid_smiles)
+                        MoleculeEvolverAnalysis(invalid_smiles)
                     passed += 1
                 except AssertionError:
                     print(f"无效SMILES '{invalid_smiles}' 未正确抛出ValueError")
@@ -111,7 +111,7 @@ class TestBasicMoleculeEvolver(unittest.TestCase):
         """测试空SMILES处理"""
         try:
             with self.assertRaises(ValueError):
-                MoleculeEvolver("")
+                MoleculeEvolverAnalysis("")
             print("空SMILES处理测试通过")
         except AssertionError:
             print("空SMILES未正确抛出ValueError")
@@ -129,7 +129,7 @@ class TestBasicMoleculeEvolver(unittest.TestCase):
                     mol = Chem.MolFromSmiles(smiles)
                     self.assertIsNotNone(mol)
                     
-                    evolver = MoleculeEvolver(smiles)
+                    evolver = MoleculeEvolverAnalysis(smiles)
                     path = evolver.generate_path()
                     
                     # 确保至少有一个步骤

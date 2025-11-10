@@ -17,7 +17,7 @@ sys.path.insert(0, project_root)
 
 # 导入自定义模块
 try:
-    from mol_evo.core.models.v0.gcn_linear import MoleculeEvolutionGCNLinearPredictor
+    # 不再硬编码导入特定模型类，改为在需要时动态导入
     from mol_evo.core.data.processing import prepare_edge_features
     from mol_evo.core.utils.molecule import MoleculeCache
     from mol_evo.core.data.data_v0 import smiles_to_graph_data
@@ -74,14 +74,26 @@ def predict_property_changes(model_path, model_dir, smiles_from, smiles_to, to_a
     from_data, to_data, edge_attr, property_stats = prepare_single_prediction_data(
         smiles_from, smiles_to, to_atom_symbol, operation_type, model_dir)
     
-    # 创建模型
-    model = MoleculeEvolutionGCNLinearPredictor(
-        node_feature_dim=11,      # v0模型节点特征维度
-        edge_feature_dim=11,      # 边特征维度（5原子类型 + 6操作类型）
-        hidden_dim=128,
-        output_dim=1,             # v0模型只预测单个属性
-        num_layers=3
-    )
+    # 根据模型目录动态导入相应的模型类
+    model = None
+    if "visnet" in model_dir.lower():
+        from mol_evo.core.models.v0.visnet_linear_linear import MoleculeEvolutionVisnetLinearPredictor
+        model = MoleculeEvolutionVisnetLinearPredictor(
+            node_feature_dim=11,      # v0模型节点特征维度
+            edge_feature_dim=15,      # 边特征维度
+            hidden_dims=[128, 256, 256],
+            output_dim=1              # v0模型只预测单个属性
+        )
+    else:
+        # 默认使用GCN模型
+        from mol_evo.core.models.v0.gcn_linear_linear import MoleculeEvolutionGCNLinearPredictor
+        model = MoleculeEvolutionGCNLinearPredictor(
+            node_feature_dim=11,      # v0模型节点特征维度
+            edge_feature_dim=11,      # 边特征维度（5原子类型 + 6操作类型）
+            hidden_dim=128,
+            output_dim=1,             # v0模型只预测单个属性
+            num_layers=3
+        )
     
     # 加载模型权重
     model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
@@ -199,221 +211,45 @@ def batch_predict(model_path, model_dir, csv_file, num_samples=10, random_seed=4
     df = pd.read_csv(csv_file)
     
     # 随机采样
-    np.random.seed(random_seed)
-    sampled_indices = np.random.choice(len(df), min(num_samples, len(df)), replace=False)
-    sampled_df = df.iloc[sampled_indices].reset_index(drop=True)
+    if len(df) > num_samples:
+        df = df.sample(n=num_samples, random_state=random_seed).reset_index(drop=True)
     
-    # INFO 获取属性统计信息用于反标准化
-    property_stats = load_property_stats(model_dir)
+    # 初始化误差统计
+    error_stats = []
     
-    # 创建分子缓存实例，绑定到具体的CSV文件
-    cache = MoleculeCache(csv_file=csv_file)
-    
-    # 预处理所有数据，检查哪些样本可以成功处理
-    if logger:
-        logger.info(f"开始预处理 {len(sampled_df)} 个样本...")
-    valid_indices = []  # 存储有效样本的索引
-    valid_from_data = []  # 存储有效的起始分子数据
-    valid_to_data = []  # 存储有效的目标分子数据
-    valid_edge_attrs = []  # 存储有效的边特征
-    valid_targets = []  # 存储有效的目标值
-    
-    for idx, row in sampled_df.iterrows():
+    # 逐行预测
+    for idx, row in tqdm(df.iterrows(), total=len(df), desc="批量预测"):
         try:
-            # 准备数据
-            from_data = smiles_to_graph_data(row['smiles_from'], cache)
-            to_data = smiles_to_graph_data(row['smiles_to'], cache)
+            primary_pred, secondary_pred = predict_property_changes(
+                model_path, model_dir,
+                row['smiles_from'], row['smiles_to'],
+                row['to_atom_symbol'], row['operation_type'],
+                prediction_mode
+            )
             
-            if from_data is None or to_data is None:
-                # logger.warning(f"跳过无法处理的分子对: {row['smiles_from']} -> {row['smiles_to']}")
-                continue
+            # 计算误差
+            true_value = row[target_prop]
+            pred_value = primary_pred.get(target_prop, 0.0)
+            error = abs(pred_value - true_value)
             
-            # 构建边特征（不含属性变化）
-            edge_feat = prepare_edge_features(row, property_stats, include_property_changes=False)
-            edge_attr = torch.FloatTensor(np.array([edge_feat]))
-            
-            # 获取真实值
-            true_changes = {target_prop: row[target_prop]}
-            
-            # 保存有效数据
-            valid_indices.append(idx)
-            valid_from_data.append(from_data)
-            valid_to_data.append(to_data)
-            valid_edge_attrs.append(edge_attr)
-            valid_targets.append(true_changes)
+            # 记录统计信息
+            stat = {
+                'index': idx,
+                'smiles_from': row['smiles_from'],
+                'smiles_to': row['smiles_to'],
+                'true_value': true_value,
+                'predicted_value': pred_value,
+                'absolute_error': error,
+                'relative_error': error / (abs(true_value) + 1e-8)  # 避免除零
+            }
+            error_stats.append(stat)
             
         except Exception as e:
             if logger:
-                logger.warning(f"预处理第 {idx} 个样本时出错: {e}")
+                logger.error(f"处理行 {idx} 时出错: {e}")
             continue
     
-    # 输出缓存统计信息
-    if hasattr(cache, 'get_stats') and logger:
-        cache_stats = cache.get_stats()
-        logger.info(f"缓存统计: {cache_stats}")
-    
-    if not valid_indices:
-        if logger:
-            logger.error("没有有效的样本用于预测")
-        return None, None
-    
-    # 更新sampled_df，只保留有效样本
-    sampled_df = sampled_df.iloc[valid_indices].reset_index(drop=True)
-    
-    if logger:
-        logger.info(f"预处理完成，{len(valid_indices)} 个有效样本，开始进行预测...")
-    
-    # 创建模型
-    model = MoleculeEvolutionGCNLinearPredictor(
-        node_feature_dim=11,      # v0模型节点特征维度
-        edge_feature_dim=11,      # 边特征维度（5原子类型 + 6操作类型）
-        hidden_dim=128,
-        output_dim=1,             # v0模型只预测单个属性
-        num_layers=3
-    )
-    
-    # 加载模型权重
-    model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
-    model.eval()
-    
-    # 存储预测结果
-    predictions_list = []
-    
-    # 对有效样本进行预测
-    with torch.no_grad():
-        # 使用 tqdm 显示预测进度
-        pred_pbar = tqdm(zip(valid_from_data, valid_to_data, valid_edge_attrs), 
-                       total=len(valid_indices), desc="预测")
-        
-        for idx, (from_data, to_data, edge_attr) in enumerate(pred_pbar):
-            try:
-                predictions = model(from_data, to_data, edge_attr)
-                
-                # 获取预测结果
-                predicted_changes = predictions[0].numpy()
-                
-                # 检查模型是否使用了标准化
-                is_normalized = is_model_normalized(model_dir)
-                
-                if is_normalized and property_stats:
-                    # 根据预测模式处理预测值
-                    if prediction_mode == 'standardized':
-                        # 标准差预测模式，直接使用模型输出
-                        final_pred = predicted_changes[0]
-                    else:  # denormalized 反标准化预测模式
-                        # 反标准化得到原始尺度的预测值
-                        if target_prop in property_stats:
-                            mean, std = property_stats[target_prop]
-                            final_pred = predicted_changes[0] * std + mean
-                        else:
-                            final_pred = predicted_changes[0]
-                else:
-                    # 如果模型没有使用标准化，则直接使用预测值
-                    final_pred = predicted_changes[0]
-                
-                predictions_list.append({target_prop: final_pred})
-                
-                # 更新进度条描述
-                pred_pbar.set_description(f"预测 (已完成: {idx + 1})")
-                    
-            except Exception as e:
-                if logger:
-                    logger.error(f"预测第 {idx} 个样本时出错: {e}")
-                # 如果预测出错，添加一个默认值
-                predictions_list.append({target_prop: 0.0})
-    
-    # 计算误差统计
-    if not predictions_list or not valid_targets:
-        if logger:
-            logger.error("没有有效的预测结果用于计算误差")
-        return None, None
-    
-    # 转换为数组便于计算
-    pred_array = np.array([pred[target_prop] for pred in predictions_list])
-    target_array = np.array([target[target_prop] for target in valid_targets])
-    
-    # 计算各种误差指标
-    mse = np.mean((pred_array - target_array) ** 2)
-    rmse = np.sqrt(mse)
-    mae = np.mean(np.abs(pred_array - target_array))
-    
-    # 计算R2分数
-    ss_res = np.sum((target_array - pred_array) ** 2)
-    ss_tot = np.sum((target_array - np.mean(target_array)) ** 2)
-    r2 = 1 - ss_res / (ss_tot + 1e-8)  # 添加小值避免除零
-    
-    # PCC (Pearson Correlation Coefficient)
-    pred_mean = np.mean(pred_array)
-    target_mean = np.mean(target_array)
-    pred_centered = pred_array - pred_mean
-    target_centered = target_array - target_mean
-    numerator = np.sum(pred_centered * target_centered)
-    pred_sq_sum = np.sum(pred_centered ** 2)
-    target_sq_sum = np.sum(target_centered ** 2)
-    denominator = np.sqrt(pred_sq_sum * target_sq_sum)
-    
-    if denominator == 0:
-        pcc = 0.0
-    else:
-        pcc = numerator / denominator
-    
-    # Rank Loss计算
-    def compute_rank_loss(preds, targets):
-        """
-        计算Rank Loss，衡量预测值和真实值之间的排序一致性
-        """
-        # 获取所有样本对
-        n = preds.shape[0]
-        if n < 2:
-            return 0.0
-        
-        # 计算所有可能的样本对
-        pred_diffs = np.expand_dims(preds, 1) - np.expand_dims(preds, 0)
-        target_diffs = np.expand_dims(targets, 1) - np.expand_dims(targets, 0)
-        
-        # 只考虑目标值不同的样本对
-        mask = target_diffs != 0
-        sign_diffs = np.sign(target_diffs[mask])
-        
-        # 计算hinge loss
-        loss = np.maximum(0.0, 1.0 - sign_diffs * pred_diffs[mask])
-        return np.mean(loss)
-    
-    rank_loss = compute_rank_loss(pred_array, target_array)
-    
-    # 计算平均相对误差，处理接近零的情况
-    # 使用一个阈值来避免除以接近零的数
-    epsilon = 1e-8
-    relative_error = np.mean(
-        np.abs((pred_array - target_array) / 
-               np.where(np.abs(target_array) > epsilon, target_array, epsilon))
-    ) * 100
-    
-    # 计算预测值和真实值的统计信息
-    pred_mean = np.mean(pred_array)
-    target_mean = np.mean(target_array)
-    pred_std = np.std(pred_array)
-    target_std = np.std(target_array)
-    
-    # 创建误差统计字典
-    error_stats = {
-        'property_names': [target_prop],
-        'mse': np.array([mse]),
-        'rmse': np.array([rmse]),
-        'mae': np.array([mae]),
-        'r2': np.array([r2]),
-        'pcc': np.array([pcc]),
-        'rank_loss': np.array([rank_loss]),
-        'relative_error_percent': np.array([relative_error]),
-        'num_samples': len(predictions_list),
-        'pred_mean': np.array([pred_mean]),
-        'target_mean': np.array([target_mean]),
-        'pred_std': np.array([pred_std]),
-        'target_std': np.array([target_std]),
-        'prediction_mode': prediction_mode
-    }
-    
-    return error_stats, sampled_df
+    return error_stats, df
 
 
 def print_error_statistics(error_stats, logger=None):

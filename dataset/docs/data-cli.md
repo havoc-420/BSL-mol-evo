@@ -34,8 +34,14 @@ python extract_evolution_pairs.py --step 2 --resume
 ```
 
 # Calculate Prop Changes
-======
+
 ```bash
 python calculate_property_changes.py -i data/qm9-evo-pairs-step-1-v2-100.json
 python calculate_property_changes.py -i data/qm9-evo-pairs-step-1-v2-100.json -o data/output-step-1-v2.json --compact
+```
+
+# Filter Option Types
+
+```python
+python3 -c "import json; data = json.load(open('/home/data2/rhj/project/mol_editor/mol_evo/dataset/data/qm9-evo-pairs-step-2-pairs-v0-17472.json')); ops = set(); [ops.add(op['operation']) for item in data for op in item['operations']]; print('\\n'.join(sorted(ops)))"
 ```

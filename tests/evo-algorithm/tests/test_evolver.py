@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-MoleculeEvolver类的测试套件
+MoleculeEvolverAnalysis类的测试套件
 
-这个文件包含了针对MoleculeEvolver类的多个测试用例，
+这个文件包含了针对MoleculeEvolverAnalysis类的多个测试用例，
 用于验证其在各种分子结构上的表现，包括：
 1. 基本链状分子
 2. 环状分子
@@ -24,7 +24,7 @@ sys.path.insert(0, project_root)
 
 try:
     from rdkit import Chem
-    from mol_evo.core.evolver import MoleculeEvolver
+    from mol_evo.core.evolver import MoleculeEvolverAnalysis
 except Exception as e:
     print(f"导入模块时发生错误: {e}")
     sys.exit(1)
@@ -47,8 +47,8 @@ def load_test_data(filename='test_data.json'):
         return json.load(f)
 
 
-class TestMoleculeEvolver(unittest.TestCase):
-    """MoleculeEvolver测试类"""
+class TestMoleculeEvolverAnalysis(unittest.TestCase):
+    """MoleculeEvolverAnalysis测试类"""
     
     @classmethod
     def setUpClass(cls):
@@ -70,7 +70,7 @@ class TestMoleculeEvolver(unittest.TestCase):
                     mol = Chem.MolFromSmiles(smiles)
                     self.assertIsNotNone(mol, f"无效的SMILES: {smiles}")
                     
-                    evolver = MoleculeEvolver(smiles)
+                    evolver = MoleculeEvolverAnalysis(smiles)
                     path = evolver.generate_path()
                     
                     # 基本验证
@@ -115,7 +115,7 @@ class TestMoleculeEvolver(unittest.TestCase):
                     mol = Chem.MolFromSmiles(smiles)
                     self.assertIsNotNone(mol, f"无效的SMILES: {smiles}")
                     
-                    evolver = MoleculeEvolver(smiles)
+                    evolver = MoleculeEvolverAnalysis(smiles)
                     path = evolver.generate_path()
                     
                     # 基本验证
@@ -164,7 +164,7 @@ class TestMoleculeEvolver(unittest.TestCase):
                 smiles = test_case['smiles']
                 
                 try:
-                    evolver = MoleculeEvolver(smiles)
+                    evolver = MoleculeEvolverAnalysis(smiles)
                     path_str = evolver.generate_path()
                     path_dict = evolver.generate_path_dict()
                     
@@ -194,7 +194,7 @@ class TestMoleculeEvolver(unittest.TestCase):
             with self.subTest(smiles=invalid_smiles):
                 try:
                     with self.assertRaises(ValueError):
-                        MoleculeEvolver(invalid_smiles)
+                        MoleculeEvolverAnalysis(invalid_smiles)
                     passed += 1
                 except AssertionError:
                     print(f"无效SMILES '{invalid_smiles}' 未正确抛出ValueError")
@@ -207,7 +207,7 @@ class TestMoleculeEvolver(unittest.TestCase):
         """测试空SMILES处理"""
         try:
             with self.assertRaises(ValueError):
-                MoleculeEvolver("")
+                MoleculeEvolverAnalysis("")
             print("空SMILES处理测试通过")
         except AssertionError:
             print("空SMILES未正确抛出ValueError")
@@ -225,7 +225,7 @@ class TestMoleculeEvolver(unittest.TestCase):
                     mol = Chem.MolFromSmiles(smiles)
                     self.assertIsNotNone(mol)
                     
-                    evolver = MoleculeEvolver(smiles)
+                    evolver = MoleculeEvolverAnalysis(smiles)
                     path = evolver.generate_path()
                     
                     # 确保至少有一个步骤
@@ -250,7 +250,7 @@ def run_single_test(smiles, name):
             return
         
         # 生成进化路径
-        evolver = MoleculeEvolver(smiles)
+        evolver = MoleculeEvolverAnalysis(smiles)
         path = evolver.generate_path()
         
         print(f"{name} {smiles} 进化路径 (步骤数: {len(path)}):")
@@ -272,7 +272,7 @@ def run_single_test(smiles, name):
 
 def main():
     """主函数 - 运行示例测试"""
-    print("MoleculeEvolver测试套件")
+    print("MoleculeEvolverAnalysis测试套件")
     print("=" * 50)
     
     # 从JSON文件加载测试用例

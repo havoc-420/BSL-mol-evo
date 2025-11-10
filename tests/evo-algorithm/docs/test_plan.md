@@ -1,8 +1,8 @@
-# MoleculeEvolver 测试方案
+# MoleculeEvolverAnalysis 测试方案
 
 ## 1. 测试目标
 
-为 [MoleculeEvolver](file:///home/data2/rhj/project/mol_editor/mol_evo/core/evolver.py#L25-L341) 类构建系统化、全面的测试方案，确保其能够正确处理各种分子结构和化学特性。
+为 [MoleculeEvolverAnalysis](file:///home/data2/rhj/project/mol_editor/mol_evo/core/evolver.py#L25-L341) 类构建系统化、全面的测试方案，确保其能够正确处理各种分子结构和化学特性。
 
 ## 2. 测试策略
 

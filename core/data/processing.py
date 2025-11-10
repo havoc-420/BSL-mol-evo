@@ -12,6 +12,71 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit import DataStructs
 from typing import List, Tuple, Dict
+import yaml
+import os
+
+# 全局配置变量
+_OPERATION_TYPES = None
+_ATOM_TYPES = None
+
+
+def load_operation_config(config_path: str = None, dataset_path: str = None):
+    """
+    从YAML配置文件加载操作类型和原子类型
+    
+    Args:
+        config_path: 配置文件路径
+        dataset_path: 数据集路径，用于生成同步的配置文件名
+    """
+    global _OPERATION_TYPES, _ATOM_TYPES
+    
+    # 如果没有指定配置文件路径，则根据数据集路径生成
+    if config_path is None and dataset_path is not None:
+        # 获取数据集文件名（不含扩展名）
+        base_name = os.path.splitext(os.path.basename(dataset_path))[0]
+        # 生成对应的配置文件路径
+        config_path = os.path.join(os.path.dirname(dataset_path), f"{base_name}-config.yaml")
+
+    # 默认配置文件路径
+    if config_path is None:
+        raise RuntimeError("请指定配置文件路径或数据集路径")
+    
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"配置文件未找到: {config_path}")
+    
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    _OPERATION_TYPES = config['operation_types']
+    _ATOM_TYPES = config['atom_types']
+    
+    print(f"已加载 {len(_OPERATION_TYPES)} 种操作类型和 {len(_ATOM_TYPES)} 种原子类型")
+
+
+def get_operation_types() -> List[str]:
+    """
+    获取操作类型列表
+    
+    Returns:
+        操作类型列表
+    """
+    global _OPERATION_TYPES
+    if _OPERATION_TYPES is None:
+        raise RuntimeError("操作类型未初始化，请先调用 load_operation_config()")
+    return _OPERATION_TYPES
+
+
+def get_atom_types() -> List[str]:
+    """
+    获取原子类型列表
+    
+    Returns:
+        原子类型列表
+    """
+    global _ATOM_TYPES
+    if _ATOM_TYPES is None:
+        raise RuntimeError("原子类型未初始化，请先调用 load_operation_config()")
+    return _ATOM_TYPES
 
 
 def smiles_to_fingerprint(smiles: str, radius: int = 2, n_bits: int = 2048) -> np.ndarray:
@@ -55,7 +120,7 @@ def atom_type_to_onehot(atom_symbol: str) -> List[int]:
     Returns:
         独热编码向量
     """
-    atom_types = ['C', 'N', 'O', 'F', 'P']  # 常见原子类型
+    atom_types = get_atom_types()
     onehot = [0] * len(atom_types)
     
     if atom_symbol in atom_types:
@@ -75,21 +140,7 @@ def operation_type_to_onehot(operation_type: str) -> List[int]:
     Returns:
         独热编码向量
     """
-    # 支持的操作类型（兼容CSV和JSON格式）
-    op_types = [
-        # TODO check all operation types
-        'add_atom',        # 添加原子
-        'replace_atom',    # 替换原子
-        'form_double_bond', # 形成双键
-        'form_triple_bond', # 形成三键
-        'form_ring',       # 形成环
-        # 'add',             # 保留以兼容旧的CSV格式
-        # 'replace',         # 保留以兼容旧的CSV格式
-        # 'del',             # 保留以兼容旧的CSV格式
-        # 'add_multi',       # 保留以兼容旧的CSV格式
-        # 'del_multi',       # 保留以兼容旧的CSV格式
-        'complex'          # 保留以兼容旧的CSV格式
-    ]
+    op_types = get_operation_types()
     onehot = [0] * len(op_types)
     
     if operation_type in op_types:
@@ -157,10 +208,10 @@ def prepare_edge_features(row: pd.Series, property_stats: Dict[str, Tuple[float,
         atom_symbol = row['to_atom_symbol'] if 'to_atom_symbol' in row else ''
         operation_type = row['operation_type'] if 'operation_type' in row else 'unknown'
         
-    # 原子类型特征（5维）
+    # 原子类型特征（根据实际原子类型数量动态调整）
     atom_features = atom_type_to_onehot(atom_symbol)
     
-    # 操作类型特征（6维）
+    # 操作类型特征（根据实际操作类型数量动态调整）
     op_features = operation_type_to_onehot(operation_type)
 
     # TODO 还有一个 op-position 这个特征可以加上

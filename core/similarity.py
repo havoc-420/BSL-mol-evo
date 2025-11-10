@@ -1,5 +1,5 @@
 import numpy as np
-from .evolver import MoleculeEvolver
+from .evolver import MoleculeEvolverAnalysis
 
 
 def calculate_path_edit_distance(path1, path2):
@@ -18,8 +18,8 @@ def calculate_path_edit_distance(path1, path2):
 def calculate_evolutionary_similarity(smiles1: str, smiles2: str, verbose=False):
     """最终的、对用户友好的顶层调用函数。"""
     try:
-        path1 = MoleculeEvolver(smiles1).generate_path()
-        path2 = MoleculeEvolver(smiles2).generate_path()
+        path1 = MoleculeEvolverAnalysis(smiles1).generate_path()
+        path2 = MoleculeEvolverAnalysis(smiles2).generate_path()
     except ValueError as e:
         print(f"错误: {e}")
         return 0.0, [], []

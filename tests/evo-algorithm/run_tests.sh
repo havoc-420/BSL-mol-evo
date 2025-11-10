@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# MoleculeEvolver 测试运行脚本
+# MoleculeEvolverAnalysis 测试运行脚本
 # 使用方法: ./run_tests.sh [test_type]
 # test_type: all | basic | extended | consistency
 
@@ -47,7 +47,7 @@ print_header() {
 
 # 显示帮助信息
 show_help() {
-    echo "MoleculeEvolver 测试运行脚本"
+    echo "MoleculeEvolverAnalysis 测试运行脚本"
     echo "使用方法: $0 [选项]"
     echo ""
     echo "选项:"

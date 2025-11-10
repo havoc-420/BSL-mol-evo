@@ -12,7 +12,7 @@ import os
 # 添加项目根目录到Python路径
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from core.evolver import MoleculeEvolver
+from core.evolver import MoleculeEvolverAnalysis
 from core.similarity import calculate_evolutionary_similarity
 
 
@@ -20,7 +20,7 @@ def main():
     # 示例1: 生成单个分子的进化路径
     print("示例1: 生成乙醇分子的进化路径")
     smiles = "CCO"  # 乙醇的SMILES表示
-    evolver = MoleculeEvolver(smiles)
+    evolver = MoleculeEvolverAnalysis(smiles)
     path = evolver.generate_path()
     
     print(f"分子: {smiles}")

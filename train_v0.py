@@ -8,6 +8,7 @@ v0版本模型训练脚本
 import sys
 import os
 import argparse
+from scipy import optimize
 import torch
 import numpy as np
 import math
@@ -31,6 +32,7 @@ try:
     from mol_evo.core.models.v0 import ModelFactory
     from mol_evo.core.data import (
         build_molecule_evolution_dataset_v0,  # 从新的统一模块导入
+        load_operation_config  # 导入配置加载函数
     )
     from mol_evo.core.data.pair_data import MoleculePairDataset, pair_collate  # 使用新的数据处理模块
     from mol_evo.utils.training_utils import (
@@ -89,6 +91,16 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         model_type: 模型类型
         model_config: 模型配置参数字典
     """
+    # 加载操作配置
+    try:
+        load_operation_config(dataset_path=data_file)
+    except Exception as e:
+        print(f"警告: 无法加载操作配置: {e}")
+        try:
+            load_operation_config()
+        except Exception as e2:
+            print(f"警告: 无法加载默认操作配置: {e2}")
+    
     # 设置所有随机种子以确保可重复性
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -239,6 +251,11 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         # 创建模型
         # 根据模型类型传递不同的参数
         # 创建模型，直接使用最终的模型配置
+        # 动态设置边特征维度
+        if edge_attrs.size(1) != final_model_config.get('edge_feature_dim', 11):
+            logger.info(f"更新模型边特征维度: {final_model_config.get('edge_feature_dim', 11)} -> {edge_attrs.size(1)}")
+            final_model_config['edge_feature_dim'] = edge_attrs.size(1)
+            
         model = ModelFactory.create(model_type, **final_model_config)
         log_model_creation(logger, model)
         
@@ -250,8 +267,10 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         model = model.to(device)
         
         # TAG 定义优化器和损失函数
-        # INFO 换用AdamW优化器，它通常对Transformer模型更稳定
-        optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-2)
+        # INFO -1 AdamW
+        # optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-2)
+        # INFO -2 Adam
+        optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
         # 从配置中获取min_lr参数，如果不存在则默认为1e-8
         min_lr = model_config.get('min_lr', 1e-8) if model_config and 'min_lr' in model_config else \
                 (model_config or {}).get('train', {}).get('min_lr', 1e-6)

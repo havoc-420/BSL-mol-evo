@@ -1,8 +1,8 @@
-# MoleculeEvolver 测试系统
+# MoleculeEvolverAnalysis 测试系统
 
 ## 概述
 
-本目录包含了用于测试 MoleculeEvolver 类的所有测试代码和相关资源。测试系统设计为模块化和可扩展的，支持多种测试类型和运行方式。
+本目录包含了用于测试 MoleculeEvolverAnalysis 类的所有测试代码和相关资源。测试系统设计为模块化和可扩展的，支持多种测试类型和运行方式。
 
 ## 目录结构
 

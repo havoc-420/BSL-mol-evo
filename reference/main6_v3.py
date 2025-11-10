@@ -1,5 +1,5 @@
 from collections import deque
-from mol_evo.core.evolver import MoleculeEvolver
+from mol_evo.core.evolver import MoleculeEvolverAnalysis
 from mol_evo.core.similarity import calculate_path_edit_distance, calculate_evolutionary_similarity
 
 
@@ -15,7 +15,7 @@ from mol_evo.core.similarity import calculate_path_edit_distance, calculate_evol
     # 这一步仍然是CPU密集型的，但在您的设想中已经完成
     
     # 真实场景中，可以用joblib或multiprocessing来并行化这一步
-    # all_paths = [MoleculeEvolver(s).generate_path() for s in tqdm(smiles_library)]
+    # all_paths = [MoleculeEvolverAnalysis(s).generate_path() for s in tqdm(smiles_library)]
     # print(f"路径生成总耗时: {time.time() - t_start_path:.4f} 秒")
     # print("\n--- 启动快速相似度批量计算 ---")
     
@@ -61,7 +61,7 @@ def test_molecule_evolver():
     for smiles in test_smiles:
         try:
             print(f"测试 SMILES: {smiles}")
-            evolver = MoleculeEvolver(smiles)
+            evolver = MoleculeEvolverAnalysis(smiles)
             path = evolver.generate_path()
             print(f"进化路径: {path}")
             print("-" * 50)

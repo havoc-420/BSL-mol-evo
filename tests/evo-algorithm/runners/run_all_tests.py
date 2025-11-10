@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 统一测试入口
-用于运行所有MoleculeEvolver相关的测试
+用于运行所有MoleculeEvolverAnalysis相关的测试
 """
 
 import sys
@@ -95,7 +95,7 @@ def main():
     # 加载配置
     config = load_config()
     
-    parser = argparse.ArgumentParser(description="MoleculeEvolver统一测试入口")
+    parser = argparse.ArgumentParser(description="MoleculeEvolverAnalysis统一测试入口")
     parser.add_argument(
         "-v", "--verbose", 
         action="store_true", 
@@ -150,7 +150,7 @@ def main():
     fail_fast = args.fail_fast or config.get('options', {}).get('fail_fast', False)
     
     print("=" * 60)
-    print("MoleculeEvolver 统一测试入口")
+    print("MoleculeEvolverAnalysis 统一测试入口")
     print("=" * 60)
     print(f"测试目录: {Path(__file__).parent.parent}")
     print(f"测试模式: {args.pattern}")

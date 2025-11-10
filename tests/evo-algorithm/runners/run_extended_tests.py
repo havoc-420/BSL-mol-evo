@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 扩展测试执行脚本
-用于运行MoleculeEvolver的所有测试并生成报告
+用于运行MoleculeEvolverAnalysis的所有测试并生成报告
 """
 
 import sys
@@ -18,7 +18,7 @@ sys.path.insert(0, project_root)
 
 try:
     from rdkit import Chem
-    from mol_evo.core.evolver import MoleculeEvolver
+    from mol_evo.core.evolver import MoleculeEvolverAnalysis
 except Exception as e:
     print(f"导入模块时发生错误: {e}")
     sys.exit(1)
@@ -41,7 +41,7 @@ def run_performance_test(smiles, iterations=5):
     for i in range(iterations):
         start_time = time.time()
         try:
-            evolver = MoleculeEvolver(smiles)
+            evolver = MoleculeEvolverAnalysis(smiles)
             path = evolver.generate_path()
             end_time = time.time()
             times.append(end_time - start_time)
@@ -96,7 +96,7 @@ def generate_test_report(results, test_data, extended_test_data):
     total = len(results)
     
     print("\n" + "="*60)
-    print("MoleculeEvolver 测试报告")
+    print("MoleculeEvolverAnalysis 测试报告")
     print("="*60)
     
     print(f"总测试数: {total}")
@@ -146,7 +146,7 @@ def generate_test_report(results, test_data, extended_test_data):
 
 def main():
     """主函数"""
-    print("开始运行MoleculeEvolver扩展测试...")
+    print("开始运行MoleculeEvolverAnalysis扩展测试...")
     
     # 创建测试套件
     loader = unittest.TestLoader()

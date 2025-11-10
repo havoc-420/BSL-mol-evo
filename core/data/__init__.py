@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-数据处理模块初始化文件
+分子数据处理模块
 """
 
 from .processing import (
@@ -14,6 +14,8 @@ from .processing import (
     build_molecule_graph_with_properties,
     build_molecule_graph_with_fingerprints,
     build_molecule_evolution_dataset,
+    prepare_property_change_targets,
+    load_operation_config
 )
 
 from .data_v0 import (

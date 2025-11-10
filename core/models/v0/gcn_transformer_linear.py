@@ -49,6 +49,7 @@ class MoleculeEvolutionGCNTransformerLinearPredictor(nn.Module):
         
         self.node_feature_dim = node_feature_dim
         self.edge_feature_dim = edge_feature_dim
+        
         self.hidden_dims = hidden_dims
         self.output_dim = output_dim
         

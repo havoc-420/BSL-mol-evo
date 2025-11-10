@@ -3,7 +3,7 @@
 """
 分子进化路径生成器演示示例
 
-这个示例展示了如何使用 MoleculeEvolver 类来生成分子的进化路径，
+这个示例展示了如何使用 MoleculeEvolverAnalysis 类来生成分子的进化路径，
 以及如何计算两个分子之间的进化相似度。
 """
 
@@ -14,7 +14,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from rdkit import Chem
-from core.evolver import MoleculeEvolver
+from core.evolver import MoleculeEvolverAnalysis
 from core.similarity import calculate_evolutionary_similarity
 
 
@@ -45,7 +45,7 @@ def demo_single_molecule_evolution():
             print(f"分子名称: {Chem.MolToName(mol) if hasattr(Chem, 'MolToName') else 'N/A'}")
             
             # 生成进化路径
-            evolver = MoleculeEvolver(smiles)
+            evolver = MoleculeEvolverAnalysis(smiles)
             path = evolver.generate_path()
             
             print(f"进化步骤数量: {len(path)}")
@@ -116,7 +116,7 @@ def demo_complex_molecule():
             print(f"\n复杂分子: {smiles[:50]}{'...' if len(smiles) > 50 else ''}")
             
             # 生成进化路径
-            evolver = MoleculeEvolver(smiles)
+            evolver = MoleculeEvolverAnalysis(smiles)
             path = evolver.generate_path()
             
             print(f"进化步骤数量: {len(path)}")
