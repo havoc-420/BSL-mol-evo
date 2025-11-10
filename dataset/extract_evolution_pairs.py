@@ -321,7 +321,7 @@ def process_molecule_pair_with_tracking(args, evolver_cache_dict=None, tracking_
 
 def find_step_pairs(heavy_n_df, heavy_m_df, n_atoms, m_atoms, step, max_pairs=None, logger=None, preview_mode=False, 
                    checkpoint_file=None, start_index=0, from_heavy_atoms_checkpoint=None, to_heavy_atoms_checkpoint=None,
-                   all_pairs_checkpoint=None):
+                   all_pairs_checkpoint=None, dataset_info=None, total_combinations=None, completed_combinations=None):
     """
     寻找适合指定步数进化的SMILES对
     从n个重原子的分子到m个重原子的分子（包括n==m的情况）
@@ -340,6 +340,9 @@ def find_step_pairs(heavy_n_df, heavy_m_df, n_atoms, m_atoms, step, max_pairs=No
         from_heavy_atoms_checkpoint: 起始重原子数，用于断点续传
         to_heavy_atoms_checkpoint: 目标重原子数，用于断点续传
         all_pairs_checkpoint: 用于恢复的已找到的配对
+        dataset_info: 数据集信息，用于检查点保存
+        total_combinations: 总组合数，用于进度跟踪
+        completed_combinations: 已完成组合数，用于进度跟踪
     
     Returns:
         配对结果列表
@@ -535,6 +538,14 @@ def find_step_pairs(heavy_n_df, heavy_m_df, n_atoms, m_atoms, step, max_pairs=No
         # 计算总批次数
         total_batches = (len(remaining_tasks) + batch_size - 1) // batch_size
         
+        # 修改：使用批次索引而不是任务索引
+        start_batch_index = start_index if (from_heavy_atoms_checkpoint == n_atoms and to_heavy_atoms_checkpoint == m_atoms) else 0
+        # 从批次索引计算起始任务索引
+        start_task_index = start_batch_index * batch_size
+        remaining_tasks = tasks[start_task_index:] if start_task_index < len(tasks) else []
+        # 重新计算总批次数
+        total_batches = (len(remaining_tasks) + batch_size - 1) // batch_size
+        
         with Pool(processes=num_processes) as pool:
             # 使用总批次数作为主进度条
             batch_pbar = tqdm(total=total_batches, desc=f"处理{n_atoms}→{m_atoms}原子对", unit="批")
@@ -565,8 +576,10 @@ def find_step_pairs(heavy_n_df, heavy_m_df, n_atoms, m_atoms, step, max_pairs=No
                 # 只保存进度信息，不保存配对结果，减少I/O操作
                 if checkpoint_file:
                     elapsed_time = time.time() - start_time
+                    # 修改：保存批次索引而不是任务索引
+                    batch_index = (total_processed - 1) // batch_size if total_processed > 0 else 0
                     checkpoint_info = {
-                        'processed_index': total_processed,
+                        'processed_index': batch_index,  # 保存批次索引
                         'from_heavy_atoms': n_atoms,
                         'to_heavy_atoms': m_atoms,
                         # 添加当前已找到的配对总数
@@ -574,7 +587,29 @@ def find_step_pairs(heavy_n_df, heavy_m_df, n_atoms, m_atoms, step, max_pairs=No
                         # 添加运行时间信息
                         'elapsed_time': elapsed_time,
                         'elapsed_time_formatted': time.strftime('%H:%M:%S', time.gmtime(elapsed_time)),
-                        # 不再保存pairs以减少I/O操作
+                        # 添加数据集信息
+                        'dataset_info': dataset_info,
+                        # 添加进度信息
+                        'total_combinations': total_combinations,
+                        'completed_combinations': completed_combinations,
+                        # 添加当前组合信息
+                        'current_combination': f"{n_atoms}->{m_atoms}",
+                        # 添加批次信息
+                        'total_batches': total_batches,
+                        'current_batch': batch_num,
+                        'batch_size': batch_size,
+                        # 添加步骤信息
+                        'step': step,
+                        # 添加最大配对数限制
+                        'max_pairs': max_pairs,
+                        # 添加搜索范围限制
+                        'search_limit_n': search_limit_n,
+                        'search_limit_m': search_limit_m,
+                        # 添加缓存文件路径信息
+                        'cache_file': cache_file,
+                        # 添加时间戳
+                        'checkpoint_timestamp': time.time(),
+                        'checkpoint_timestamp_formatted': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime()),
                     }
                     
                     with open(checkpoint_file, 'w') as f:
@@ -788,6 +823,9 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
     to_heavy_atoms_checkpoint = None
     last_pairs_count = 0  # 记录上一次保存的配对数量
     elapsed_time = 0  # 记录已运行时间
+    dataset_info = {}  # 数据集信息
+    total_combinations = 0  # 总组合数
+    completed_combinations = 0  # 已完成组合数
     if resume and os.path.exists(checkpoint_file):
         try:
             with open(checkpoint_file, 'r') as f:
@@ -798,7 +836,10 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
                 to_heavy_atoms_checkpoint = checkpoint_data.get('to_heavy_atoms')
                 last_pairs_count = checkpoint_data.get('pairs_count', 0) # 获取上一次的配对数量
                 elapsed_time = checkpoint_data.get('elapsed_time', 0)  # 获取已运行时间
-            logger.info(f"从检查点恢复，从索引 {start_index} 开始处理 ({from_heavy_atoms_checkpoint}->{to_heavy_atoms_checkpoint}原子对)")
+                dataset_info = checkpoint_data.get('dataset_info', {})  # 获取数据集信息
+                total_combinations = checkpoint_data.get('total_combinations', 0)  # 获取总组合数
+                completed_combinations = checkpoint_data.get('completed_combinations', 0)  # 获取已完成组合数
+            logger.info(f"从检查点恢复，从批次 {start_index} 开始处理 ({from_heavy_atoms_checkpoint}->{to_heavy_atoms_checkpoint}原子对)")
             if elapsed_time > 0:
                 logger.info(f"已运行时间: {time.strftime('%H:%M:%S', time.gmtime(elapsed_time))}")
             
@@ -815,24 +856,47 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
     
     # 加载所有数据集
     datasets = {}
-    for i in range(1, 10):
-        file_path = os.path.join(data_dir, f'qm9_smiles_heavy_{i}_atoms.csv')
-        if os.path.exists(file_path):
-            datasets[i] = load_dataset(file_path)
-            logger.info(f"加载{i}重原子数据集...")
-            logger.info(f"{i}重原子分子数量: {len(datasets[i])}")
-        else:
-            logger.warning(f"警告: {file_path} 不存在")
-            datasets[i] = pd.DataFrame(columns=['smiles'])
-    total_combinations = 0
-    # 计算总的组合数用于外层进度条
-    for heavy_atoms in range(1, 9):
-        if heavy_atoms in datasets and (heavy_atoms + 1) in datasets:
-            total_combinations += 1
-    
-    for heavy_atoms in range(1, 10):
-        if heavy_atoms in datasets:
-            total_combinations += 1
+    # 更新数据集信息用于检查点
+    if resume and dataset_info:
+        # 如果是恢复模式且检查点中有数据集信息，则使用检查点中的数据集大小信息
+        # 但仍需要重新加载数据集本身
+        logger.info("从检查点恢复数据集信息...")
+        for i in range(1, 10):
+            file_path = os.path.join(data_dir, f'qm9_smiles_heavy_{i}_atoms.csv')
+            if os.path.exists(file_path):
+                datasets[i] = load_dataset(file_path)
+                logger.info(f"加载{i}重原子数据集: {len(datasets[i])} 个分子")
+            else:
+                logger.warning(f"警告: {file_path} 不存在")
+                datasets[i] = pd.DataFrame(columns=['smiles'])
+    else:
+        # 正常加载数据集
+        for i in range(1, 10):
+            file_path = os.path.join(data_dir, f'qm9_smiles_heavy_{i}_atoms.csv')
+            if os.path.exists(file_path):
+                datasets[i] = load_dataset(file_path)
+                logger.info(f"加载{i}重原子数据集...")
+                logger.info(f"{i}重原子分子数量: {len(datasets[i])}")
+            else:
+                logger.warning(f"警告: {file_path} 不存在")
+                datasets[i] = pd.DataFrame(columns=['smiles'])
+        
+        # 准备数据集信息用于检查点
+        dataset_info = {
+            'datasets': {i: len(datasets[i]) for i in datasets},
+            'loaded_at': time.time()
+        }
+
+    # 计算总的组合数用于外层进度条（仅在非恢复模式下计算）
+    if not (resume and total_combinations > 0):
+        total_combinations = 0
+        # 计算总的组合数用于外层进度条
+        for from_heavy_atoms in range(1, 10):
+            for to_heavy_atoms in range(from_heavy_atoms, min(from_heavy_atoms + step + 1, 10)):
+                if from_heavy_atoms in datasets and to_heavy_atoms in datasets:
+                    atom_diff = to_heavy_atoms - from_heavy_atoms
+                    if atom_diff <= step:
+                        total_combinations += 1
     
     # 外层进度条
     if preview_mode or preview_with_file:
@@ -840,14 +904,19 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
         pass
     else:
         outer_pbar = tqdm(total=total_combinations, desc="整体处理进度", unit="组合")
+        if completed_combinations > 0:
+            outer_pbar.update(completed_combinations)
+            outer_pbar.set_description(f"整体处理进度 (已找到 {len(all_pairs)} 对)")
     
     # 统一处理所有可能的原子数对组合
     # 遍历所有可能的起始原子数
     resume_point_reached = False if resume and from_heavy_atoms_checkpoint is not None else True
+    current_combination_index = 0
     for from_heavy_atoms in range(1, 10):
         # 遍历所有可能的目标原子数
         # 对于step=n的情况，我们考虑从from_heavy_atoms到from_heavy_atoms+n的所有可能
         for to_heavy_atoms in range(from_heavy_atoms, min(from_heavy_atoms + step + 1, 10)):
+            current_combination_index += 1
             # 检查数据集是否存在
             if from_heavy_atoms in datasets and to_heavy_atoms in datasets:
                 # 计算实际的原子数差值
@@ -862,8 +931,13 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
                     if resume and not resume_point_reached:
                         if from_heavy_atoms == from_heavy_atoms_checkpoint and to_heavy_atoms == to_heavy_atoms_checkpoint:
                             resume_point_reached = True
+                            # 重置起始索引，因为我们已经到达了恢复点
+                            start_index = start_index if (from_heavy_atoms_checkpoint == from_heavy_atoms and to_heavy_atoms_checkpoint == to_heavy_atoms) else 0
                         else:
                             logger.info(f"跳过 {from_heavy_atoms}->{to_heavy_atoms} 原子对（恢复模式）")
+                            completed_combinations += 1
+                            if 'outer_pbar' in locals():
+                                outer_pbar.update(1)
                             continue
                     
                     df_from = datasets[from_heavy_atoms]
@@ -879,7 +953,10 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
                                           start_index=start_index if (from_heavy_atoms == from_heavy_atoms_checkpoint and to_heavy_atoms == to_heavy_atoms_checkpoint) else 0,
                                           from_heavy_atoms_checkpoint=from_heavy_atoms_checkpoint,
                                           to_heavy_atoms_checkpoint=to_heavy_atoms_checkpoint,
-                                          all_pairs_checkpoint=all_pairs)
+                                          all_pairs_checkpoint=all_pairs,
+                                          dataset_info=dataset_info,
+                                          total_combinations=total_combinations,
+                                          completed_combinations=completed_combinations)
                     all_pairs.extend(pairs)
                     
                     # 保存配对结果到独立文件
@@ -899,6 +976,7 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
                             logger.info("预览模式：已找到3个配对，停止搜索...")
                             break
                     else:
+                        completed_combinations += 1
                         if 'outer_pbar' in locals():
                             # 更新外层进度条描述，显示当前已找到的配对数量
                             outer_pbar.set_description(f"整体处理进度 (已找到 {len(all_pairs)} 对)")
@@ -952,6 +1030,7 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
         if os.path.exists(pairs_file):
             os.remove(pairs_file)
             logger.info(f"任务完成，已删除配对结果文件 {pairs_file}")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='提取指定步数的分子进化对')
