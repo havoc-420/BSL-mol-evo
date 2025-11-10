@@ -321,7 +321,8 @@ def process_molecule_pair_with_tracking(args, evolver_cache_dict=None, tracking_
 
 def find_step_pairs(heavy_n_df, heavy_m_df, n_atoms, m_atoms, step, max_pairs=None, logger=None, preview_mode=False, 
                    checkpoint_file=None, start_index=0, from_heavy_atoms_checkpoint=None, to_heavy_atoms_checkpoint=None,
-                   all_pairs_checkpoint=None, dataset_info=None, total_combinations=None, completed_combinations=None):
+                   all_pairs_checkpoint=None, dataset_info=None, total_combinations=None, completed_combinations=None,
+                   pairs_file=None):
     """
     寻找适合指定步数进化的SMILES对
     从n个重原子的分子到m个重原子的分子（包括n==m的情况）
@@ -343,6 +344,7 @@ def find_step_pairs(heavy_n_df, heavy_m_df, n_atoms, m_atoms, step, max_pairs=No
         dataset_info: 数据集信息，用于检查点保存
         total_combinations: 总组合数，用于进度跟踪
         completed_combinations: 已完成组合数，用于进度跟踪
+        pairs_file: 配对结果文件路径
     
     Returns:
         配对结果列表
@@ -614,6 +616,17 @@ def find_step_pairs(heavy_n_df, heavy_m_df, n_atoms, m_atoms, step, max_pairs=No
                     
                     with open(checkpoint_file, 'w') as f:
                         json.dump(checkpoint_info, f, indent=2, ensure_ascii=False)
+                    
+                    # 同时更新配对结果文件，保持检查点和实际数据的一致性
+                    try:
+                        # 将当前批次的结果添加到临时文件中
+                        temp_pairs = (all_pairs_checkpoint if all_pairs_checkpoint is not None else []) + all_results
+                        if pairs_file:  # 只有当pairs_file被提供时才尝试写入
+                            # 写入新的配对结果
+                            with open(pairs_file, 'w') as f:
+                                json.dump(temp_pairs, f)
+                    except Exception as e:
+                        logger.warning(f"更新配对结果文件时出错: {e}")
                 
                 # 检查是否达到最大配对数
                 if max_pairs and len(all_results) >= max_pairs:
@@ -804,17 +817,27 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
     logging.basicConfig(level=log_level, format='%(message)s')
     logger = logging.getLogger(__name__)
     
+    # 记录开始时间
+    start_time = time.time()
+    
     # 设置数据目录
     data_dir = os.path.join(os.path.dirname(__file__), 'data')
+    os.makedirs(data_dir, exist_ok=True)
+    
+    # 定义所有文件路径 - 提前定义以确保全局可用
     output_file = os.path.join(data_dir, f'qm9-evo-pairs-step-{step}.json')
     checkpoint_file = os.path.join(data_dir, f'qm9-evo-pairs-step-{step}-checkpoint.json')
     pairs_file = os.path.join(data_dir, f'qm9-evo-pairs-step-{step}-pairs.json')  # 独立的配对结果文件
     
-    # 记录开始时间
-    start_time = time.time()
-    
-    # 创建输出目录（如果不存在）
-    os.makedirs(data_dir, exist_ok=True)
+    # 检查是否已存在配对结果文件，如果存在则进行存档
+    if not preview_mode and os.path.exists(pairs_file):
+        try:
+            # 导入存档函数
+            from convert_pairs import convert_step2_to_step1
+            # 调用转换函数进行存档
+            convert_step2_to_step1(pairs_file, data_dir)
+        except Exception as e:
+            logger.warning(f"存档现有配对文件时出错: {e}")
     
     # 检查是否有检查点文件
     start_index = 0
@@ -831,7 +854,11 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
             with open(checkpoint_file, 'r') as f:
                 checkpoint_data = json.load(f)
                 start_index = checkpoint_data.get('processed_index', 0) + 1
-                # 不再从检查点文件中读取配对结果
+                # 从检查点文件中读取配对结果
+                checkpoint_pairs = checkpoint_data.get('pairs', [])
+                if checkpoint_pairs:
+                    all_pairs.extend(checkpoint_pairs)
+                    logger.info(f"从检查点文件恢复了 {len(checkpoint_pairs)} 对分子")
                 from_heavy_atoms_checkpoint = checkpoint_data.get('from_heavy_atoms')
                 to_heavy_atoms_checkpoint = checkpoint_data.get('to_heavy_atoms')
                 last_pairs_count = checkpoint_data.get('pairs_count', 0) # 获取上一次的配对数量
@@ -842,15 +869,6 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
             logger.info(f"从检查点恢复，从批次 {start_index} 开始处理 ({from_heavy_atoms_checkpoint}->{to_heavy_atoms_checkpoint}原子对)")
             if elapsed_time > 0:
                 logger.info(f"已运行时间: {time.strftime('%H:%M:%S', time.gmtime(elapsed_time))}")
-            
-            # 如果存在配对结果文件，则加载已有的配对结果
-            if os.path.exists(pairs_file):
-                try:
-                    with open(pairs_file, 'r') as f:
-                        all_pairs = json.load(f)
-                    logger.info(f"从配对结果文件加载了 {len(all_pairs)} 对分子")
-                except Exception as e:
-                    logger.warning(f"加载配对结果文件时出错: {e}")
         except Exception as e:
             logger.warning(f"加载检查点文件时出错: {e}，将从头开始处理")
     
@@ -932,7 +950,7 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
                         if from_heavy_atoms == from_heavy_atoms_checkpoint and to_heavy_atoms == to_heavy_atoms_checkpoint:
                             resume_point_reached = True
                             # 重置起始索引，因为我们已经到达了恢复点
-                            start_index = start_index if (from_heavy_atoms_checkpoint == from_heavy_atoms and to_heavy_atoms_checkpoint == to_heavy_atoms) else 0
+                            start_index = start_index if (from_heavy_atoms_checkpoint == from_heavy_atoms and to_heavy_atoms == to_heavy_atoms) else 0
                         else:
                             logger.info(f"跳过 {from_heavy_atoms}->{to_heavy_atoms} 原子对（恢复模式）")
                             completed_combinations += 1
@@ -956,7 +974,8 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
                                           all_pairs_checkpoint=all_pairs,
                                           dataset_info=dataset_info,
                                           total_combinations=total_combinations,
-                                          completed_combinations=completed_combinations)
+                                          completed_combinations=completed_combinations,
+                                          pairs_file=pairs_file if not preview_mode else None)
                     all_pairs.extend(pairs)
                     
                     # 保存配对结果到独立文件
@@ -964,6 +983,7 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
                         try:
                             with open(pairs_file, 'w') as f:
                                 json.dump(all_pairs, f)
+                            logger.info(f"保存 {len(all_pairs)} 对分子到 {pairs_file}")
                         except Exception as e:
                             logger.warning(f"保存配对结果到文件时出错: {e}")
                     
