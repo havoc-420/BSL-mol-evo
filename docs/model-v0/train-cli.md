@@ -21,7 +21,6 @@ CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --max-pairs 30000 --epochs 100
 CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --max-pairs 30000 --epochs 200 -lr 0.001
 ```
 
-
 # Predict
 
 1. 预测单个分子对
@@ -43,9 +42,8 @@ cd /home/data2/rhj/project/mol_editor && python mol_evo/predict_v0_testset.py --
 cd /home/data2/rhj/project/mol_editor && python mol_evo/predict_v0_testset.py --model-path /home/data2/rhj/project/mol_editor/mol_evo/output/v0/gcn/train-20251012_230616-gap_change_pct-30000-500/molecule_evolution_gcn_v0_mu_predictor.pth --model-dir /home/data2/rhj/project/mol_editor/mol_evo/output/v0/gcn/train-20251012_230616-gap_change_pct-30000-500 --data-file /home/data2/rhj/project/mol_editor/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.csv -mpairs 30000 --seed 42
 ```
 
-
-## Train
+# Train
 
 ```bash
-CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --data-file /home/data2/rhj/project/mol_editor/mol_evo/dataset/data/output.json --epochs 20
+CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --epochs 200 -lr 0.001 --data-file /home/data2/rhj/project/mol_editor/mol_evo/dataset/data/tmp/output.json 
 ```

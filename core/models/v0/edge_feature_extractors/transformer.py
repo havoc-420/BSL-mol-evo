@@ -80,7 +80,9 @@ class TransformerEdgeFeatureExtractor(nn.Module):
         
         # print('😀', x.shape)
         # 全局平均池化，将序列维度合并
-        x = x.mean(dim=1)
+        # x = x.mean(dim=1)
+        # 使用squeeze去除序列维度
+        x = x.squeeze(1)
         # print(x.shape)
         
         return x

@@ -250,7 +250,7 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         model = model.to(device)
         
         # TAG 定义优化器和损失函数
-        # 换用AdamW优化器，它通常对Transformer模型更稳定
+        # INFO 换用AdamW优化器，它通常对Transformer模型更稳定
         optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-2)
         # 从配置中获取min_lr参数，如果不存在则默认为1e-8
         min_lr = model_config.get('min_lr', 1e-8) if model_config and 'min_lr' in model_config else \

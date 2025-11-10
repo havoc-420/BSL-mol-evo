@@ -160,8 +160,9 @@ class ModelFactory:
 try: 
     from .gcn_linear_linear import MoleculeEvolutionGCNLinearPredictor
     from .gcn_transformer_transformer import MoleculeEvolutionGCNTransformerPredictor
-    from .visnet_linear_linear import MoleculeEvolutionVisnetLinearPredictor
     from .gcn_transformer_linear import MoleculeEvolutionGCNTransformerLinearPredictor
+    from .visnet_linear_linear import MoleculeEvolutionVisnetLinearPredictor
+    from .visnet_transformer_linear import MoleculeEvolutionVisNetTransformerLinearPredictor
     from .frag_linear_linear import MoleculeEvolutionFragLinearPredictor
     from .equiformer_linear_linear import MoleculeEvolutionEquiformerLinearPredictor
     from .tensornet_linear_linear import MoleculeEvolutionTensornetLinearPredictor
@@ -169,12 +170,13 @@ try:
     # 确保触发模块导入，使装饰器得以执行
     _ = [
         MoleculeEvolutionGCNLinearPredictor,
+        MoleculeEvolutionGCNTransformerLinearPredictor,
         MoleculeEvolutionGCNTransformerPredictor,
         MoleculeEvolutionVisnetLinearPredictor,
-        MoleculeEvolutionGCNTransformerLinearPredictor,
+        MoleculeEvolutionVisNetTransformerLinearPredictor,
         MoleculeEvolutionFragLinearPredictor,
         MoleculeEvolutionEquiformerLinearPredictor,
-        MoleculeEvolutionTensornetLinearPredictor
+        MoleculeEvolutionTensornetLinearPredictor,
     ]
 except ImportError as e:
     print(f"❌ 无法导入某些模型模块: {e}. 请确保所有依赖项已安装.")
