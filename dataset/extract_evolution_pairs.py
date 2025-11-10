@@ -11,6 +11,7 @@ import inquirer
 from multiprocessing import Pool, Manager, cpu_count
 from functools import partial
 import pickle
+import time
 
 # 添加项目根目录到sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -461,7 +462,6 @@ def find_step_pairs(heavy_n_df, heavy_m_df, n_atoms, m_atoms, step, max_pairs=No
                         }
                         with open(checkpoint_file, 'w') as f:
                             json.dump(checkpoint_data, f)
-                        logger.info(f"检查点已保存到 {checkpoint_file}，处理索引: {i * search_limit_m + j}")
                     
                     # 检查是否达到最大配对数
                     if max_pairs and len(pairs) >= max_pairs:
@@ -525,7 +525,7 @@ def find_step_pairs(heavy_n_df, heavy_m_df, n_atoms, m_atoms, step, max_pairs=No
         process_func = partial(process_molecule_pair, evolver_cache_dict=shared_evolver_cache_dict)
         
         # 分批处理任务以支持检查点
-        batch_size = 1000  # 每批处理1000个任务
+        batch_size = 2000  # 每批处理2000个任务
         all_results = []
         
         # 如果有起始索引，调整任务列表
@@ -538,6 +538,9 @@ def find_step_pairs(heavy_n_df, heavy_m_df, n_atoms, m_atoms, step, max_pairs=No
         with Pool(processes=num_processes) as pool:
             # 使用总批次数作为主进度条
             batch_pbar = tqdm(total=total_batches, desc=f"处理{n_atoms}→{m_atoms}原子对", unit="批")
+            
+            # 记录开始时间
+            start_time = time.time()
             
             # 分批处理任务
             total_processed = start_task_index
@@ -559,19 +562,23 @@ def find_step_pairs(heavy_n_df, heavy_m_df, n_atoms, m_atoms, step, max_pairs=No
                 batch_pbar.update(1)
                 
                 # 每处理完一批，保存检查点（如果启用了检查点）
+                # 只保存进度信息，不保存配对结果，减少I/O操作
                 if checkpoint_file:
-                    checkpoint_pairs = (all_pairs_checkpoint + all_results 
-                                      if all_pairs_checkpoint is not None else all_results)
-                    
+                    elapsed_time = time.time() - start_time
                     checkpoint_info = {
                         'processed_index': total_processed,
                         'from_heavy_atoms': n_atoms,
                         'to_heavy_atoms': m_atoms,
-                        'pairs': checkpoint_pairs,
+                        # 添加当前已找到的配对总数
+                        'pairs_count': len(all_pairs_checkpoint) + len(all_results) if all_pairs_checkpoint is not None else len(all_results),
+                        # 添加运行时间信息
+                        'elapsed_time': elapsed_time,
+                        'elapsed_time_formatted': time.strftime('%H:%M:%S', time.gmtime(elapsed_time)),
+                        # 不再保存pairs以减少I/O操作
                     }
                     
                     with open(checkpoint_file, 'w') as f:
-                        json.dump(checkpoint_info, f)
+                        json.dump(checkpoint_info, f, indent=2, ensure_ascii=False)
                 
                 # 检查是否达到最大配对数
                 if max_pairs and len(all_results) >= max_pairs:
@@ -766,6 +773,10 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
     data_dir = os.path.join(os.path.dirname(__file__), 'data')
     output_file = os.path.join(data_dir, f'qm9-evo-pairs-step-{step}.json')
     checkpoint_file = os.path.join(data_dir, f'qm9-evo-pairs-step-{step}-checkpoint.json')
+    pairs_file = os.path.join(data_dir, f'qm9-evo-pairs-step-{step}-pairs.json')  # 独立的配对结果文件
+    
+    # 记录开始时间
+    start_time = time.time()
     
     # 创建输出目录（如果不存在）
     os.makedirs(data_dir, exist_ok=True)
@@ -775,15 +786,30 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
     all_pairs = []
     from_heavy_atoms_checkpoint = None
     to_heavy_atoms_checkpoint = None
+    last_pairs_count = 0  # 记录上一次保存的配对数量
+    elapsed_time = 0  # 记录已运行时间
     if resume and os.path.exists(checkpoint_file):
         try:
             with open(checkpoint_file, 'r') as f:
                 checkpoint_data = json.load(f)
                 start_index = checkpoint_data.get('processed_index', 0) + 1
-                all_pairs = checkpoint_data.get('pairs', [])
+                # 不再从检查点文件中读取配对结果
                 from_heavy_atoms_checkpoint = checkpoint_data.get('from_heavy_atoms')
                 to_heavy_atoms_checkpoint = checkpoint_data.get('to_heavy_atoms')
+                last_pairs_count = checkpoint_data.get('pairs_count', 0) # 获取上一次的配对数量
+                elapsed_time = checkpoint_data.get('elapsed_time', 0)  # 获取已运行时间
             logger.info(f"从检查点恢复，从索引 {start_index} 开始处理 ({from_heavy_atoms_checkpoint}->{to_heavy_atoms_checkpoint}原子对)")
+            if elapsed_time > 0:
+                logger.info(f"已运行时间: {time.strftime('%H:%M:%S', time.gmtime(elapsed_time))}")
+            
+            # 如果存在配对结果文件，则加载已有的配对结果
+            if os.path.exists(pairs_file):
+                try:
+                    with open(pairs_file, 'r') as f:
+                        all_pairs = json.load(f)
+                    logger.info(f"从配对结果文件加载了 {len(all_pairs)} 对分子")
+                except Exception as e:
+                    logger.warning(f"加载配对结果文件时出错: {e}")
         except Exception as e:
             logger.warning(f"加载检查点文件时出错: {e}，将从头开始处理")
     
@@ -856,6 +882,14 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
                                           all_pairs_checkpoint=all_pairs)
                     all_pairs.extend(pairs)
                     
+                    # 保存配对结果到独立文件
+                    if not preview_mode:
+                        try:
+                            with open(pairs_file, 'w') as f:
+                                json.dump(all_pairs, f)
+                        except Exception as e:
+                            logger.warning(f"保存配对结果到文件时出错: {e}")
+                    
                     # 重置起始索引，以便下一个组合从头开始
                     start_index = 0
                     
@@ -889,6 +923,9 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
     if 'outer_pbar' in locals():
         outer_pbar.close()
     
+    # 计算总运行时间
+    total_elapsed_time = elapsed_time + (time.time() - start_time)
+    
     # 删除检查点文件（任务完成）
     if os.path.exists(checkpoint_file) and not preview_mode:
         os.remove(checkpoint_file)
@@ -909,7 +946,12 @@ def main(step=1, max_pairs=None, log_level=None, mode=None, debug_from=None, deb
         # 正常模式：保存结果到文件
         save_pairs_to_json(all_pairs, output_file, compact)
         logger.info(f"总共找到 {len(all_pairs)} 对编辑距离为{step}的进化关系")
-
+        logger.info(f"总运行时间: {time.strftime('%H:%M:%S', time.gmtime(total_elapsed_time))}")
+        
+        # 删除配对结果文件（任务完成）
+        if os.path.exists(pairs_file):
+            os.remove(pairs_file)
+            logger.info(f"任务完成，已删除配对结果文件 {pairs_file}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='提取指定步数的分子进化对')
