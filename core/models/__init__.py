@@ -20,6 +20,9 @@ from .v0 import *  # noqa: F403, F401
 # 注册v0.1版本模型
 from .v0_1 import *  # noqa: F403, F401
 
+# 注册v0.2版本模型
+from .v0_2 import *  # noqa: F403, F401
+
 
 def register_model(name=None, display_name=None, save_dir_name=None):
     """

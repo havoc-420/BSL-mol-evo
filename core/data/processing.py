@@ -15,6 +15,9 @@ from typing import List, Tuple, Dict
 import yaml
 import os
 
+# 添加networkx导入以支持图操作
+import networkx as nx
+
 # 全局配置变量
 _OPERATION_TYPES = None
 _ATOM_TYPES = None
@@ -37,12 +40,36 @@ def load_operation_config(config_path: str = None, dataset_path: str = None):
         # 生成对应的配置文件路径
         config_path = os.path.join(os.path.dirname(dataset_path), f"{base_name}-config.yaml")
 
-    # 默认配置文件路径
+    # 如果没有指定配置文件路径，尝试使用默认配置文件
     if config_path is None:
-        raise RuntimeError("请指定配置文件路径或数据集路径")
+        # 尝试在项目中查找默认配置文件
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        default_config_path = os.path.join(script_dir, '..', '..', 'dataset', 'configs', 'default_config.yaml')
+        if os.path.exists(default_config_path):
+            config_path = default_config_path
+        else:
+            # 如果还找不到配置文件，则创建并使用一个基本配置
+            _OPERATION_TYPES = ['add_atom', 'delete_atom', 'change_atom', 'add_bond', 'delete_bond', 'change_bond']
+            _ATOM_TYPES = ['H', 'C', 'N', 'O', 'F', 'P', 'S', 'Cl', 'Br', 'I']
+            print("使用默认操作类型和原子类型配置")
+            return
     
     if not os.path.exists(config_path):
-        raise FileNotFoundError(f"配置文件未找到: {config_path}")
+        # 如果配置文件不存在，则创建并使用基本配置
+        _OPERATION_TYPES = ['add_atom', 'delete_atom', 'change_atom', 'add_bond', 'delete_bond', 'change_bond']
+        _ATOM_TYPES = ['H', 'C', 'N', 'O', 'F', 'P', 'S', 'Cl', 'Br', 'I']
+        print("配置文件未找到，使用默认操作类型和原子类型配置")
+        # 创建默认配置文件
+        default_config = {
+            'operation_types': _OPERATION_TYPES,
+            'atom_types': _ATOM_TYPES
+        }
+        # 确保目录存在
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+        with open(config_path, 'w') as f:
+            yaml.dump(default_config, f)
+        print(f"已创建默认配置文件: {config_path}")
+        return
     
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
@@ -184,39 +211,343 @@ def calculate_molecular_similarity(smiles1: str, smiles2: str) -> float:
         return 0.0
 
 
-def prepare_edge_features(row: pd.Series, property_stats: Dict[str, Tuple[float, float]] = None, 
-                         include_property_changes: bool = False) -> List[float]:
+def get_laplacian_pe_from_smiles(smiles: str, k: int = 8, target_position: int = None) -> np.ndarray:
     """
-    准备边特征向量
+    从SMILES获取拉普拉斯位置编码，并特别标记目标位置
+    
+    Args:
+        smiles: SMILES字符串
+        k: 位置编码维度
+        target_position: 要特别标记的目标原子位置（从0开始）
+        
+    Returns:
+        增强的位置编码数组
+    """
+    mol = Chem.MolFromSmiles(smiles)
+    if not mol:
+        return None
+    
+    # 构建分子图
+    G = nx.Graph()
+    for atom in mol.GetAtoms():
+        G.add_node(atom.GetIdx())
+    
+    for bond in mol.GetBonds():
+        i = bond.GetBeginAtomIdx()
+        j = bond.GetEndAtomIdx()
+        G.add_edge(i, j)
+    
+    # INFO 计算归一化拉普拉斯矩阵
+    L = nx.normalized_laplacian_matrix(G).astype(float)
+    
+    # 特征分解
+    eigenvalues, eigenvectors = np.linalg.eigh(L.toarray())
+    
+    # 选择最小的k个非零特征值对应的特征向量
+    valid_indices = np.where(eigenvalues > 1e-8)[0]
+    if len(valid_indices) == 0:
+        # 如果所有特征值都很小，使用随机编码
+        pe_vectors = np.random.normal(0, 0.1, (len(G.nodes()), k))
+    else:
+        k_actual = min(k, len(valid_indices))
+        selected_indices = valid_indices[:k_actual]
+        pe_vectors = eigenvectors[:, selected_indices]
+        
+        # 如果维度不够，用零填充
+        if pe_vectors.shape[1] < k:
+            padding = np.zeros((pe_vectors.shape[0], k - pe_vectors.shape[1]))
+            pe_vectors = np.hstack([pe_vectors, padding])
+    
+    # 添加目标位置标记
+    if target_position is not None and target_position < len(G.nodes()):
+        # 二进制标记法
+        position_marker = np.zeros((len(G.nodes()), 1))
+        position_marker[target_position] = 1.0
+        pe_vectors = np.hstack([pe_vectors, position_marker])
+    
+    return pe_vectors
+
+
+def get_laplacian_pe_for_multiple_positions(smiles: str, k: int = 8, target_positions: List[int] = None) -> np.ndarray:
+    """
+    从SMILES获取拉普拉斯位置编码，并标记多个目标位置
+    
+    Args:
+        smiles: SMILES字符串
+        k: 位置编码维度
+        target_positions: 要特别标记的目标原子位置列表（从0开始）
+        
+    Returns:
+        增强的位置编码数组
+    """
+    mol = Chem.MolFromSmiles(smiles)
+    if not mol:
+        return None
+    
+    # 构建分子图
+    G = nx.Graph()
+    for atom in mol.GetAtoms():
+        G.add_node(atom.GetIdx())
+    
+    for bond in mol.GetBonds():
+        i = bond.GetBeginAtomIdx()
+        j = bond.GetEndAtomIdx()
+        G.add_edge(i, j)
+    
+    # 计算归一化拉普拉斯矩阵
+    L = nx.normalized_laplacian_matrix(G).astype(float)
+    
+    # 特征分解
+    eigenvalues, eigenvectors = np.linalg.eigh(L.toarray())
+    
+    # 选择最小的k个非零特征值对应的特征向量
+    valid_indices = np.where(eigenvalues > 1e-8)[0]
+    if len(valid_indices) == 0:
+        # 如果所有特征值都很小，使用随机编码
+        pe_vectors = np.random.normal(0, 0.1, (len(G.nodes()), k))
+    else:
+        k_actual = min(k, len(valid_indices))
+        selected_indices = valid_indices[:k_actual]
+        pe_vectors = eigenvectors[:, selected_indices]
+        
+        # 如果维度不够，用零填充
+        if pe_vectors.shape[1] < k:
+            padding = np.zeros((pe_vectors.shape[0], k - pe_vectors.shape[1]))
+            pe_vectors = np.hstack([pe_vectors, padding])
+    
+    # 添加目标位置标记
+    position_marker = np.zeros((len(G.nodes()), 1))
+    if target_positions:
+        for pos in target_positions:
+            if 0 <= pos < len(G.nodes()):
+                position_marker[pos] = 1.0
+    
+    pe_vectors = np.hstack([pe_vectors, position_marker])
+    
+    return pe_vectors
+
+
+def parse_position_string(position_str: str) -> List[int]:
+    """
+    解析位置字符串，支持多种格式：
+    - "0" -> [0] (单个位置)
+    - "0-1" -> [0, 1] (两个特定位置)
+    - "0,1,2" -> [0, 1, 2] (逗号分隔的多个位置)
+    - "0-2" -> [0, 2] (两个特定位置，不是范围)
+    
+    Args:
+        position_str: 位置字符串
+        
+    Returns:
+        位置整数列表
+    """
+    if not position_str or pd.isna(position_str):
+        return []
+    
+    position_str = str(position_str).strip()
+    
+    # 处理连字符分隔格式 "0-1" 或 "0-2" (表示两个特定位置)
+    if '-' in position_str and ',' not in position_str:
+        try:
+            # 直接分割，不处理范围
+            positions = [int(x.strip()) for x in position_str.split('-')]
+            return positions
+        except ValueError:
+            return []
+    
+    # 处理逗号分隔格式 "0,1,2"
+    elif ',' in position_str:
+        try:
+            return [int(x.strip()) for x in position_str.split(',')]
+        except ValueError:
+            return []
+    
+    # 处理单个位置 "0"
+    else:
+        try:
+            return [int(position_str)]
+        except ValueError:
+            return []
+
+
+def parse_complex_position_string(position_str: str) -> List[int]:
+    """
+    解析复杂的位置字符串格式，支持混合分隔符
+    
+    Args:
+        position_str: 位置字符串，如 "0-1,2-3"
+        
+    Returns:
+        位置整数列表
+    """
+    if not position_str or pd.isna(position_str):
+        return []
+    
+    position_str = str(position_str).strip()
+    all_positions = []
+    
+    # 先按逗号分割
+    parts = position_str.split(',')
+    
+    for part in parts:
+        part = part.strip()
+        if '-' in part:
+            # 处理连字符分隔的部分
+            sub_parts = part.split('-')
+            try:
+                positions = [int(x.strip()) for x in sub_parts]
+                all_positions.extend(positions)
+            except ValueError:
+                continue
+        else:
+            # 处理单个位置
+            try:
+                all_positions.append(int(part))
+            except ValueError:
+                continue
+    
+    # 去重并排序
+    return sorted(set(all_positions))
+
+
+def prepare_position_encoding_features(row: pd.Series, pe_dim: int = 8) -> List[float]:
+    """
+    准备位置编码特征向量（分离的位置编码）
+    
+    Args:
+        row: CSV文件中的一行数据
+        pe_dim: 位置编码维度
+        
+    Returns:
+        位置编码特征向量
+    """
+    # 从JSON数据中提取操作信息
+    if 'operations' in row and isinstance(row['operations'], list) and len(row['operations']) > 0:
+        operation = row['operations'][0]  # 取第一个操作
+        position_str = operation.get('position', '')  # 获取操作位置字符串
+    else:
+        # 使用CSV数据中的操作信息
+        position_str = ''
+    
+    # 解析位置字符串 - 使用增强的解析函数
+    if ',' in position_str and '-' in position_str:
+        # 复杂格式如 "0-1,2-3"
+        target_positions = parse_complex_position_string(position_str)
+    else:
+        # 简单格式
+        target_positions = parse_position_string(position_str)
+    
+    # 位置编码特征
+    position_features = []
+    if len(target_positions) > 0:
+        try:
+            smiles_from = row['smiles_from']
+            
+            # 使用多位置版本的位置编码
+            pe = get_laplacian_pe_for_multiple_positions(smiles_from, k=pe_dim, target_positions=target_positions)
+            
+            if pe is not None and len(pe) > 0:
+                # 对于多位置操作，我们取所有目标位置编码的平均值
+                target_pe_list = []
+                for pos in target_positions:
+                    if 0 <= pos < len(pe):
+                        target_pe_list.append(pe[pos])
+                    else:
+                        target_pe_list.append(np.zeros(pe.shape[1]))
+                
+                # 计算平均位置编码
+                if target_pe_list:
+                    avg_target_pe = np.mean(target_pe_list, axis=0)
+                    position_features = avg_target_pe.tolist()
+                else:
+                    position_features = [0.0] * (pe_dim + 1)
+            else:
+                position_features = [0.0] * (pe_dim + 1)
+        except Exception as e:
+            print(f"生成位置编码时出错: {e}")
+            position_features = [0.0] * (pe_dim + 1)
+    else:
+        position_features = [0.0] * (pe_dim + 1)
+    
+    return position_features
+
+
+def prepare_edge_features_with_position(row: pd.Series, property_stats: Dict[str, Tuple[float, float]] = None, 
+                                       include_property_changes: bool = False, 
+                                       include_position_encoding: bool = True,
+                                       pe_dim: int = 8) -> List[float]:
+    """
+    准备边特征向量（包含位置编码）
     
     Args:
         row: CSV文件中的一行数据
         property_stats: 属性统计信息（用于标准化）
         include_property_changes: 是否包含属性变化特征
+        include_position_encoding: 是否包含位置编码
+        pe_dim: 位置编码维度
         
     Returns:
         边特征向量
     """
     # 从JSON数据中提取操作信息
     if 'operations' in row and isinstance(row['operations'], list) and len(row['operations']) > 0:
-        # 使用JSON数据中的操作信息
         operation = row['operations'][0]  # 取第一个操作
         atom_symbol = operation.get('atom', '')
         operation_type = operation.get('operation', 'unknown')
+        position_str = operation.get('position', '')  # 获取操作位置字符串
     else:
         # 使用CSV数据中的操作信息
         atom_symbol = row['to_atom_symbol'] if 'to_atom_symbol' in row else ''
         operation_type = row['operation_type'] if 'operation_type' in row else 'unknown'
-        
-    # 原子类型特征（根据实际原子类型数量动态调整）
+        position_str = ''
+    
+    # 解析位置字符串 - 使用增强的解析函数
+    if ',' in position_str and '-' in position_str:
+        # 复杂格式如 "0-1,2-3"
+        target_positions = parse_complex_position_string(position_str)
+    else:
+        # 简单格式
+        target_positions = parse_position_string(position_str)
+    
+    # 原子类型特征
     atom_features = atom_type_to_onehot(atom_symbol)
     
-    # 操作类型特征（根据实际操作类型数量动态调整）
+    # 操作类型特征
     op_features = operation_type_to_onehot(operation_type)
-
-    # TODO 还有一个 op-position 这个特征可以加上
     
-    # 属性变化特征（15维，可选）
+    # 位置编码特征
+    position_features = []
+    if include_position_encoding and len(target_positions) > 0:
+        try:
+            smiles_from = row['smiles_from']
+            
+            # 使用多位置版本的位置编码
+            pe = get_laplacian_pe_for_multiple_positions(smiles_from, k=pe_dim, target_positions=target_positions)
+            
+            if pe is not None and len(pe) > 0:
+                # 对于多位置操作，我们取所有目标位置编码的平均值
+                target_pe_list = []
+                for pos in target_positions:
+                    if 0 <= pos < len(pe):
+                        target_pe_list.append(pe[pos])
+                    else:
+                        target_pe_list.append(np.zeros(pe.shape[1]))
+                
+                # 计算平均位置编码
+                if target_pe_list:
+                    avg_target_pe = np.mean(target_pe_list, axis=0)
+                    position_features = avg_target_pe.tolist()
+                else:
+                    position_features = [0.0] * (pe_dim + 1)
+            else:
+                position_features = [0.0] * (pe_dim + 1)
+        except Exception as e:
+            print(f"生成位置编码时出错: {e}")
+            position_features = [0.0] * (pe_dim + 1)
+    else:
+        position_features = [0.0] * (pe_dim + 1)
+    
+    # 属性变化特征（可选）
     property_changes = []
     if include_property_changes:
         property_names = ['A_change', 'B_change', 'C_change', 'mu_change', 'alpha_change',
@@ -237,11 +568,38 @@ def prepare_edge_features(row: pd.Series, property_stats: Dict[str, Tuple[float,
     
     # 组合所有特征
     if include_property_changes:
-        edge_features = atom_features + op_features + property_changes
+        edge_features = atom_features + op_features + position_features + property_changes
     else:
-        edge_features = atom_features + op_features
+        edge_features = atom_features + op_features + position_features
     
     return edge_features
+
+
+def prepare_edge_features(row: pd.Series, property_stats: Dict[str, Tuple[float, float]] = None, 
+                         include_property_changes: bool = False,
+                         include_position_encoding: bool = True,
+                         pe_dim: int = 8) -> List[float]:
+    """
+    准备边特征向量
+    
+    Args:
+        row: CSV文件中的一行数据
+        property_stats: 属性统计信息（用于标准化）
+        include_property_changes: 是否包含属性变化特征
+        include_position_encoding: 是否包含位置编码
+        pe_dim: 位置编码维度
+        
+    Returns:
+        边特征向量
+    """
+    # 调用带位置编码的新函数，并默认启用位置编码
+    return prepare_edge_features_with_position(
+        row, 
+        property_stats, 
+        include_property_changes, 
+        include_position_encoding=include_position_encoding,
+        pe_dim=pe_dim
+    )
 
 
 def load_qm9_properties() -> Dict[str, np.ndarray]:
@@ -430,7 +788,8 @@ def build_molecule_graph_with_fingerprints(csv_file: str, max_molecules: int = N
     return data, smiles_to_idx, property_stats
 
 
-def build_molecule_evolution_dataset(csv_file: str, max_pairs: int = None, target_property: str = 'mu_change') -> Tuple[List[Data], List[Data], torch.Tensor, torch.Tensor]:
+def build_molecule_evolution_dataset(csv_file: str, max_pairs: int = None, target_property: str = 'mu_change', 
+                                   include_position_encoding: bool = False, pe_dim: int = 8) -> Tuple[List[Data], List[Data], torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     构建分子进化数据集，用于v0模型训练
     
@@ -438,9 +797,11 @@ def build_molecule_evolution_dataset(csv_file: str, max_pairs: int = None, targe
         csv_file: CSV文件路径
         max_pairs: 最大对数（用于调试）
         target_property: 目标属性名称
+        include_position_encoding: 是否包含位置编码
+        pe_dim: 位置编码维度
         
     Returns:
-        起始分子数据列表、目标分子数据列表、边特征张量和目标属性张量
+        起始分子数据列表、目标分子数据列表、边特征张量、目标属性张量和位置编码张量（如果启用）
     """
     # 读取数据
     df = pd.read_csv(csv_file)
@@ -476,6 +837,7 @@ def build_molecule_evolution_dataset(csv_file: str, max_pairs: int = None, targe
     from_data_list = []
     to_data_list = []
     edge_attr_list = []
+    position_encoding_list = []
     
     for _, row in df.iterrows():
         # 生成起始分子和目标分子的指纹
@@ -489,13 +851,23 @@ def build_molecule_evolution_dataset(csv_file: str, max_pairs: int = None, targe
         from_data_list.append(from_data)
         to_data_list.append(to_data)
         
-        # 准备边特征
-        edge_feat = prepare_edge_features(row, property_stats, include_property_changes=False)
+        # 准备边特征（不含位置编码）
+        edge_feat = prepare_edge_features(row, property_stats, include_property_changes=False, 
+                                        include_position_encoding=False)
         edge_attr_list.append(edge_feat)
+        
+        # 如果启用位置编码，则准备位置编码特征
+        if include_position_encoding:
+            position_encoding = prepare_position_encoding_features(row, pe_dim)
+            position_encoding_list.append(position_encoding)
     
     edge_attrs = torch.FloatTensor(np.array(edge_attr_list))
     
-    return from_data_list, to_data_list, edge_attrs, target_features
+    if include_position_encoding:
+        position_encodings = torch.FloatTensor(np.array(position_encoding_list))
+        return from_data_list, to_data_list, edge_attrs, target_features, position_encodings
+    else:
+        return from_data_list, to_data_list, edge_attrs, target_features, None
 
 
 def prepare_property_change_targets(csv_file: str, property_stats: Dict[str, Tuple[float, float]], 

@@ -39,6 +39,12 @@ def log_dataset_examples(logger, from_data_list, to_data_list, edge_attrs, targe
         num_examples: 示例数量
     """
     logger.info("--- 训练集样本示例 (头部数据) ---")
+    
+    # 检查数据是否为空
+    if len(from_data_list) == 0:
+        logger.info("  没有可用的训练样本")
+        return
+        
     num_examples = min(num_examples, len(from_data_list))
     
     # 表格头部
@@ -67,8 +73,17 @@ def log_dataset_examples(logger, from_data_list, to_data_list, edge_attrs, targe
             to_nodes = to_data_list[i]['x_atoms'].size(0)
             to_edges = to_data_list[i]['edge_index'].size(1)
             
-        edge_attr = str(edge_attrs[i].tolist())
-        target_val = f"{target_features[i].item():.6f}"
+        # 检查edge_attrs是否为空
+        if edge_attrs.size(0) > 0:
+            edge_attr = str(edge_attrs[i].tolist())
+        else:
+            edge_attr = "[]"
+            
+        # 检查target_features是否为空
+        if target_features.size(0) > 0:
+            target_val = f"{target_features[i].item():.6f}"
+        else:
+            target_val = "0.0"
         
         logger.info("  {:<8} {:<12} {:<12} {:<12} {:<12} {:<15} {:<15}".format(
             i+1, from_nodes, from_edges, to_nodes, to_edges, edge_attr[:13], target_val))

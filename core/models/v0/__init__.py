@@ -17,15 +17,17 @@ _model_to_module = {}  # mapping of model names to module names
 _module_to_models = defaultdict(set)  # dict of sets to check membership of model in module
 _model_display_names = {}  # mapping of model names to display names
 _model_save_dir_names = {}  # mapping of model names to save directory names
+_model_requires_position_encoding = {}  # mapping of model names to position encoding requirements
 
 
-def register_model(name=None, display_name=None, save_dir_name=None):
+def register_model(name=None, display_name=None, save_dir_name=None, requires_position_encoding=False):
     """注册模型的装饰器
     
     Args:
         name: 模型注册名称，默认为函数/类名
         display_name: 模型显示名称，用于用户界面展示
         save_dir_name: 模型保存目录名称，用于模型文件存储
+        requires_position_encoding: 模型是否需要位置编码
     """
     def _register_model(fn):
         # lookup containing module
@@ -56,6 +58,9 @@ def register_model(name=None, display_name=None, save_dir_name=None):
             _model_save_dir_names[model_name] = save_dir_name
         else:
             _model_save_dir_names[model_name] = model_name
+            
+        # 设置位置编码需求
+        _model_requires_position_encoding[model_name] = requires_position_encoding
         
         # 同时注册到ModelFactory
         ModelFactory.register(model_name, fn)
@@ -84,6 +89,11 @@ def get_model_display_name(model_name):
 def get_model_save_dir_name(model_name):
     """获取模型保存目录名称"""
     return _model_save_dir_names.get(model_name, model_name)
+
+
+def model_requires_position_encoding(model_name):
+    """检查模型是否需要位置编码"""
+    return _model_requires_position_encoding.get(model_name, False)
 
 
 class BaseMoleculeEvolutionPredictor(nn.Module):

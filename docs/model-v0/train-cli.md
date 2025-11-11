@@ -45,5 +45,11 @@ cd /home/data2/rhj/project/mol_editor && python mol_evo/predict_v0_testset.py --
 # Train
 
 ```bash
-CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --epochs 200 -lr 0.001 --data-file /home/data2/rhj/project/mol_editor/mol_evo/dataset/data/tmp/output.json 
+CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --epochs 200 -lr 0.001 --data-file /home/data2/rhj/project/mol_editor/mol_evo/dataset/data/qm9-evo-pairs-step-1-v0.json
+```
+
+# Train - homo/lomo/gap
+
+```bash
+CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --max-pairs 30000 --target-property homo_change_pct -lr 0.0001 --epochs 300 --batch-size 512
 ```
