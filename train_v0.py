@@ -16,6 +16,7 @@ from datetime import datetime
 from tqdm import tqdm
 import shutil
 import random
+import json
 
 import torch.nn as nn
 from torch_geometric.loader import DataLoader
@@ -139,11 +140,43 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
     model_dir = os.path.join(project_root, 'mol_evo', 'output', 'v0', model_type, dir_name)
     os.makedirs(model_dir, exist_ok=True)
     
+    # 早停机制参数
+    patience_limit = 50
+    # 初始化property_stats为空字典
+    property_stats = {}
+    
     # 创建自定义的DualLogger实例
     logger = DualLogger(model_dir)
     log_training_start(logger, data_file, max_pairs, epochs)
     
     try:
+        # 保存模型配置参数到JSON文件（在训练开始时）
+        model_config_data = {
+            "timestamp": datetime.now().isoformat(),
+            "model_params": final_model_config,
+            "model-train-config": {
+                "model_type": model_type,
+                "data_file": data_file,
+                "max_pairs": max_pairs,
+                "epochs": epochs,
+                "seed": seed,
+                "target_property": TARGET_PROPERTY,
+                "batch_size": batch_size,
+                "device": str(device) if 'device' in locals() else "cpu",
+                "optimizer": "Adam",
+                "learning_rate": learning_rate,
+                "weight_decay": 1e-5,
+                "scheduler": "ReduceLROnPlateau",
+                "loss_function": "L1Loss",
+                "patience_limit": patience_limit
+            }
+        }
+        
+        model_config_path = os.path.join(model_dir, "model_config.json")
+        with open(model_config_path, 'w', encoding='utf-8') as f:
+            json.dump(model_config_data, f, ensure_ascii=False, indent=2)
+        logger.info(f"模型配置已保存到: {model_config_path}")
+        
         # STAGE 构建图数据 - 使用新的数据处理方法
         logger.info(f"正在构建图数据: {data_file}")  # 默认输出到控制台和文件
         from_data_list, to_data_list, edge_attrs, target_features, property_stats = build_molecule_evolution_dataset_v0(
@@ -315,7 +348,6 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         # 早停机制参数
         best_val_loss = float('inf')
         patience_counter = 0
-        patience_limit = 50
         best_model_state = None
         should_stop = False  # 初始化 should_stop 变量
         
@@ -652,10 +684,23 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                     "loss_function": "L1Loss",
                     "patience_limit": patience_limit
                 }
-                save_training_data_as_json(
-                    metrics_recorder.train_losses, metrics_recorder.val_losses, test_metrics, 
-                    model_dir, model_config, training_params=training_params, 
-                    property_stats=property_stats, val_metrics_history=metrics_recorder.val_metrics_history)
+                # 保存训练过程数据（不包括模型配置）
+                training_process_data = {
+                    "timestamp": datetime.now().isoformat(),
+                    "test_metrics": test_metrics,
+                    "losses": {
+                        "train_losses": metrics_recorder.train_losses,
+                        "val_losses": metrics_recorder.val_losses
+                    },
+                    "val_metrics_history": metrics_recorder.val_metrics_history,
+                    "property_stats": property_stats
+                }
+                
+                # 保存训练过程数据到JSON文件
+                training_process_path = os.path.join(model_dir, "training_process.json")
+                with open(training_process_path, 'w', encoding='utf-8') as f:
+                    json.dump(training_process_data, f, ensure_ascii=False, indent=2)
+                
                 
                 # 生成训练趋势图
                 plot_training_trends(
