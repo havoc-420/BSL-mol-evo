@@ -693,8 +693,8 @@ def main():
     # 添加自定义类型函数用于限制最大值
     def max_pairs_type(x):
         x = int(x)
-        if x > 30000:
-            raise argparse.ArgumentTypeError("最大分子对数不能超过30000")
+        # if x > 30000:
+        #     raise argparse.ArgumentTypeError("最大分子对数不能超过30000")
         return x
     
     parser.add_argument('-d', '-data', '--data-file', type=str, 
