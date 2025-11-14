@@ -76,6 +76,30 @@ def log_dataset_examples(logger, from_data_list, to_data_list, edge_attrs, targe
         # 检查edge_attrs是否为空
         if edge_attrs.size(0) > 0:
             edge_attr = str(edge_attrs[i].tolist())
+            # DEBUG 输出边特征维度信息
+            if i == 0:  # 只输出第一个样本的详细信息
+                logger.info(f"  DEBUG: 边特征维度 = {edge_attrs.size(1)}")
+                logger.info(f"  DEBUG: 第一个样本的边特征值 = {edge_attr}")
+                # 分析边特征组成部分
+                try:
+                    # 导入处理函数以获取实际的原子类型和操作类型数量
+                    from mol_evo.core.data.processing import get_atom_types, get_operation_types
+                    atom_types = get_atom_types()
+                    op_types = get_operation_types()
+                    logger.info(f"  DEBUG: 原子类型数量 = {len(atom_types)}, 操作类型数量 = {len(op_types)}")
+                    
+                    edge_feat = edge_attrs[i].tolist()
+                    logger.info(f"  DEBUG: 边特征总长度 = {len(edge_feat)}")
+                    # 根据实际的原子类型和操作类型数量分割特征
+                    if len(edge_feat) >= len(atom_types) + len(op_types):
+                        atom_onehot = edge_feat[:len(atom_types)]
+                        op_onehot = edge_feat[len(atom_types):len(atom_types)+len(op_types)]
+                        logger.info(f"  DEBUG: 原子类型one-hot编码 = {atom_onehot}")
+                        logger.info(f"  DEBUG: 操作类型one-hot编码 = {op_onehot}")
+                        logger.info(f"  DEBUG: 原子类型列表 = {atom_types}")
+                        logger.info(f"  DEBUG: 操作类型列表 = {op_types}")
+                except Exception as e:
+                    logger.info(f"  DEBUG: 无法获取原子类型和操作类型信息: {e}")
         else:
             edge_attr = "[]"
             

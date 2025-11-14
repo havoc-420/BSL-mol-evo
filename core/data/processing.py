@@ -77,7 +77,7 @@ def load_operation_config(config_path: str = None, dataset_path: str = None):
     _OPERATION_TYPES = config['operation_types']
     _ATOM_TYPES = config['atom_types']
     
-    print(f"已加载 {len(_OPERATION_TYPES)} 种操作类型和 {len(_ATOM_TYPES)} 种原子类型")
+    print(f"😀 已加载 {len(_OPERATION_TYPES)} 种操作类型和 {len(_ATOM_TYPES)} 种原子类型")
 
 
 def get_operation_types() -> List[str]:

@@ -404,8 +404,8 @@ def nx_graph_to_mol(nx_graph, node_features):
 
 def main():
     parser = argparse.ArgumentParser(description='从QM9数据集中提取分子特征')
-    parser.add_argument('--dir', type=str, default='/Users/havoc420/Documents/Projects/python/mol-evo/data/QM9', 
-                        help='QM9数据集目录 (默认: /Users/havoc420/Documents/Projects/python/mol-evo/data/QM9)')
+    parser.add_argument('--dir', type=str, default='raw-data/QM9', 
+                        help='QM9数据集目录')   # UPDATE 更新后的好像有问题。
     parser.add_argument('--atom', type=str, default=None, 
                         help='指定原子数，支持格式: 单个数字(5)、逗号分隔(3,4,5)、范围(3-5)、组合(3,4-6,8) (默认: None，提取所有分子)')
     parser.add_argument('--output', type=str, default=None, 

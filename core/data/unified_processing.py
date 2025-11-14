@@ -14,6 +14,8 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit import DataStructs
 from typing import List, Tuple, Dict, Optional, Any
+from tqdm import tqdm
+import os
 
 # 导入必要的本地模块
 try:
@@ -24,7 +26,9 @@ try:
         smiles_to_fingerprint, 
         atom_type_to_onehot, 
         operation_type_to_onehot,
-        prepare_edge_features as processing_prepare_edge_features
+        prepare_edge_features as processing_prepare_edge_features,
+        load_operation_config,
+        get_atom_types
     )
 except ImportError:
     # 如果相对导入失败，尝试绝对导入
@@ -35,9 +39,10 @@ except ImportError:
         smiles_to_fingerprint, 
         atom_type_to_onehot, 
         operation_type_to_onehot,
-        processing_prepare_edge_features
+        processing_prepare_edge_features,
+        load_operation_config,
+        get_atom_types
     )
-
 
 def prepare_edge_features(row: pd.Series, property_stats: Dict[str, Tuple[float, float]] = None,
                          include_property_changes: bool = False) -> List[float]:
@@ -131,13 +136,20 @@ def build_molecule_evolution_dataset_v0(
     # 创建分子缓存实例，并传入logger
     cache = MoleculeCache(csv_file=data_file, logger=logger)    # UPDATE 避免缓存破坏
     
+    # 加载操作和原子类型配置
+    load_operation_config(dataset_path=data_file)
+    # 定义原子类型映射（用于非FragNet模型）
+    atom_types = get_atom_types()
+    types = {atom: i for i, atom in enumerate(atom_types)}
+    
     # 构建分子数据列表
     from_data_list = []
     to_data_list = []
     edge_attr_list = []
     target_features_list = []  # 添加用于收集目标特征的列表
     
-    for idx, row in df.iterrows():
+    # 直接逐行处理数据（移除了多线程）
+    for idx, row in tqdm(df.iterrows(), total=len(df), desc="构建图数据缓存[v0]"):
         try:
             # TAG smiles data generation
             if is_fragnet_model:
@@ -145,7 +157,7 @@ def build_molecule_evolution_dataset_v0(
                 from_data = smile_to_fragnet_features(row['smiles_from'])
                 to_data = smile_to_fragnet_features(row['smiles_to'])
             else:
-                # 使用标准的 smile_to_graph_xyz 函数
+                # 使用标准的 smiles_to_graph_data 函数
                 from_data = smiles_to_graph_data(row['smiles_from'], cache)
                 to_data = smiles_to_graph_data(row['smiles_to'], cache)
                 
@@ -174,12 +186,11 @@ def build_molecule_evolution_dataset_v0(
                 target_features_list.append([value])
             else:
                 target_features_list.append([0.0])
-            
+                
         except Exception as e:
             message = f"处理第{idx}行分子对时发生错误: {row['smiles_from']} -> {row['smiles_to']}, 错误: {str(e)}"
             if logger:
-                logger.error(message)
-            continue
+                logger.warning(message)
     
     if len(edge_attr_list) > 0:
         edge_attrs = torch.FloatTensor(np.array(edge_attr_list))
@@ -201,6 +212,7 @@ def build_molecule_evolution_dataset_v0(
         print(message)
     
     return from_data_list, to_data_list, edge_attrs, target_features, property_stats
+
 
 
 def build_molecule_evolution_dataset_unified(
@@ -263,13 +275,20 @@ def build_molecule_evolution_dataset_unified(
     if not is_fragnet_model:
         cache = MoleculeCache(csv_file=data_file, logger=logger)
     
+    # 加载操作和原子类型配置
+    load_operation_config(dataset_path=data_file)
+    # 定义原子类型映射（用于非FragNet和非Equiformer模型）
+    atom_types = get_atom_types()
+    types = {atom: i for i, atom in enumerate(atom_types)}
+    
     # 构建分子数据列表
     from_data_list = []
     to_data_list = []
     edge_attr_list = []
     target_features_list = []
     
-    for idx, row in df.iterrows():
+    # 直接逐行处理数据（移除了多线程）
+    for idx, row in tqdm(df.iterrows(), total=len(df), desc="构建图数据缓存[unified]"):
         try:
             # 根据模型类型选择适当的数据处理函数
             if is_fragnet_model:
@@ -283,7 +302,7 @@ def build_molecule_evolution_dataset_unified(
                 from_data = Data(x=torch.FloatTensor(from_fp).unsqueeze(0))
                 to_data = Data(x=torch.FloatTensor(to_fp).unsqueeze(0))
             else:
-                # 使用标准的 smile_to_graph_xyz 函数
+                # 使用标准的 smiles_to_graph_data 函数
                 from_data = smiles_to_graph_data(row['smiles_from'], cache)
                 to_data = smiles_to_graph_data(row['smiles_to'], cache)
                 
@@ -312,12 +331,11 @@ def build_molecule_evolution_dataset_unified(
                 target_features_list.append([value])
             else:
                 target_features_list.append([0.0])
-            
+                
         except Exception as e:
             message = f"处理第{idx}行分子对时发生错误: {row['smiles_from']} -> {row['smiles_to']}, 错误: {str(e)}"
             if logger:
-                logger.error(message)
-            continue
+                logger.warning(message)
     
     if len(edge_attr_list) > 0:
         edge_attrs = torch.FloatTensor(np.array(edge_attr_list))

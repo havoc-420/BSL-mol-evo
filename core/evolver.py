@@ -10,9 +10,23 @@ import re
 import random
 from typing import List, Dict, Tuple, Optional, Set, Any
 import hashlib
+import argparse
+import json
+import sys
+import logging
+from collections import defaultdict
 
 
-from .attachment import Attachment
+# 设置RDKit日志级别，减少警告输出
+from rdkit import RDLogger
+RDLogger.DisableLog('rdApp.*')
+
+# 修复导入问题
+try:
+    from .attachment import Attachment
+except ImportError:
+    # 当作为脚本直接运行时的备用导入
+    from attachment import Attachment
 
 class MoleculeEvolverAnalysis: # MoleculeEvolver
     """一个封装了所有逻辑的、强大的分子路径生成器。"""
@@ -575,11 +589,21 @@ class MolecularEvolutionExpansion:
             "add_fragment": 0.2,
             "break_bond": 0.05
         }
+        
+        # 错误统计
+        self.error_stats = {
+            "valence_errors": 0,
+            "kekulization_errors": 0,
+            "other_errors": 0,
+            "total_attempts": 0
+        }
     
     def validate_molecule(self, mol: Chem.Mol) -> bool:
         """验证分子是否有效"""
+        self.error_stats["total_attempts"] += 1
         try:
             if mol is None:
+                self.error_stats["other_errors"] += 1
                 return False
             
             # 检查分子是否可以被Kekulize（芳香性检查）
@@ -588,13 +612,22 @@ class MolecularEvolutionExpansion:
             
             # 检查是否有原子
             if temp_mol.GetNumAtoms() == 0:
+                self.error_stats["other_errors"] += 1
                 return False
                 
             # 尝试计算分子量来确保分子完整性
             Chem.rdMolDescriptors.CalcExactMolWt(temp_mol)
                 
             return True
-        except:
+        except Exception as e:
+            # 记录特定类型的错误
+            error_msg = str(e).lower()
+            if "explicit valence" in error_msg:
+                self.error_stats["valence_errors"] += 1
+            elif "kekulize" in error_msg or "aromatic" in error_msg:
+                self.error_stats["kekulization_errors"] += 1
+            else:
+                self.error_stats["other_errors"] += 1
             return False
     
     def _apply_operation(self, mol: Chem.Mol, operation_type: str, **kwargs) -> Optional[Chem.Mol]:
@@ -611,6 +644,15 @@ class MolecularEvolutionExpansion:
             elif operation_type == "break_bond":
                 return self._break_bond_operation(mol, **kwargs)
         except Exception as e:
+            # 记录错误统计
+            self.error_stats["total_attempts"] += 1
+            error_msg = str(e).lower()
+            if "explicit valence" in error_msg:
+                self.error_stats["valence_errors"] += 1
+            elif "kekulize" in error_msg or "aromatic" in error_msg:
+                self.error_stats["kekulization_errors"] += 1
+            else:
+                self.error_stats["other_errors"] += 1
             return None
         return None
     
@@ -636,9 +678,19 @@ class MolecularEvolutionExpansion:
             # 验证新分子
             if self.validate_molecule(new_mol):
                 return new_mol
-        except:
-            pass
-        return None
+            else:
+                return None
+        except Exception as e:
+            # 记录错误统计
+            self.error_stats["total_attempts"] += 1
+            error_msg = str(e).lower()
+            if "explicit valence" in error_msg:
+                self.error_stats["valence_errors"] += 1
+            elif "kekulize" in error_msg or "aromatic" in error_msg:
+                self.error_stats["kekulization_errors"] += 1
+            else:
+                self.error_stats["other_errors"] += 1
+            return None
     
     def _replace_atom_operation(self, mol: Chem.Mol, atom_idx: int = None, new_symbol: str = None) -> Optional[Chem.Mol]:
         """替换原子操作"""
@@ -660,9 +712,19 @@ class MolecularEvolutionExpansion:
             
             if self.validate_molecule(mol_copy):
                 return mol_copy
-        except:
-            pass
-        return None
+            else:
+                return None
+        except Exception as e:
+            # 记录错误统计
+            self.error_stats["total_attempts"] += 1
+            error_msg = str(e).lower()
+            if "explicit valence" in error_msg:
+                self.error_stats["valence_errors"] += 1
+            elif "kekulize" in error_msg or "aromatic" in error_msg:
+                self.error_stats["kekulization_errors"] += 1
+            else:
+                self.error_stats["other_errors"] += 1
+            return None
     
     def _form_bond_operation(self, mol: Chem.Mol, operation_type: str, atom1_idx: int = None, atom2_idx: int = None) -> Optional[Chem.Mol]:
         """形成键操作"""
@@ -699,9 +761,19 @@ class MolecularEvolutionExpansion:
             
             if self.validate_molecule(new_mol):
                 return new_mol
-        except:
-            pass
-        return None
+            else:
+                return None
+        except Exception as e:
+            # 记录错误统计
+            self.error_stats["total_attempts"] += 1
+            error_msg = str(e).lower()
+            if "explicit valence" in error_msg:
+                self.error_stats["valence_errors"] += 1
+            elif "kekulize" in error_msg or "aromatic" in error_msg:
+                self.error_stats["kekulization_errors"] += 1
+            else:
+                self.error_stats["other_errors"] += 1
+            return None
     
     def _add_fragment_operation(self, mol: Chem.Mol, fragment_name: str = None, connect_to: int = None) -> Optional[Chem.Mol]:
         """添加片段操作"""
@@ -735,9 +807,19 @@ class MolecularEvolutionExpansion:
             
             if self.validate_molecule(new_mol):
                 return new_mol
-        except:
-            pass
-        return None
+            else:
+                return None
+        except Exception as e:
+            # 记录错误统计
+            self.error_stats["total_attempts"] += 1
+            error_msg = str(e).lower()
+            if "explicit valence" in error_msg:
+                self.error_stats["valence_errors"] += 1
+            elif "kekulize" in error_msg or "aromatic" in error_msg:
+                self.error_stats["kekulization_errors"] += 1
+            else:
+                self.error_stats["other_errors"] += 1
+            return None
     
     def _break_bond_operation(self, mol: Chem.Mol, atom1_idx: int = None, atom2_idx: int = None) -> Optional[Chem.Mol]:
         """断开键操作"""
@@ -761,9 +843,19 @@ class MolecularEvolutionExpansion:
             
             if self.validate_molecule(new_mol):
                 return new_mol
-        except:
-            pass
-        return None
+            else:
+                return None
+        except Exception as e:
+            # 记录错误统计
+            self.error_stats["total_attempts"] += 1
+            error_msg = str(e).lower()
+            if "explicit valence" in error_msg:
+                self.error_stats["valence_errors"] += 1
+            elif "kekulize" in error_msg or "aromatic" in error_msg:
+                self.error_stats["kekulization_errors"] += 1
+            else:
+                self.error_stats["other_errors"] += 1
+            return None
     
     def _get_molecule_fingerprint(self, mol: Chem.Mol) -> str:
         """获取分子的指纹用于去重"""
@@ -958,7 +1050,16 @@ class MolecularEvolutionExpansion:
         tree = {
             "root": self.initial_smiles,
             "nodes": {},
-            "edges": []
+            "edges": [],
+            "error_stats": {}  # 添加错误统计信息
+        }
+        
+        # 重置错误统计
+        self.error_stats = {
+            "valence_errors": 0,
+            "kekulization_errors": 0,
+            "other_errors": 0,
+            "total_attempts": 0
         }
         
         queue = deque([(self.initial_smiles, 0)])  # (smiles, depth)
@@ -972,6 +1073,8 @@ class MolecularEvolutionExpansion:
             
             current_mol = Chem.MolFromSmiles(current_smiles)
             if not current_mol:
+                self.error_stats["other_errors"] += 1
+                self.error_stats["total_attempts"] += 1
                 continue
             
             # 记录当前节点
@@ -1007,6 +1110,8 @@ class MolecularEvolutionExpansion:
                         
                         branch_count += 1
         
+        # 将错误统计添加到树中
+        tree["error_stats"] = self.error_stats.copy()
         return tree
     
     def analyze_path_diversity(self, paths: List[Dict]) -> Dict:
@@ -1029,43 +1134,119 @@ class MolecularEvolutionExpansion:
             "average_path_length": sum(len(p["steps"]) for p in paths) / len(paths) if paths else 0
         }
 
+def main():
+    parser = argparse.ArgumentParser(description='分子进化路径生成器')
+    subparsers = parser.add_subparsers(dest='command', help='可用命令')
+    
+    # MoleculeEvolverAnalysis 命令
+    evolver_parser = subparsers.add_parser('analyze', help='分析单个分子的进化路径')
+    evolver_parser.add_argument('smiles', help='输入的SMILES字符串')
+    evolver_parser.add_argument('--format', choices=['text', 'json', 'dict'], default='text', 
+                              help='输出格式 (默认: text)')
+    
+    # MolecularEvolutionExpansion 命令
+    expansion_parser = subparsers.add_parser('expand', help='生成多条分子进化路径')
+    expansion_parser.add_argument('smiles', help='初始分子的SMILES字符串')
+    expansion_parser.add_argument('--num-paths', type=int, default=5, help='要生成的路径数量')
+    expansion_parser.add_argument('--steps-per-path', type=int, default=3, help='每条路径的步数')
+    expansion_parser.add_argument('--max-branching', type=int, default=3, help='每个节点的最大分支数')
+    expansion_parser.add_argument('--diversity-threshold', type=float, default=0.7, help='多样性阈值')
+    expansion_parser.add_argument('--format', choices=['text', 'json'], default='text',
+                                help='输出格式 (默认: text)')
+    
+    args = parser.parse_args()
+    
+    if args.command == 'analyze':
+        try:
+            evolver = MoleculeEvolverAnalysis(args.smiles)
+            if args.format == 'text':
+                path = evolver.generate_path()
+                for step in path:
+                    print(step)
+            elif args.format == 'json':
+                path = evolver.generate_path()
+                print(json.dumps(path, ensure_ascii=False, indent=2))
+            elif args.format == 'dict':
+                path = evolver.generate_path_dict()
+                print(json.dumps(path, ensure_ascii=False, indent=2))
+        except Exception as e:
+            print(f"错误: {e}", file=sys.stderr)
+            sys.exit(1)
+    
+    elif args.command == 'expand':
+        try:
+            expander = MolecularEvolutionExpansion(args.smiles)
+            paths = expander.generate_multiple_paths(
+                num_paths=args.num_paths,
+                steps_per_path=args.steps_per_path,
+                max_branching=args.max_branching,
+                diversity_threshold=args.diversity_threshold
+            )
+            
+            if args.format == 'text':
+                for i, path in enumerate(paths):
+                    print(f"路径 {i+1}:")
+                    print(f"  初始分子: {path['initial_smiles']}")
+                    print(f"  最终分子: {path['final_smiles']}")
+                    print(f"  路径长度: {path['path_length']}")
+                    print("  步骤:")
+                    for step in path['steps']:
+                        print(f"    步骤 {step['step']}: {step['operation']} -> {step['smiles']}")
+                    print()
+            elif args.format == 'json':
+                print(json.dumps(paths, ensure_ascii=False, indent=2))
+        except Exception as e:
+            print(f"错误: {e}", file=sys.stderr)
+            sys.exit(1)
+    
+    else:
+        parser.print_help()
 
-# 使用示例
+# 当作为主模块运行时执行示例代码
 if __name__ == "__main__":
-    # 创建多路径进化器
-    multi_evolver = MolecularEvolutionExpansion("CC")
-    
-    print("初始分子: CC")
-    print("生成多条进化路径...")
-    
-    # 生成10条不同的进化路径，每条5步
-    paths = multi_evolver.generate_multiple_paths(
-        num_paths=10, 
-        steps_per_path=5,
-        diversity_threshold=0.8
-    )
-    
-    # 分析多样性
-    diversity = multi_evolver.analyze_path_diversity(paths)
-    print(f"\n多样性分析:")
-    print(f"  多样性分数: {diversity['diversity_score']:.3f}")
-    print(f"  唯一分子数: {diversity['unique_molecules']}")
-    print(f"  总路径数: {diversity['total_paths']}")
-    print(f"  平均路径长度: {diversity['average_path_length']:.2f}")
-    
-    # 显示前3条路径
-    print(f"\n前3条进化路径:")
-    for i, path in enumerate(paths[:3]):
-        print(f"\n路径 {i + 1}:")
-        print(f"  最终分子: {path['final_smiles']}")
-        print(f"  路径长度: {path['path_length']} 步")
+    # 检查是否提供了命令行参数
+    if len(sys.argv) > 1:
+        # 如果有参数，使用CLI模式
+        main()
+    else:
+        # 否则运行原有的示例代码
+        # 创建多路径进化器
+        multi_evolver = MolecularEvolutionExpansion("CC")
         
-        for step in path["steps"][:3]:  # 显示前3步
-            print(f"    步骤 {step['step']}: {step['operation']} -> {step['smiles']}")
-        if len(path["steps"]) > 3:
-            print(f"    ... 还有 {len(path['steps']) - 3} 步")
-    
-    # 生成进化树
-    print(f"\n生成进化树...")
-    evolution_tree = multi_evolver.generate_evolution_tree(max_depth=3, max_branching=2)
-    print(f"进化树包含 {len(evolution_tree['nodes'])} 个节点和 {len(evolution_tree['edges'])} 条边")
+        print("初始分子: CC")
+        print("生成多条进化路径...")
+        
+        # 生成10条不同的进化路径，每条5步
+        paths = multi_evolver.generate_multiple_paths(
+            num_paths=10, 
+            steps_per_path=5,
+            diversity_threshold=0.8
+        )
+        
+        # 分析多样性
+        diversity = multi_evolver.analyze_path_diversity(paths)
+        print(f"\n多样性分析:")
+        print(f"  多样性分数: {diversity['diversity_score']:.3f}")
+        print(f"  唯一分子数: {diversity['unique_molecules']}")
+        print(f"  总路径数: {diversity['total_paths']}")
+        print(f"  平均路径长度: {diversity['average_path_length']:.2f}")
+        
+        # 显示前3条路径
+        print(f"\n前3条进化路径:")
+        for i, path in enumerate(paths[:3]):
+            print(f"\n路径 {i + 1}:")
+            print(f"  最终分子: {path['final_smiles']}")
+            print(f"  路径长度: {path['path_length']} 步")
+            
+            for step in path["steps"][:3]:  # 显示前3步
+                print(f"    步骤 {step['step']}: {step['operation']} -> {step['smiles']}")
+            if len(path["steps"]) > 3:
+                print(f"    ... 还有 {len(path['steps']) - 3} 步")
+        
+        # 生成进化树
+        print(f"\n生成进化树...")
+        evolution_tree = multi_evolver.generate_evolution_tree(max_depth=3, max_branching=2)
+        print(f"进化树包含 {len(evolution_tree['nodes'])} 个节点和 {len(evolution_tree['edges'])} 条边")
+else:
+    # 当作为模块导入时，提供main函数
+    pass
