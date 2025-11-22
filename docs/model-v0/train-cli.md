@@ -52,18 +52,19 @@ CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --epochs 200 -lr 0.0001 --data
 
 ```bash
 CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --max-pairs 30000 --target-property homo_change_pct -lr 0.0001 --epochs 300 --batch-size 256
-CUDA_VISIBLE_DEVICES=4 python mol_evo/train_v0.py --max-pairs 30000 --target-property lumo_change -lr 0.0001 --epochs 200 --batch-size 512
+CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --max-pairs 30000 --target-property homo_change -lr 0.0001 --epochs 300 --batch-size 256
+CUDA_VISIBLE_DEVICES=4 python mol_evo/train_v0.py --max-pairs 30000 --target-property lumo_change_pct -lr 0.0001 --epochs 200 --batch-size 512
 CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --max-pairs 30000 --target-property gap_change_pct -lr 0.0001 --epochs 200 --batch-size 512
 ```
 
-# Train - new step-1 8w
+# Train - new step-1 12w
 
 ```bash
-CUDA_VISIBLE_DEVICES=4 python mol_evo/train_v0.py --epochs 200 -lr 0.0001 --data-file /home/data2/rhj/project/mol_editor/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct.json --max-pairs 80000 --batch-size 256
+CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --epochs 200 -lr 0.0001 --data-file /home/data2/rhj/project/mol_editor/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct.json --max-pairs 80000 --batch-size 64 --target-property homo_change_pct
 ```
 
 ## Test
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 python mol_evo/train_v0.py --epochs 50 -lr 0.001 --data-file /home/data2/rhj/project/mol_editor/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct.json --max-pairs 2000
+CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --epochs 50 -lr 0.001 --data-file /home/data2/rhj/project/mol_editor/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct.json --max-pairs 2000 --batch-size 32
 ```

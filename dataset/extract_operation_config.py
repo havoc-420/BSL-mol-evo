@@ -96,7 +96,7 @@ def save_config_to_yaml(config: Dict[str, Any], yaml_file_path: str):
 def main():
     """主函数"""
     parser = argparse.ArgumentParser(description='从分子进化数据集中提取操作类型和原子类型配置')
-    parser.add_argument('input', help='输入JSON文件路径')
+    parser.add_argument('-i', '--input', help='输入JSON文件路径')
     parser.add_argument('-o', '--output', help='输出YAML配置文件路径（可选，默认与输入文件同目录）')
     
     args = parser.parse_args()

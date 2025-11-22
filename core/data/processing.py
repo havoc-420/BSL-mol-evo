@@ -544,8 +544,10 @@ def prepare_edge_features_with_position(row: pd.Series, property_stats: Dict[str
         except Exception as e:
             print(f"生成位置编码时出错: {e}")
             position_features = [0.0] * (pe_dim + 1)
-    else:
+    elif include_position_encoding:
+        # include_position_encoding=True但没有有效位置时，仍然添加占位符
         position_features = [0.0] * (pe_dim + 1)
+    # 当include_position_encoding=False时不添加任何位置特征
     
     # 属性变化特征（可选）
     property_changes = []
@@ -568,9 +570,15 @@ def prepare_edge_features_with_position(row: pd.Series, property_stats: Dict[str
     
     # 组合所有特征
     if include_property_changes:
-        edge_features = atom_features + op_features + position_features + property_changes
+        if include_position_encoding:
+            edge_features = atom_features + op_features + position_features + property_changes
+        else:
+            edge_features = atom_features + op_features + property_changes
     else:
-        edge_features = atom_features + op_features + position_features
+        if include_position_encoding:
+            edge_features = atom_features + op_features + position_features
+        else:
+            edge_features = atom_features + op_features
     
     return edge_features
 
@@ -597,7 +605,7 @@ def prepare_edge_features(row: pd.Series, property_stats: Dict[str, Tuple[float,
         row, 
         property_stats, 
         include_property_changes, 
-        include_position_encoding=include_position_encoding,
+        include_position_encoding,
         pe_dim=pe_dim
     )
 

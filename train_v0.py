@@ -202,6 +202,31 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         train_idx, val_idx, test_idx = split_data_indices(len(from_data_list), 0.8, 0.1, 0.1, seed)
         log_dataset_split_info(logger, train_idx, val_idx, test_idx)
         
+        # 保存数据集索引到文件
+        # 创建索引保存目录
+        data_dir = os.path.dirname(data_file)
+        indices_dir = os.path.join(data_dir, 'dataset_indices')
+        os.makedirs(indices_dir, exist_ok=True)
+        
+        # 保存索引到文件
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        indices_filename = f"indices_{timestamp}_seed{seed}.json"
+        indices_filepath = os.path.join(indices_dir, indices_filename)
+        
+        indices_data = {
+            "timestamp": timestamp,
+            "seed": seed,
+            "total_samples": len(from_data_list),
+            "train_indices": train_idx,
+            "val_indices": val_idx,
+            "test_indices": test_idx
+        }
+        
+        with open(indices_filepath, 'w') as f:
+            json.dump(indices_data, f, indent=2)
+        
+        logger.info(f"数据集索引已保存到: {indices_filepath}")
+        
         # 检查训练集是否为空
         if len(train_idx) == 0:
             logger.error("训练集为空，请检查数据划分")
@@ -301,9 +326,9 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         
         # TAG 定义优化器和损失函数
         # INFO -1 AdamW
-        # optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-2)
+        optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-2)
         # INFO -2 Adam
-        optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
+        # optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
         # 从配置中获取min_lr参数，如果不存在则默认为1e-8
         min_lr = model_config.get('min_lr', 1e-8) if model_config and 'min_lr' in model_config else \
                 (model_config or {}).get('train', {}).get('min_lr', 1e-6)

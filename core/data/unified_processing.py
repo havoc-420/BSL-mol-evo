@@ -45,7 +45,8 @@ except ImportError:
     )
 
 def prepare_edge_features(row: pd.Series, property_stats: Dict[str, Tuple[float, float]] = None,
-                         include_property_changes: bool = False) -> List[float]:
+                         include_property_changes: bool = False,
+                         include_position_encoding: bool = True) -> List[float]:
     """
     准备边特征向量（重写自processing.py中的同名函数，保持接口一致）
     
@@ -58,7 +59,7 @@ def prepare_edge_features(row: pd.Series, property_stats: Dict[str, Tuple[float,
         边特征向量
     """
     # 使用processing.py中的实现
-    return processing_prepare_edge_features(row, property_stats, include_property_changes)
+    return processing_prepare_edge_features(row, property_stats, include_property_changes, include_position_encoding)
 
 
 def load_json_data(json_file: str) -> pd.DataFrame:
@@ -172,7 +173,7 @@ def build_molecule_evolution_dataset_v0(
             to_data_list.append(to_data)
             
             # TAG 准备演化操作边特征 (操作信息特征 Hav)
-            edge_feat = prepare_edge_features(row, property_stats, include_property_changes=False)
+            edge_feat = prepare_edge_features(row, property_stats, include_property_changes=False, include_position_encoding=False)
             edge_attr_list.append(edge_feat)
             
             # 准备目标属性特征
