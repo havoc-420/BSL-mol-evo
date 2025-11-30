@@ -11,6 +11,7 @@ from rdkit.Chem import AllChem
 from rdkit.Chem.rdchem import HybridizationType, BondType
 import os
 import hashlib
+import threading
 from torch_scatter import scatter_add  # 导入 scatter_add 函数
 
 # 导入本地模块
@@ -20,9 +21,11 @@ from .fragnet_data.features import FeaturesEXP
 # 定义需要的全局变量和辅助函数
 try:
     ETKDG_PARAMS = AllChem.ETKDGv3()
+    ETKDG_PARAMS.randomSeed = 1234
     ETKDG_VERSION_USED = "ETKDGv3"
 except AttributeError:
     ETKDG_PARAMS = AllChem.ETKDGv2()
+    ETKDG_PARAMS.randomSeed = 1234
     ETKDG_VERSION_USED = "ETKDGv2 (fallback)"
 
 bonds = {BondType.SINGLE: 0, BondType.DOUBLE: 1, BondType.TRIPLE: 2, BondType.AROMATIC: 3}
@@ -340,10 +343,16 @@ class MoleculeCache:
         self.logger = logger
         self.cache_dir = self._get_cache_dir()
         self.cache_file = os.path.join(self.cache_dir, f"{self.cache_name}.pt")
+        print(f"[MoleculeCache] Using cache file: {self.cache_file}")
         self.cache_data = self._load_cache()
         self.cache_hits = 0
         self.cache_misses = 0
         self.added_count = 0  # 新增计数器
+        self.failed_smiles = set()  # 用于记录处理失败的 SMILES
+        
+        # 添加线程锁以支持多线程操作
+        self._lock = threading.RLock()
+        self._save_counter = 0  # 独立的保存计数器，避免多线程环境下的竞争条件
     
     def _generate_cache_name_from_csv(self, csv_file):
         """
@@ -400,8 +409,18 @@ class MoleculeCache:
         if os.path.exists(self.cache_file):
             try:
                 cache_data = torch.load(self.cache_file)
-                self._log(f"加载缓存文件: {self.cache_file}，包含 {len(cache_data)} 个分子")
-                return cache_data
+                # 如果缓存文件包含失败记录，则加载这些记录
+                if isinstance(cache_data, dict):
+                    if 'success' in cache_data:
+                        # 新格式：分别存储成功和失败的记录
+                        self.failed_smiles = set(cache_data.get('failed', []))
+                        return cache_data['success']
+                    else:
+                        # 旧格式：只有成功记录
+                        return cache_data
+                else:
+                    # 不是字典格式，返回空字典
+                    return {}
             except Exception as e:
                 self._log(f"加载缓存文件失败: {e}，将创建新的缓存")
                 return {}
@@ -412,7 +431,12 @@ class MoleculeCache:
         保存缓存到文件
         """
         try:
-            torch.save(self.cache_data, self.cache_file)
+            # 同时保存成功和失败的记录
+            save_data = {
+                'success': self.cache_data,
+                'failed': list(self.failed_smiles)
+            }
+            torch.save(save_data, self.cache_file)
         except Exception as e:
             self._log(f"保存缓存文件失败: {e}")
     
@@ -427,18 +451,31 @@ class MoleculeCache:
         Returns:
             tuple or None: 分子图结构数据，如果不存在则返回None
         """
-        # 创建唯一的键
-        types_str = str(sorted(types.items()))
-        key = f"{smile}_{types_str}"
-        
-        if key in self.cache_data:
-            self.cache_hits += 1
-            cached_item = self.cache_data[key]
-            return (cached_item['x'], cached_item['z'], cached_item['pos'], 
-                   cached_item['edge_index'], cached_item['edge_attr'])
-        else:
-            self.cache_misses += 1
-            return None
+        # 检查是否之前处理失败
+        with self._lock:
+            if smile in self.failed_smiles:
+                self.cache_misses += 1  # 这也算作一种缓存命中（命中了失败记录）
+                return None
+                
+            # 创建唯一的键
+            types_str = str(sorted(types.items()))
+            key = f"{smile}_{types_str}"
+            
+            if key in self.cache_data:
+                self.cache_hits += 1
+                cached_item = self.cache_data[key]
+                # 确保所有必要字段都存在
+                required_fields = ['x', 'z', 'pos', 'edge_index', 'edge_attr']
+                if all(field in cached_item for field in required_fields):
+                    return (cached_item['x'], cached_item['z'], cached_item['pos'], 
+                           cached_item['edge_index'], cached_item['edge_attr'])
+                else:
+                    # 数据不完整，从缓存中移除
+                    del self.cache_data[key]
+                    return None
+            else:
+                self.cache_misses += 1
+                return None
     
     def put(self, smile, types, data):
         """
@@ -447,24 +484,34 @@ class MoleculeCache:
         Args:
             smile (str): SMILES字符串
             types (dict): 原子类型映射字典
-            data (tuple): 分子图结构数据
+            data (tuple): 分子图结构数据，如果为None则表示处理失败
         """
         # 创建唯一的键
         types_str = str(sorted(types.items()))
         key = f"{smile}_{types_str}"
         
-        # 存储数据
-        self.cache_data[key] = {
-            'x': data[0],
-            'z': data[1], 
-            'pos': data[2],
-            'edge_index': data[3],
-            'edge_attr': data[4]
-        }
-        
-        # 保存到文件
-        self._save_cache()
-        self.added_count += 1
+        # 使用线程锁保护共享资源
+        with self._lock:
+            if data is None or data[0] is None:
+                # 处理失败的SMILES，添加到失败集合中
+                self.failed_smiles.add(smile)
+            else:
+                # 存储成功的数据
+                self.cache_data[key] = {
+                    'x': data[0],
+                    'z': data[1], 
+                    'pos': data[2],
+                    'edge_index': data[3],
+                    'edge_attr': data[4]
+                }
+                # 从失败列表中移除（如果存在）
+                self.failed_smiles.discard(smile)
+            
+            # 每增加10个分子保存一次缓存，避免过于频繁的磁盘I/O
+            self.added_count += 1
+            self._save_counter += 1
+            if self._save_counter % 10 == 0:
+                self._save_cache()
     
     def get_stats(self):
         """
@@ -473,16 +520,18 @@ class MoleculeCache:
         Returns:
             dict: 包含缓存命中率等统计信息
         """
-        total_requests = self.cache_hits + self.cache_misses
-        hit_rate = self.cache_hits / total_requests if total_requests > 0 else 0
-        return {
-            'hits': self.cache_hits,
-            'misses': self.cache_misses,
-            'total': total_requests,
-            'hit_rate': hit_rate,
-            'cache_size': len(self.cache_data),
-            'added_count': self.added_count
-        }
+        with self._lock:
+            total_requests = self.cache_hits + self.cache_misses
+            hit_rate = self.cache_hits / total_requests if total_requests > 0 else 0
+            return {
+                'hits': self.cache_hits,
+                'misses': self.cache_misses,
+                'total': total_requests,
+                'hit_rate': hit_rate,
+                'cache_size': len(self.cache_data),
+                'added_count': self.added_count,
+                'failed_count': len(self.failed_smiles)
+            }
     
     def process_smiles(self, smile, types):
         """
@@ -503,8 +552,7 @@ class MoleculeCache:
         # 缓存未命中，计算分子图结构
         result = smile_to_graph_xyz(smile, types)
         
-        # 如果计算成功，存入缓存
-        if result[0] is not None:
-            self.put(smile, types, result)
+        # 将结果存入缓存（无论成功还是失败）
+        self.put(smile, types, result)
         
         return result

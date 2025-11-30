@@ -472,6 +472,7 @@ def prepare_position_encoding_features(row: pd.Series, pe_dim: int = 8) -> List[
     return position_features
 
 
+# INFO 准备边特征向量
 def prepare_edge_features_with_position(row: pd.Series, property_stats: Dict[str, Tuple[float, float]] = None, 
                                        include_property_changes: bool = False, 
                                        include_position_encoding: bool = True,
@@ -491,7 +492,7 @@ def prepare_edge_features_with_position(row: pd.Series, property_stats: Dict[str
     """
     # 从JSON数据中提取操作信息
     if 'operations' in row and isinstance(row['operations'], list) and len(row['operations']) > 0:
-        operation = row['operations'][0]  # 取第一个操作
+        operation = row['operations'][0]  # 取第一个操作    # UPDATE 如何支持多步操作；
         atom_symbol = operation.get('atom', '')
         operation_type = operation.get('operation', 'unknown')
         position_str = operation.get('position', '')  # 获取操作位置字符串
@@ -549,7 +550,7 @@ def prepare_edge_features_with_position(row: pd.Series, property_stats: Dict[str
         position_features = [0.0] * (pe_dim + 1)
     # 当include_position_encoding=False时不添加任何位置特征
     
-    # 属性变化特征（可选）
+    # 属性变化特征（可选）【无用】
     property_changes = []
     if include_property_changes:
         property_names = ['A_change', 'B_change', 'C_change', 'mu_change', 'alpha_change',

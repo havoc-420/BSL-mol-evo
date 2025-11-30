@@ -309,7 +309,8 @@ def select_models_interactively(model_files):
         return []
 
 
-def load_property_stats(model_dir):
+def load_property_stats(model_dir, config_file_name="training_process.json"):
+# def load_property_stats(model_dir, config_file_name="training_config.json"):
     """
     从模型目录加载属性统计信息
     
@@ -319,7 +320,7 @@ def load_property_stats(model_dir):
     Returns:
         属性统计信息字典
     """
-    stats_file = os.path.join(model_dir, "training_data.json")
+    stats_file = os.path.join(model_dir, config_file_name)
     if os.path.exists(stats_file):
         with open(stats_file, 'r') as f:
             data = json.load(f)
@@ -330,11 +331,13 @@ def load_property_stats(model_dir):
                 print("警告: 训练数据中未找到属性统计信息，将无法进行反标准化")
                 return None
     else:
-        print(f"警告: 未找到训练数据文件 {stats_file}，将无法进行反标准化")
+        print(f"[load_property_stats]警告: 未找到训练数据文件 {stats_file}，将无法进行反标准化")
+        import traceback
+        traceback.print_exc()
         return None
 
 
-def load_training_params(model_dir):
+def load_training_params(model_dir, config_file_name = "training_config.json"):
     """
     从模型目录加载训练参数
     
@@ -344,7 +347,7 @@ def load_training_params(model_dir):
     Returns:
         训练参数字典
     """
-    stats_file = os.path.join(model_dir, "training_data.json")
+    stats_file = os.path.join(model_dir, config_file_name)
     if os.path.exists(stats_file):
         with open(stats_file, 'r') as f:
             data = json.load(f)

@@ -16,6 +16,11 @@ from rdkit import DataStructs
 from typing import List, Tuple, Dict, Optional, Any
 from tqdm import tqdm
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed, CancelledError
+import multiprocessing
+from threading import Lock
+import signal
+import sys
 
 # 导入必要的本地模块
 try:
@@ -43,6 +48,18 @@ except ImportError:
         load_operation_config,
         get_atom_types
     )
+
+# 全局变量用于处理中断信号
+interrupted = False
+
+def signal_handler(signum, frame):
+    """处理中断信号"""
+    global interrupted
+    interrupted = True
+    print("\n正在中断处理过程，请稍候...")
+
+# 注册信号处理器
+signal.signal(signal.SIGINT, signal_handler)
 
 def prepare_edge_features(row: pd.Series, property_stats: Dict[str, Tuple[float, float]] = None,
                          include_property_changes: bool = False,
@@ -94,6 +111,68 @@ def load_json_data(json_file: str) -> pd.DataFrame:
     return pd.DataFrame(data)
 
 
+def process_single_row(idx, row, is_fragnet_model, cache, types, target_property, property_stats, logger):
+    """
+    处理单行数据的函数，用于多线程处理
+    
+    Args:
+        idx: 行索引
+        row: 数据行
+        is_fragnet_model: 是否为FragNet模型
+        cache: 分子缓存实例
+        types: 原子类型映射
+        target_property: 目标属性名
+        property_stats: 属性统计信息
+        logger: 日志记录器
+        
+    Returns:
+        处理结果元组或None
+    """
+    global interrupted
+    if interrupted:
+        return None
+        
+    try:
+        # TAG smiles data generation
+        if is_fragnet_model:
+            # 使用 FragNet 数据处理函数
+            from_data = smile_to_fragnet_features(row['smiles_from'])
+            to_data = smile_to_fragnet_features(row['smiles_to'])
+        else:
+            # 使用标准的 smiles_to_graph_data 函数
+            from_data = smiles_to_graph_data(row['smiles_from'], cache)
+            to_data = smiles_to_graph_data(row['smiles_to'], cache)
+            
+        # 检查数据是否有效
+        if from_data is None or to_data is None:
+            message = f"跳过第{idx}行分子对: {row['smiles_from']} -> {row['smiles_to']} (数据为None)"
+            if logger:
+                logger.warning(message)
+            return None
+            
+        # TAG 准备演化操作边特征 (操作信息特征 Hav)
+        edge_feat = prepare_edge_features(row, property_stats, include_property_changes=False, include_position_encoding=False)
+        
+        # 准备目标属性特征
+        target_value = 0.0
+        if target_property in row and not pd.isna(row[target_property]):
+            value = row[target_property]
+            # 标准化目标属性值
+            if target_property in property_stats:
+                mean, std = property_stats[target_property]
+                if std > 0:
+                    value = (value - mean) / std
+            target_value = value
+            
+        return (from_data, to_data, edge_feat, target_value)
+        
+    except Exception as e:
+        message = f"处理第{idx}行分子对时发生错误: {row['smiles_from']} -> {row['smiles_to']}, 错误: {str(e)}"
+        if logger:
+            logger.warning(message)
+        return None
+
+
 def build_molecule_evolution_dataset_v0(
     data_file: str, 
     max_pairs: int = None, 
@@ -115,6 +194,8 @@ def build_molecule_evolution_dataset_v0(
     Returns:
         起始分子数据列表、目标分子数据列表、边特征张量、目标属性张量和属性统计信息
     """
+    global interrupted
+    
     # 检查是否是 FragNet 模型类型
     is_fragnet_model = model_type and "frag" in model_type.lower()
     # 检查是否是 Equiformer 模型类型
@@ -149,49 +230,104 @@ def build_molecule_evolution_dataset_v0(
     edge_attr_list = []
     target_features_list = []  # 添加用于收集目标特征的列表
     
-    # 直接逐行处理数据（移除了多线程）
-    for idx, row in tqdm(df.iterrows(), total=len(df), desc="构建图数据缓存[v0]"):
+    # 使用多线程处理数据
+    max_workers = min(10, multiprocessing.cpu_count())  # 最多使用10个线程
+    print(f"使用 {max_workers} 个线程进行并行处理")
+    
+    # 创建线程锁以确保线程安全
+    cache_lock = Lock()
+    
+    def thread_safe_smiles_to_graph_data(smile, cache):
+        """线程安全的smiles_to_graph_data包装函数"""
+        if interrupted:
+            return None
+        with cache_lock:
+            return smiles_to_graph_data(smile, cache)
+    
+    # 替换原来的smiles_to_graph_data函数为线程安全版本
+    import functools
+    original_smiles_to_graph_data = smiles_to_graph_data
+    smiles_to_graph_data_thread_safe = functools.partial(thread_safe_smiles_to_graph_data, cache=cache)
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # 提交所有任务
+        future_to_idx = {
+            executor.submit(
+                process_single_row, 
+                idx, 
+                row, 
+                is_fragnet_model, 
+                cache, 
+                types, 
+                target_property, 
+                property_stats, 
+                logger
+            ): idx 
+            for idx, row in df.iterrows()
+        }
+        
+        # 处理完成的任务
+        completed_count = 0
         try:
-            # TAG smiles data generation
-            if is_fragnet_model:
-                # 使用 FragNet 数据处理函数
-                from_data = smile_to_fragnet_features(row['smiles_from'])
-                to_data = smile_to_fragnet_features(row['smiles_to'])
-            else:
-                # 使用标准的 smiles_to_graph_data 函数
-                from_data = smiles_to_graph_data(row['smiles_from'], cache)
-                to_data = smiles_to_graph_data(row['smiles_to'], cache)
-                
-            # 检查数据是否有效
-            if from_data is None or to_data is None:
-                message = f"跳过第{idx}行分子对: {row['smiles_from']} -> {row['smiles_to']} (数据为None)"
-                if logger:
-                    logger.warning(message)
-                continue
-                
-            from_data_list.append(from_data)
-            to_data_list.append(to_data)
-            
-            # TAG 准备演化操作边特征 (操作信息特征 Hav)
-            edge_feat = prepare_edge_features(row, property_stats, include_property_changes=False, include_position_encoding=False)
-            edge_attr_list.append(edge_feat)
-            
-            # 准备目标属性特征
-            if target_property in row and not pd.isna(row[target_property]):
-                value = row[target_property]
-                # 标准化目标属性值
-                if target_property in property_stats:
-                    mean, std = property_stats[target_property]
-                    if std > 0:
-                        value = (value - mean) / std
-                target_features_list.append([value])
-            else:
-                target_features_list.append([0.0])
-                
-        except Exception as e:
-            message = f"处理第{idx}行分子对时发生错误: {row['smiles_from']} -> {row['smiles_to']}, 错误: {str(e)}"
-            if logger:
-                logger.warning(message)
+            # 创建 tqdm 进度条
+            pbar = tqdm(total=len(df), desc="构建图数据缓存[v0]")
+            while future_to_idx:
+                if interrupted:
+                    print("收到中断信号，正在取消未完成的任务...")
+                    for f in future_to_idx.keys():
+                        f.cancel()
+                    break
+                    
+                # 获取已完成的任务
+                done_futures = [f for f in list(future_to_idx.keys()) if f.done()]
+                if not done_futures:
+                    # 没有完成的任务，短暂等待
+                    import time
+                    time.sleep(0.1)
+                    continue
+                    
+                for future in done_futures:
+                    try:
+                        result = future.result(timeout=30)  # 设置超时时间
+                        if result is not None:
+                            from_data, to_data, edge_feat, target_value = result
+                            from_data_list.append(from_data)
+                            to_data_list.append(to_data)
+                            edge_attr_list.append(edge_feat)
+                            target_features_list.append([target_value])
+                    except CancelledError:
+                        # 任务被取消
+                        pass
+                    except Exception as e:
+                        print(f"处理任务时发生异常: {e}")
+                        
+                    # 更新完成计数和进度条
+                    completed_count += 1
+                    idx = future_to_idx.pop(future)
+                    
+                    # 定期更新进度条描述，显示缓存命中信息
+                    if completed_count % 10 == 0 or completed_count == len(df):  # 每10个任务或完成时更新
+                        stats = cache.get_stats()
+                        pbar.set_description(f"构建图数据缓存[v0] 命中:{stats['hits']}/{stats['total']}")
+                        
+                    pbar.update(1)
+                    
+                    if completed_count % 100 == 0:  # 每处理100个任务检查一次中断状态
+                        if interrupted:
+                            print("收到中断信号，正在取消未完成的任务...")
+                            for f in future_to_idx.keys():
+                                f.cancel()
+                            break
+                            
+            pbar.close()
+        except KeyboardInterrupt:
+            print("检测到键盘中断，正在取消所有任务...")
+            for f in future_to_idx.keys():
+                f.cancel()
+            # 等待任务取消完成
+            executor.shutdown(wait=False)
+            print("任务取消完成")
+            sys.exit(1)
     
     if len(edge_attr_list) > 0:
         edge_attrs = torch.FloatTensor(np.array(edge_attr_list))
@@ -212,8 +348,84 @@ def build_molecule_evolution_dataset_v0(
     else:
         print(message)
     
+    # 确保缓存被完全保存
+    if hasattr(cache, '_save_cache'):
+        cache._save_cache()
+    
+    if interrupted:
+        print("处理被用户中断")
+        sys.exit(1)
+        
     return from_data_list, to_data_list, edge_attrs, target_features, property_stats
 
+
+def process_single_row_unified(idx, row, is_fragnet_model, is_equiformer_model, cache, types, target_property, property_stats, logger):
+    """
+    处理单行数据的函数，用于多线程处理（统一版本）
+    
+    Args:
+        idx: 行索引
+        row: 数据行
+        is_fragnet_model: 是否为FragNet模型
+        is_equiformer_model: 是否为Equiformer模型
+        cache: 分子缓存实例
+        types: 原子类型映射
+        target_property: 目标属性名
+        property_stats: 属性统计信息
+        logger: 日志记录器
+        
+    Returns:
+        处理结果元组或None
+    """
+    global interrupted
+    if interrupted:
+        return None
+        
+    try:
+        # 根据模型类型选择适当的数据处理函数
+        if is_fragnet_model:
+            # 使用 FragNet 数据处理函数
+            from_data = smile_to_fragnet_features(row['smiles_from'])
+            to_data = smile_to_fragnet_features(row['smiles_to'])
+        elif is_equiformer_model:
+            # 对于Equiformer模型，暂时使用指纹方法
+            from_fp = smiles_to_fingerprint(row['smiles_from'])
+            to_fp = smiles_to_fingerprint(row['smiles_to'])
+            from_data = Data(x=torch.FloatTensor(from_fp).unsqueeze(0))
+            to_data = Data(x=torch.FloatTensor(to_fp).unsqueeze(0))
+        else:
+            # 使用标准的 smiles_to_graph_data 函数
+            from_data = smiles_to_graph_data(row['smiles_from'], cache)
+            to_data = smiles_to_graph_data(row['smiles_to'], cache)
+            
+        # 检查数据是否有效
+        if from_data is None or to_data is None:
+            message = f"跳过第{idx}行分子对: {row['smiles_from']} -> {row['smiles_to']} (数据为None)"
+            if logger:
+                logger.warning(message)
+            return None
+            
+        # 准备边特征
+        edge_feat = prepare_edge_features(row, property_stats, include_property_changes=False)
+        
+        # 准备目标属性特征
+        target_value = 0.0
+        if target_property in row and not pd.isna(row[target_property]):
+            value = row[target_property]
+            # 标准化目标属性值
+            if target_property in property_stats:
+                mean, std = property_stats[target_property]
+                if std > 0:
+                    value = (value - mean) / std
+            target_value = value
+            
+        return (from_data, to_data, edge_feat, target_value)
+        
+    except Exception as e:
+        message = f"处理第{idx}行分子对时发生错误: {row['smiles_from']} -> {row['smiles_to']}, 错误: {str(e)}"
+        if logger:
+            logger.warning(message)
+        return None
 
 
 def build_molecule_evolution_dataset_unified(
@@ -238,6 +450,8 @@ def build_molecule_evolution_dataset_unified(
     Returns:
         起始分子数据列表、目标分子数据列表、边特征张量、目标属性张量和属性统计信息
     """
+    global interrupted
+    
     # 检查模型类型
     is_fragnet_model = model_type and "frag" in model_type.lower()
     is_equiformer_model = model_type and "equiformer" in model_type.lower()
@@ -288,55 +502,68 @@ def build_molecule_evolution_dataset_unified(
     edge_attr_list = []
     target_features_list = []
     
-    # 直接逐行处理数据（移除了多线程）
-    for idx, row in tqdm(df.iterrows(), total=len(df), desc="构建图数据缓存[unified]"):
+    # 使用多线程处理数据
+    max_workers = min(10, multiprocessing.cpu_count())  # 最多使用10个线程
+    print(f"使用 {max_workers} 个线程进行并行处理")
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # 提交所有任务
+        future_to_idx = {
+            executor.submit(
+                process_single_row_unified,
+                idx,
+                row,
+                is_fragnet_model,
+                is_equiformer_model,
+                cache,
+                types,
+                target_property,
+                property_stats,
+                logger
+            ): idx
+            for idx, row in df.iterrows()
+        }
+        
+        # 处理完成的任务
+        completed_count = 0
         try:
-            # 根据模型类型选择适当的数据处理函数
-            if is_fragnet_model:
-                # 使用 FragNet 数据处理函数
-                from_data = smile_to_fragnet_features(row['smiles_from'])
-                to_data = smile_to_fragnet_features(row['smiles_to'])
-            elif is_equiformer_model:
-                # 对于Equiformer模型，暂时使用指纹方法
-                from_fp = smiles_to_fingerprint(row['smiles_from'])
-                to_fp = smiles_to_fingerprint(row['smiles_to'])
-                from_data = Data(x=torch.FloatTensor(from_fp).unsqueeze(0))
-                to_data = Data(x=torch.FloatTensor(to_fp).unsqueeze(0))
-            else:
-                # 使用标准的 smiles_to_graph_data 函数
-                from_data = smiles_to_graph_data(row['smiles_from'], cache)
-                to_data = smiles_to_graph_data(row['smiles_to'], cache)
-                
-            # 检查数据是否有效
-            if from_data is None or to_data is None:
-                message = f"跳过第{idx}行分子对: {row['smiles_from']} -> {row['smiles_to']} (数据为None)"
-                if logger:
-                    logger.warning(message)
-                continue
-                
-            from_data_list.append(from_data)
-            to_data_list.append(to_data)
-            
-            # 准备边特征
-            edge_feat = prepare_edge_features(row, property_stats, include_property_changes=include_property_changes)
-            edge_attr_list.append(edge_feat)
-            
-            # 准备目标属性特征
-            if target_property in row and not pd.isna(row[target_property]):
-                value = row[target_property]
-                # 标准化目标属性值
-                if target_property in property_stats:
-                    mean, std = property_stats[target_property]
-                    if std > 0:
-                        value = (value - mean) / std
-                target_features_list.append([value])
-            else:
-                target_features_list.append([0.0])
-                
-        except Exception as e:
-            message = f"处理第{idx}行分子对时发生错误: {row['smiles_from']} -> {row['smiles_to']}, 错误: {str(e)}"
-            if logger:
-                logger.warning(message)
+            for future in tqdm(as_completed(future_to_idx), total=len(df), desc="构建图数据缓存[unified]"):
+                if interrupted:
+                    print("收到中断信号，正在取消未完成的任务...")
+                    for f in future_to_idx.keys():
+                        f.cancel()
+                    break
+                    
+                try:
+                    result = future.result(timeout=30)  # 设置超时时间
+                    if result is not None:
+                        from_data, to_data, edge_feat, target_value = result
+                        from_data_list.append(from_data)
+                        to_data_list.append(to_data)
+                        edge_attr_list.append(edge_feat)
+                        target_features_list.append([target_value])
+                except CancelledError:
+                    # 任务被取消
+                    pass
+                except Exception as e:
+                    print(f"处理任务时发生异常: {e}")
+                    
+                completed_count += 1
+                if completed_count % 100 == 0:  # 每处理100个任务检查一次中断状态
+                    if interrupted:
+                        print("收到中断信号，正在取消未完成的任务...")
+                        for f in future_to_idx.keys():
+                            f.cancel()
+                        break
+                        
+        except KeyboardInterrupt:
+            print("检测到键盘中断，正在取消所有任务...")
+            for f in future_to_idx.keys():
+                f.cancel()
+            # 等待任务取消完成
+            executor.shutdown(wait=False)
+            print("任务取消完成")
+            sys.exit(1)
     
     if len(edge_attr_list) > 0:
         edge_attrs = torch.FloatTensor(np.array(edge_attr_list))
@@ -357,7 +584,15 @@ def build_molecule_evolution_dataset_unified(
             logger.info(message)
         else:
             print(message)
+        
+        # 确保缓存被完全保存
+        if hasattr(cache, '_save_cache'):
+            cache._save_cache()
     
+    if interrupted:
+        print("处理被用户中断")
+        sys.exit(1)
+        
     return from_data_list, to_data_list, edge_attrs, target_features, property_stats
 
 

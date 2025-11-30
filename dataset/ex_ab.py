@@ -9,10 +9,11 @@ from rdkit.Chem import AllChem
 from rdkit import DataStructs
 from rdkit.Chem import Descriptors
 import warnings
+import json
 warnings.filterwarnings('ignore')
 
 class QM9OptimizationPairs:
-    def __init__(self, data_path=None, qm9_root=None, csv_path=None):
+    def __init__(self, data_path=None, qm9_root=None, csv_path=None, indices_path=None):
         """
         初始化 QM9 优化对提取器
         
@@ -20,6 +21,7 @@ class QM9OptimizationPairs:
         - data_path: QM9 数据文件路径，如果为None则使用示例数据
         - qm9_root: QM9 数据集根目录，用于直接从 PyTorch Geometric 数据集加载
         - csv_path: CSV文件路径，包含SMILES和相关属性
+        - indices_path: 索引文件路径，用于过滤测试集
         """
         if csv_path:
             self.df = pd.read_csv(csv_path)
@@ -31,9 +33,36 @@ class QM9OptimizationPairs:
             # 创建示例 QM9 数据（实际使用时请替换为真实的 QM9 数据）
             self.df = self._create_sample_data()
         
+        # 如果提供了索引文件路径，则加载测试集索引并过滤数据
+        if indices_path:
+            self._filter_test_set(indices_path)
+        
         # 预处理分子
         self._preprocess_molecules()
     
+    def _filter_test_set(self, indices_path):
+        """
+        根据索引文件过滤测试集数据
+        
+        参数:
+        - indices_path: 索引文件路径
+        """
+        try:
+            with open(indices_path, 'r') as f:
+                indices_data = json.load(f)
+            
+            test_indices = indices_data.get('test_indices', [])
+            if not test_indices:
+                print("警告: 索引文件中未找到测试集索引")
+                return
+            
+            # 过滤数据框，只保留测试集索引对应的数据
+            self.df = self.df.iloc[test_indices].reset_index(drop=True)
+            print(f"已过滤数据集，仅保留测试集 {len(test_indices)} 个样本")
+            
+        except Exception as e:
+            print(f"加载索引文件时出错: {e}")
+
     def _load_qm9_dataset(self, root_dir):
         """
         从 PyTorch Geometric QM9 数据集加载数据
@@ -468,8 +497,11 @@ def main():
     # 从 PyTorch Geometric QM9 数据集加载数据
     # extractor = QM9OptimizationPairs(qm9_root='raw-data/QM9')
     
-    # 从CSV文件加载数据
-    extractor = QM9OptimizationPairs(csv_path='mol_evo/dataset/data/qm9_smiles_all_atoms.csv')
+    # 从CSV文件加载数据，并使用索引文件过滤测试集
+    extractor = QM9OptimizationPairs(
+        csv_path='mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.json',
+        indices_path='mol_evo/dataset/data/dataset_indices/indices_20251122_213847_seed42.json'
+    )
     
     # 为所有属性创建优化对
     homo_pairs, lumo_pairs, gap_pairs = extractor.create_all_optimization_pairs()

@@ -58,7 +58,7 @@ def prepare_single_prediction_data(smiles_from, smiles_to, to_atom_symbol, opera
     to_data = smiles_to_graph_data(smiles_to, cache)
     
     if from_data is None or to_data is None:
-        raise ValueError("无法将SMILES转换为图数据")
+        raise ValueError(f"无法将SMILES转换为图数据, {smiles_from}, {smiles_to}")
     
     # 构建边特征（不含属性变化）
     edge_feat = prepare_edge_features(df.iloc[0], property_stats, include_property_changes=False)

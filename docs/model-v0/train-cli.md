@@ -60,7 +60,7 @@ CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --max-pairs 30000 --target-pro
 # Train - new step-1 12w
 
 ```bash
-CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --epochs 200 -lr 0.0001 --data-file /home/data2/rhj/project/mol_editor/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct.json --max-pairs 80000 --batch-size 64 --target-property homo_change_pct
+CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --epochs 200 -lr 0.0001 --data-file /home/data2/rhj/project/mol_editor/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct.json --max-pairs 80000 --batch-size 64 --target-property lumo_change_pct
 ```
 
 ## Test

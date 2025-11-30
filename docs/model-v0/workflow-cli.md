@@ -79,7 +79,7 @@ CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py \
   --epochs 200 \
   --learning-rate 0.0001 \
   --data-file '/home/data2/rhj/project/mol_editor/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.json' \
-  --max-pairs 12000 \
+  --max-pairs 120000 \
   --batch-size 512 \
   --target-property gap_change_pct
 ```

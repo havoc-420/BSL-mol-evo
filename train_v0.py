@@ -227,6 +227,9 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
         
         logger.info(f"数据集索引已保存到: {indices_filepath}")
         
+        # TEST only for data processing
+        # return "数据处理完成"
+        
         # 检查训练集是否为空
         if len(train_idx) == 0:
             logger.error("训练集为空，请检查数据划分")

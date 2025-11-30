@@ -1,0 +1,24 @@
+{
+  "timestamp": "2025-11-23T01:39:52.794669",
+  "model_params": {
+    "node_feature_dim": 11,
+    "edge_feature_dim": 11,
+    "output_dim": 1
+  },
+  "model-train-config": {
+    "model_type": "MoleculeEvolutionVisnetLinearPredictor",
+    "data_file": "/home/data2/rhj/project/mol_editor/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.json",
+    "max_pairs": 12000,
+    "epochs": 200,
+    "seed": 42,
+    "target_property": "homo_change",
+    "batch_size": 512,
+    "device": "cpu",
+    "optimizer": "Adam",
+    "learning_rate": 0.0001,
+    "weight_decay": 1e-05,
+    "scheduler": "ReduceLROnPlateau",
+    "loss_function": "L1Loss",
+    "patience_limit": 50
+  }
+}

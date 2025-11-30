@@ -106,11 +106,11 @@ class MoleculeOptimizer:
         self.target_property = training_params.get('target_property', 'mu_change') if training_params else 'mu_change'
         
         # 加载属性统计信息
-        self.property_stats = load_property_stats(self.model_dir)
+        self.property_stats = load_property_stats(self.model_dir, onfig_file_name="model_config.json")
         
         # 从训练数据中加载模型参数
         model_params = {}
-        training_data_path = os.path.join(self.model_dir, "training_data.json")
+        training_data_path = os.path.join(self.model_dir, "model_config.json")
         if os.path.exists(training_data_path):
             with open(training_data_path, 'r') as f:
                 training_data = json.load(f)
