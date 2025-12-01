@@ -8,6 +8,7 @@ import os
 import torch
 import pandas as pd
 import numpy as np
+import json
 from tqdm import tqdm
 
 # 设置项目根目录路径
@@ -32,10 +33,30 @@ except ImportError as e:
     print("无法导入工具模块", e)
     raise
 
+def load_model_config(model_dir):
+    """
+    从模型目录加载模型配置信息
+    
+    Args:
+        model_dir: 模型目录路径
+        
+    Returns:
+        模型配置字典
+    """
+    config_file = os.path.join(model_dir, "model_config.json")
+    if os.path.exists(config_file):
+        with open(config_file, 'r') as f:
+            config = json.load(f)
+            return config
+    else:
+        print(f"模型目录中未找到配置文件 {config_file}")
+        return None
+
 
 def get_target_property(model_dir):
     """
     从模型目录的训练数据中获取目标属性名称
+    优先从model_config.json获取，其次尝试从training_process.json获取，最后尝试其他方式
     
     Args:
         model_dir: 模型目录路径
@@ -43,12 +64,39 @@ def get_target_property(model_dir):
     Returns:
         目标属性名称
     """
+    # 1. 首先尝试从model_config.json获取
+    config_file = os.path.join(model_dir, "model_config.json")
+    if os.path.exists(config_file):
+        try:
+            with open(config_file, 'r') as f:
+                config = json.load(f)
+                if 'target_property' in config:
+                    return config['target_property']
+        except Exception as e:
+            print(f"读取model_config.json时出错: {e}")
+    
+    # 2. 其次尝试从training_process.json获取
+    process_file = os.path.join(model_dir, "training_process.json")
+    if os.path.exists(process_file):
+        try:
+            with open(process_file, 'r') as f:
+                data = json.load(f)
+                # 从property_stats中获取第一个属性作为目标属性
+                if 'property_stats' in data and isinstance(data['property_stats'], dict):
+                    # 返回property_stats中的第一个键作为目标属性
+                    for prop in data['property_stats'].keys():
+                        return prop
+        except Exception as e:
+            print(f"读取training_process.json时出错: {e}")
+    
+    # 3. 尝试从load_training_params获取
     training_params = load_training_params(model_dir)
     if training_params and 'target_property' in training_params:
         return training_params['target_property']
-    else:
-        # 默认返回mu_change以保持向后兼容
-        return 'mu_change'
+    
+    # 4. 默认返回mu_change以保持向后兼容
+    print("无法从训练数据中获取目标属性名称，使用默认值 'mu_change'")
+    return 'mu_change'
 
 
 def predict_property_changes(model_path, model_dir, smiles_from, smiles_to, to_atom_symbol, operation_type, prediction_mode='denormalized'):
@@ -74,41 +122,71 @@ def predict_property_changes(model_path, model_dir, smiles_from, smiles_to, to_a
     from_data, to_data, edge_attr, property_stats = prepare_single_prediction_data(
         smiles_from, smiles_to, to_atom_symbol, operation_type, model_dir)
     
+    # 添加严格的数据验证
+    if from_data is None or to_data is None:
+        raise ValueError("分子图数据为None")
+    
+    # 检查必要的图属性
+    for data in [from_data, to_data]:
+        if not hasattr(data, 'x') or data.x is None:
+            raise ValueError("分子数据不完整，缺少节点特征x")
+        if not hasattr(data, 'edge_index') or data.edge_index is None:
+            raise ValueError("分子数据不完整，缺少边索引")
+        if not hasattr(data, 'edge_attr') or data.edge_attr is None:
+            raise ValueError("分子数据不完整，缺少边属性")
+    
+    # 从配置文件加载维度参数
+    config = load_model_config(model_dir)
+    
+    if config and 'model_params' in config:
+        # 从配置文件获取维度参数
+        node_feature_dim = config['model_params'].get('node_feature_dim', 11)
+        edge_feature_dim = config['model_params'].get('edge_feature_dim', 16)
+        print(f"从配置文件加载维度参数: node_feature_dim={node_feature_dim}, edge_feature_dim={edge_feature_dim}")
+    else:
+        # 使用默认值并发出警告
+        print("无法从配置文件加载维度参数，使用默认值")
+        node_feature_dim = 11
+        edge_feature_dim = 16
+    
     # 根据模型目录动态导入相应的模型类
     model = None
     if "visnet" in model_dir.lower():
         from mol_evo.core.models.v0.visnet_linear_linear import MoleculeEvolutionVisnetLinearPredictor
         model = MoleculeEvolutionVisnetLinearPredictor(
-            node_feature_dim=11,      # v0模型节点特征维度
-            edge_feature_dim=15,      # 边特征维度
-            hidden_dims=[128, 256, 256],
-            output_dim=1              # v0模型只预测单个属性
+            node_feature_dim=node_feature_dim,      # 模型节点特征维度
+            edge_feature_dim=edge_feature_dim,      # 边特征维度
+            hidden_dims=config['model_params'].get('hidden_dims', [128, 256, 256]) if config and 'model_params' in config else [128, 256, 256],
+            output_dim=config['model_params'].get('output_dim', 1) if config and 'model_params' in config else 1              # 预测属性数量
         )
     else:
         # 默认使用GCN模型
         from mol_evo.core.models.v0.gcn_linear_linear import MoleculeEvolutionGCNLinearPredictor
         model = MoleculeEvolutionGCNLinearPredictor(
-            node_feature_dim=11,      # v0模型节点特征维度
-            edge_feature_dim=11,      # 边特征维度（5原子类型 + 6操作类型）
-            hidden_dim=128,
-            output_dim=1,             # v0模型只预测单个属性
-            num_layers=3
+            node_feature_dim=node_feature_dim,      # 模型节点特征维度
+            edge_feature_dim=config['model_params'].get('edge_feature_dim', 11) if config and 'model_params' in config else 11,      # 边特征维度
+            hidden_dim=config['model_params'].get('hidden_dim', 128) if config and 'model_params' in config else 128,
+            output_dim=config['model_params'].get('output_dim', 1) if config and 'model_params' in config else 1,             # 预测属性数量
+            num_layers=config['model_params'].get('num_layers', 3) if config and 'model_params' in config else 3
         )
     
     # 加载模型权重
     model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
     
-    # # TEST 添加调试日志，输出模型参数的前一小部分
-    # print("Debug: 预测模型参数前10个值:")
-    # state_dict = model.state_dict()
-    # for name, param in list(state_dict.items())[:3]:  # 取前几个参数
-    #     values = param.flatten()[:10]  # 取前10个值
-    #     print(f"Debug: 参数 {name} (shape: {param.shape}) => 前10个值: {values.tolist()}")
-    
     model.eval()
     
     # 进行预测
     with torch.no_grad():
+        # 确保输入数据是有效的张量
+        for data in [from_data, to_data]:
+            data.x = data.x.float()
+            data.edge_index = data.edge_index.long()
+            data.edge_attr = data.edge_attr.float()
+        
+        # 添加batch信息（对于单个分子，batch全为0）
+        from_data.batch = torch.zeros(from_data.x.size(0), dtype=torch.long)
+        to_data.batch = torch.zeros(to_data.x.size(0), dtype=torch.long)
+        
         predictions = model(from_data, to_data, edge_attr)
     
     # 获取预测结果

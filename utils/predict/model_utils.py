@@ -372,16 +372,31 @@ def is_model_normalized(model_dir):
     Returns:
         bool: 如果模型使用了标准化数据则返回True，否则返回False
     """
+    # 首先尝试从training_process.json获取标准化信息
+    process_file = os.path.join(model_dir, "training_process.json")
+    if os.path.exists(process_file):
+        with open(process_file, 'r') as f:
+            try:
+                data = json.load(f)
+                # 检查是否有property_stats信息
+                if 'property_stats' in data and data['property_stats']:
+                    return True
+            except Exception as e:
+                print(f"读取training_process.json时出错: {e}")
+    
+    # 兼容旧版：从training_data.json获取标准化信息
     stats_file = os.path.join(model_dir, "training_data.json")
     if os.path.exists(stats_file):
         with open(stats_file, 'r') as f:
-            data = json.load(f)
-            # 检查训练参数中是否启用了标准化
-            if 'training_params' in data and 'normalize' in data['training_params']:
-                return data['training_params']['normalize']
-            # 默认情况下，检查是否有属性统计信息
-            elif 'property_stats' in data and data['property_stats']:
-                return True
-            else:
-                return False
+            try:
+                data = json.load(f)
+                # 检查训练参数中是否启用了标准化
+                if 'training_params' in data and 'normalize' in data['training_params']:
+                    return data['training_params']['normalize']
+                # 检查是否有属性统计信息
+                elif 'property_stats' in data and data['property_stats']:
+                    return True
+            except Exception as e:
+                print(f"读取training_data.json时出错: {e}")
+    
     return False

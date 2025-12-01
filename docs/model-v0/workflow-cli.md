@@ -1,7 +1,8 @@
 # Data
 
 ## 生成 evo-pair data
-   // TODO
+
+// TODO
 
 ## calculate_property_changes: 补充属性变化
 
@@ -73,6 +74,7 @@ python extract_operation_config.py -i data/qm9-evo-pairs-step-1-with-properties-
 # Train
 
 // TODO 后面将 `mol_evo` 作为一个单独的项目，这里的 cli 相对路径当时有一些不合适。
+
 ```bash
 cd mol_evo/..
 CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py \
@@ -83,9 +85,22 @@ CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py \
   --batch-size 512 \
   --target-property gap_change_pct
 ```
+
 > 随后选择目标模型，或者使用 `--model-type` 指定模型类型。
 > 可选模型类型：
 > // TODO
 
-# Predict
+# Predict - model test
 
+## single test
+
+```bash
+python mol_evo/predict_v0.py \
+  --model-path /home/data2/rhj/project/mol_editor/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200/last.pth \
+  --model-dir /home/data2/rhj/project/mol_editor/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200 \
+  --smiles-from 'CC' \
+  --smiles-to 'CO' \
+  --atom-symbol '0' \
+  --operation-type 'replace_atom'
+
+```

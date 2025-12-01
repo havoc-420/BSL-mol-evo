@@ -225,8 +225,11 @@ class EvolutionTreeOptimizer:
                 return None
                 
             # 从操作详情中提取必要信息
-            operation_type = operation_details.get("operation", "unknown")
-            atom_symbol = operation_details.get("atom", "C")
+            operation_type = operation_details.get("type", "unknown")
+            operation_params = operation_details.get("params", {})
+            atom = operation_params.get("atom_symbol", "")
+            position = operation_params.get("atom_idx", "")
+            
             
             # 准备数据
             from_data = smiles_to_graph_data(smiles_from, self.molecule_cache)
@@ -237,30 +240,21 @@ class EvolutionTreeOptimizer:
                 return None
                 
             if to_data is None:
-                print(f"无法将目标分子转换为图数据: {smiles_to}")
+                print(f"[WARNING] 无法将目标分子转换为图数据: {smiles_to}")
                 return None
                 
             # 添加batch信息
             from_data = self._add_batch_info(from_data)
             to_data = self._add_batch_info(to_data)
             
-            # # 特别检查pos属性的维度
-            # if from_data.pos is not None and len(from_data.pos.shape) < 2:
-            #     print(f"图数据pos属性维度不正确: from={smiles_from}")
-            #     return None
-                
-            # if to_data.pos is not None and len(to_data.pos.shape) < 2:
-            #     print(f"图数据pos属性维度不正确: to={smiles_to}")
-            #     return None
-            
             # 构建边特征（不含属性变化）
             data_dict = {
                 'smiles_from': smiles_from,
                 'smiles_to': smiles_to,
                 'operations': [{
-                    "atom": "", # TODO
-                    "operation": "",
-                    "position": ""
+                    "atom": atom,
+                    "operation": operation_type,
+                    "position": str(position)
                 }]
             }
             
@@ -538,69 +532,23 @@ class EvolutionTreeOptimizer:
         # 记录开始时间
         start_time = time.time()
         
-        # 生成进化树
+        # 生成进化树，同时进行预测和剪枝
         evolver = MolecularEvolutionExpansion(initial_smiles, config_file=self.config_file)
-        evolution_tree = evolver.generate_expansion_tree(max_depth=max_depth, max_branching=max_branching)
+        
+        # 传入预测器和相关参数，实现生成过程中的预测和剪枝
+        evolution_tree = evolver.generate_expansion_tree(
+            max_depth=max_depth, 
+            max_branching=max_branching,
+            predictor=self,
+            optimization_direction=optimization_direction,
+            pruning_patience=pruning_patience,
+            initial_property_value=initial_property_value,
+            optimization_mode=self.optimization_mode
+        )
         
         # 更新尝试次数（这里简单地使用节点数量作为尝试次数）
         self.attempt_count = len(evolution_tree.get("nodes", {}))
         
-        # 为每个节点添加预测属性变化值
-        nodes = evolution_tree["nodes"]
-        
-        # 遍历所有节点，计算预测值
-        for node_id, node in nodes.items():
-            # 检查是否为根节点的直接子节点或者更深层的节点
-            if node["parent_id"] is not None and node["operation"] is not None:
-                # 获取父节点
-                parent_node = nodes[node["parent_id"]]
-                
-                # 预测属性变化
-                predicted_change = self.predict_property_change(
-                    parent_node["smiles"], 
-                    node["smiles"], 
-                    node["details"]
-                )
-                
-                # 添加预测值到节点
-                node["predicted_change"] = predicted_change
-                
-                # 计算当前节点的属性值（如果父节点有属性值）
-                if (predicted_change is not None and parent_node.get("property_value") is not None):
-                    # 根据优化模式计算新的属性值
-                    if self.target_property.endswith('_change_pct') or self.optimization_mode == 'pct':
-                        # 使用百分比变化模式
-                        # 训练集公式: change_pct = (to_val - from_val) / from_val
-                        # 反向计算: to_val = from_val * (1 + change_pct)
-                        old_value = parent_node["property_value"]
-                        new_value = old_value * (1 + predicted_change)
-                        node["property_value"] = new_value
-                    else:
-                        # 使用绝对差值模式
-                        node["property_value"] = parent_node["property_value"] + predicted_change
-                elif initial_property_value is not None and node["parent_id"] == "0":
-                    # 如果是直接从根节点演化出来的节点，且有初始属性值
-                    if self.target_property.endswith('_change_pct') or self.optimization_mode == 'pct':
-                        # 使用百分比变化模式
-                        new_value = initial_property_value * (1 + predicted_change)
-                        node["property_value"] = new_value
-                    else:
-                        # 使用绝对差值模式
-                        node["property_value"] = initial_property_value + predicted_change
-            else:
-                node["predicted_change"] = 0.0
-                if initial_property_value is not None:
-                    node["property_value"] = initial_property_value
-                else:
-                    node["property_value"] = None
-                
-        # 计算累计预测值
-        self._calculate_cumulative_changes(evolution_tree)
-        
-        # UPDATE 应用剪枝
-        if pruning_patience > 0:
-            self._prune_tree(evolution_tree, optimization_direction, pruning_patience)
-            
         # 记录结束时间
         end_time = time.time()
         self.generation_time = end_time - start_time
@@ -630,11 +578,11 @@ class EvolutionTreeOptimizer:
         print(f"优化模式: {'百分比变化' if self.optimization_mode == 'pct' else '绝对差值'}")
         print(f"生成耗时: {self.generation_time:.2f} 秒")
         print(f"尝试次数: {self.attempt_count}")
-        print("\n优化后的进化树结构:")
+        print("\n进化树结构:")
         
         # 打印根节点
         root_node = nodes["0"]
-        cumulative_change = root_node.get('cumulative_change', 0.0) or 0.0
+        # cumulative_change = root_node.get('cumulative_change', 0.0) or 0.0
         property_value = root_node.get('property_value')
         property_info = f", 属性值: {property_value:.6f}" if property_value is not None else ""
         print(f"└── {root_node['smiles']} (深度: {root_node['depth']}{property_info})")
@@ -668,7 +616,7 @@ class EvolutionTreeOptimizer:
             
             # 构造操作信息和预测值
             operation_info = f" [{child_node['operation']}]" if child_node['operation'] else ""
-            predicted_change = child_node.get('predicted_change', 0.0) or 0.0
+            predicted_change = child_node.get('accumulated_change', 0.0) or 0.0     # UPDATE
             # cumulative_change = child_node.get('cumulative_change', 0.0) or 0.0
             property_value = child_node.get('property_value')
             property_info = f", 属性值: {property_value:.6f}" if property_value is not None else ""

@@ -36,6 +36,7 @@ python -m mol_evo.core.evolution_optimizer \
   --initial-property-value 2.83270525932312 \
   --target-property lumo \
   --optimization-mode sub \
+  --direction decrease \
   --max-depth 2 \
   --max-branching 4 \
   --format text

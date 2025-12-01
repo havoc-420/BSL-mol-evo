@@ -682,7 +682,7 @@ class MolecularEvolutionExpansion:
                     operations.append({
                         "type": "add_atom",
                         "atom_symbol": element,
-                        "connect_to": atom_idx
+                        "atom_idx": atom_idx
                     })
         
         # 替换原子操作 - 对每个原子尝试替换为其他元素
@@ -694,8 +694,8 @@ class MolecularEvolutionExpansion:
                     if element != current_symbol:
                         operations.append({
                             "type": "replace_atom",
+                            "atom_symbol": element,
                             "atom_idx": atom_idx,
-                            "new_symbol": element
                         })
         
         # 成键操作 - 尝试在合适的原子间形成各种类型的键
@@ -703,53 +703,53 @@ class MolecularEvolutionExpansion:
         if "form_double_bond" in self.operation_type_keys:
             for i in range(len(atoms)):
                 for j in range(i+1, len(atoms)):
-                    atom1_idx = atoms[i].GetIdx()
+                    atom_idx = atoms[i].GetIdx()   # 为方便解析，这里把 atom_idx 命名为 atom_idx
                     atom2_idx = atoms[j].GetIdx()
                     
                     # 检查是否已经存在键
-                    bond = mol.GetBondBetweenAtoms(atom1_idx, atom2_idx)
+                    bond = mol.GetBondBetweenAtoms(atom_idx, atom2_idx)
                     if bond is None:
                         # 可以形成双键
                         operations.append({
                             "type": "form_double_bond",
-                            "atom1_idx": atom1_idx,
+                            "atom_idx": atom_idx,
                             "atom2_idx": atom2_idx
                         })
                     elif bond.GetBondType() == Chem.BondType.SINGLE:
                         # 单键可以升级为双键
                         operations.append({
                             "type": "form_double_bond",
-                            "atom1_idx": atom1_idx,
+                            "atom_idx": atom_idx,
                             "atom2_idx": atom2_idx
                         })
         
         if "form_triple_bond" in self.operation_type_keys:
             for i in range(len(atoms)):
                 for j in range(i+1, len(atoms)):
-                    atom1_idx = atoms[i].GetIdx()
+                    atom_idx = atoms[i].GetIdx()
                     atom2_idx = atoms[j].GetIdx()
                     
                     # 检查是否已经存在键
-                    bond = mol.GetBondBetweenAtoms(atom1_idx, atom2_idx)
+                    bond = mol.GetBondBetweenAtoms(atom_idx, atom2_idx)
                     if bond is None:
                         # 可以形成三键
                         operations.append({
                             "type": "form_triple_bond",
-                            "atom1_idx": atom1_idx,
+                            "atom_idx": atom_idx,
                             "atom2_idx": atom2_idx
                         })
                     elif bond.GetBondType() == Chem.BondType.SINGLE:
                         # 单键可以升级为三键
                         operations.append({
                             "type": "form_triple_bond",
-                            "atom1_idx": atom1_idx,
+                            "atom_idx": atom_idx,
                             "atom2_idx": atom2_idx
                         })
                     elif bond.GetBondType() == Chem.BondType.DOUBLE:
                         # 双键可以升级为三键
                         operations.append({
                             "type": "form_triple_bond",
-                            "atom1_idx": atom1_idx,
+                            "atom_idx": atom_idx,
                             "atom2_idx": atom2_idx
                         })
         
@@ -787,7 +787,7 @@ class MolecularEvolutionExpansion:
             # 其他操作保持不变
             return self._apply_other_operation(mol, operation_type, **kwargs)
     
-    def _add_atom_operation(self, mol: Chem.Mol, atom_symbol: str = None, connect_to: int = None) -> Optional[Chem.Mol]:
+    def _add_atom_operation(self, mol: Chem.Mol, atom_symbol: str = None, atom_idx: int = None) -> Optional[Chem.Mol]:
         """添加原子操作"""
         try:
             if atom_symbol is None:
@@ -799,8 +799,8 @@ class MolecularEvolutionExpansion:
             new_idx = new_mol.AddAtom(new_atom)
             
             # 如果指定了连接位置，则创建键
-            if connect_to is not None and connect_to < new_mol.GetNumAtoms() - 1:
-                new_mol.AddBond(connect_to, new_idx, Chem.BondType.SINGLE)
+            if atom_idx is not None and atom_idx < new_mol.GetNumAtoms() - 1:
+                new_mol.AddBond(atom_idx, new_idx, Chem.BondType.SINGLE)
             
             # 更新分子 - 内联 _sanitize_mol 方法的实现
             try:
@@ -836,23 +836,23 @@ class MolecularEvolutionExpansion:
             self._update_error_stats(e)
             return None
     
-    def _replace_atom_operation(self, mol: Chem.Mol, atom_idx: int = None, new_symbol: str = None) -> Optional[Chem.Mol]:
+    def _replace_atom_operation(self, mol: Chem.Mol, atom_idx: int = None, atom_symbol: str = None) -> Optional[Chem.Mol]:
         """替换原子操作"""
         try:
             if atom_idx is None:
                 atom_idx = random.randint(0, mol.GetNumAtoms() - 1)
             
-            if new_symbol is None:
+            if atom_symbol is None:
                 current_symbol = mol.GetAtomWithIdx(atom_idx).GetSymbol()
                 available_symbols = [a for a in self.common_atoms if a != current_symbol]
                 if available_symbols:
-                    new_symbol = random.choice(available_symbols)
+                    atom_symbol = random.choice(available_symbols)
                 else:
                     return None
             
             mol_copy = Chem.Mol(mol)
             atom = mol_copy.GetAtomWithIdx(atom_idx)
-            atom.SetAtomicNum(Chem.GetPeriodicTable().GetAtomicNumber(new_symbol))
+            atom.SetAtomicNum(Chem.GetPeriodicTable().GetAtomicNumber(atom_symbol))
             
             if self.validate_molecule(mol_copy):
                 return mol_copy
@@ -862,7 +862,7 @@ class MolecularEvolutionExpansion:
             self._update_error_stats(e)
             return None
     
-    def _form_bond_operation(self, mol: Chem.Mol, operation_type: str, atom1_idx: int = None, atom2_idx: int = None) -> Optional[Chem.Mol]:
+    def _form_bond_operation(self, mol: Chem.Mol, operation_type: str, atom_idx: int = None, atom2_idx: int = None) -> Optional[Chem.Mol]:
         """形成键操作"""
         try:
             # 获取可能的原子对
@@ -875,11 +875,11 @@ class MolecularEvolutionExpansion:
             if not possible_pairs:
                 return None
             
-            if atom1_idx is None or atom2_idx is None:
-                atom1_idx, atom2_idx = random.choice(possible_pairs)
+            if atom_idx is None or atom2_idx is None:
+                atom_idx, atom2_idx = random.choice(possible_pairs)
             
             # 检查是否已经存在键
-            if mol.GetBondBetweenAtoms(atom1_idx, atom2_idx):
+            if mol.GetBondBetweenAtoms(atom_idx, atom2_idx):
                 return None
             
             # 映射键类型
@@ -896,7 +896,7 @@ class MolecularEvolutionExpansion:
             bond_type = bond_type_map.get(operation_type, Chem.BondType.SINGLE)
             
             emol = Chem.EditableMol(mol)
-            emol.AddBond(atom1_idx, atom2_idx, bond_type)
+            emol.AddBond(atom_idx, atom2_idx, bond_type)
             new_mol = emol.GetMol()
             
             if self.validate_molecule(new_mol):
@@ -907,7 +907,7 @@ class MolecularEvolutionExpansion:
             self._update_error_stats(e)
             return None
     
-    def _break_bond_operation(self, mol: Chem.Mol, atom1_idx: int = None, atom2_idx: int = None) -> Optional[Chem.Mol]:
+    def _break_bond_operation(self, mol: Chem.Mol, atom_idx: int = None, atom2_idx: int = None) -> Optional[Chem.Mol]:
         """断开键操作"""
         try:
             bonds = []
@@ -917,14 +917,14 @@ class MolecularEvolutionExpansion:
             if not bonds:
                 return None
             
-            if atom1_idx is None or atom2_idx is None:
-                atom1_idx, atom2_idx = random.choice(bonds)
+            if atom_idx is None or atom2_idx is None:
+                atom_idx, atom2_idx = random.choice(bonds)
             
-            if not mol.GetBondBetweenAtoms(atom1_idx, atom2_idx):
+            if not mol.GetBondBetweenAtoms(atom_idx, atom2_idx):
                 return None
             
             emol = Chem.EditableMol(mol)
-            emol.RemoveBond(atom1_idx, atom2_idx)
+            emol.RemoveBond(atom_idx, atom2_idx)
             new_mol = emol.GetMol()
             
             if self.validate_molecule(new_mol):
@@ -956,17 +956,17 @@ class MolecularEvolutionExpansion:
             self._update_error_stats(e)
             return None
     
-    def _form_double_bond_operation(self, mol: Chem.Mol, atom1_idx: int = None, atom2_idx: int = None) -> Optional[Chem.Mol]:
+    def _form_double_bond_operation(self, mol: Chem.Mol, atom_idx: int = None, atom2_idx: int = None) -> Optional[Chem.Mol]:
         """形成双键操作"""
-        return self._form_bond_operation(mol, "form_double_bond", atom1_idx=atom1_idx, atom2_idx=atom2_idx)
+        return self._form_bond_operation(mol, "form_double_bond", atom_idx=atom_idx, atom2_idx=atom2_idx)
     
-    def _form_triple_bond_operation(self, mol: Chem.Mol, atom1_idx: int = None, atom2_idx: int = None) -> Optional[Chem.Mol]:
+    def _form_triple_bond_operation(self, mol: Chem.Mol, atom_idx: int = None, atom2_idx: int = None) -> Optional[Chem.Mol]:
         """形成三键操作"""
-        return self._form_bond_operation(mol, "form_triple_bond", atom1_idx=atom1_idx, atom2_idx=atom2_idx)
+        return self._form_bond_operation(mol, "form_triple_bond", atom_idx=atom_idx, atom2_idx=atom2_idx)
     
-    def _form_ring_operation(self, mol: Chem.Mol, atom1_idx: int = None, atom2_idx: int = None) -> Optional[Chem.Mol]:
+    def _form_ring_operation(self, mol: Chem.Mol, atom_idx: int = None, atom2_idx: int = None) -> Optional[Chem.Mol]:
         """形成环操作"""
-        return self._form_bond_operation(mol, "form_ring", atom1_idx=atom1_idx, atom2_idx=atom2_idx)
+        return self._form_bond_operation(mol, "form_ring", atom_idx=atom_idx, atom2_idx=atom2_idx)
     
     def _generate_single_path(self, steps: int, max_branching: int, 
                             diversity_threshold: float, seen_molecules: set) -> List[Dict]:
@@ -1048,21 +1048,21 @@ class MolecularEvolutionExpansion:
         # 1. 添加原子操作
         if "add_atom" in self.operation_type_keys:
             for atom_symbol in self.common_atoms:
-                for connect_to in range(mol.GetNumAtoms()):
+                for atom_idx in range(mol.GetNumAtoms()):
                     operations.append({
                         "type": "add_atom",
-                        "params": {"atom_symbol": atom_symbol, "connect_to": connect_to}
+                        "params": {"atom_symbol": atom_symbol, "atom_idx": atom_idx}
                     })
         
         # 2. 替换原子操作
         if "replace_atom" in self.operation_type_keys:
             for atom_idx in range(mol.GetNumAtoms()):
                 current_symbol = mol.GetAtomWithIdx(atom_idx).GetSymbol()
-                for new_symbol in self.common_atoms:
-                    if new_symbol != current_symbol:
+                for atom_symbol in self.common_atoms:
+                    if atom_symbol != current_symbol:
                         operations.append({
                             "type": "replace_atom",
-                            "params": {"atom_idx": atom_idx, "new_symbol": new_symbol}
+                            "params": {"atom_idx": atom_idx, "atom_symbol": atom_symbol}
                         })
         
         # 3. 键操作管理 - 正向操作（形成键）
@@ -1082,7 +1082,7 @@ class MolecularEvolutionExpansion:
                         if not mol.GetBondBetweenAtoms(i, j):
                             operations.append({
                                 "type": op_info["type"],
-                                "params": {"atom1_idx": i, "atom2_idx": j}
+                                "params": {"atom_idx": i, "atom2_idx": j}
                             })
         
         # 4. 键操作管理 - 反向操作（移除键）
@@ -1100,10 +1100,10 @@ class MolecularEvolutionExpansion:
                     if bond.GetBondType() == op_info["bond_type"]:
                         i, j = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
                         # 确保索引顺序一致
-                        atom1_idx, atom2_idx = sorted([i, j])
+                        atom_idx, atom2_idx = sorted([i, j])
                         operations.append({
                             "type": op_info["type"],
-                            "params": {"atom1_idx": atom1_idx, "atom2_idx": atom2_idx}
+                            "params": {"atom_idx": atom_idx, "atom2_idx": atom2_idx}
                         })
         
         # 5. 立体化学操作
@@ -1128,10 +1128,10 @@ class MolecularEvolutionExpansion:
             for bond in mol.GetBonds():
                 if bond.GetStereo() > Chem.BondStereo.STEREOANY:
                     i, j = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
-                    atom1_idx, atom2_idx = sorted([i, j])
+                    atom_idx, atom2_idx = sorted([i, j])
                     operations.append({
                         "type": "remove_add_stereo",
-                        "params": {"atom1_idx": atom1_idx, "atom2_idx": atom2_idx}
+                        "params": {"atom_idx": atom_idx, "atom2_idx": atom2_idx}
                     })
         
         return operations
@@ -1332,11 +1332,11 @@ class MolecularEvolutionExpansion:
                         "smiles_from": current_smiles,
                         "smiles_to": new_smiles,
                         "operations": [{
-                            "position": str(operation_params.get("connect_to", "")) if operation_type == "add_atom" 
+                            "position": str(operation_params.get("atom_idx", "")) if operation_type == "add_atom" 
                                       else str(operation_params.get("atom_idx", "")) if operation_type == "replace_atom"
-                                      else f"{operation_params.get('atom1_idx', '')}-{operation_params.get('atom2_idx', '')}" if "bond" in operation_type
+                                      else f"{operation_params.get('atom_idx', '')}-{operation_params.get('atom2_idx', '')}" if "bond" in operation_type
                                       else "",
-                            "atom": operation_params.get("atom_symbol", operation_params.get("new_symbol", "")),
+                            "atom": operation_params.get("atom_symbol", operation_params.get("atom_symbol", "")),
                             "operation": operation_type,
                             "from_atom": current_smiles
                         }]
@@ -1353,13 +1353,21 @@ class MolecularEvolutionExpansion:
         return all_results
 
     # MARK
-    def generate_expansion_tree(self, max_depth: int = 3, max_branching: int = 5) -> Dict:
+    def generate_expansion_tree(self, max_depth: int = 3, max_branching: int = 5, 
+                              predictor=None, optimization_direction='increase', 
+                              pruning_patience=3, initial_property_value=None, 
+                              optimization_mode=None) -> Dict:
         """
-        生成从初始分子开始的扩展树，用于分子优化迭代
+        生成从初始分子开始的扩展树，用于分子优化迭代，支持生成过程中的预测和剪枝
         
         Args:
             max_depth: 最大扩展深度
             max_branching: 每个节点的最大分支数
+            predictor: 预测器对象，用于预测属性变化
+            optimization_direction: 优化方向 ('increase' 或 'decrease')
+            pruning_patience: 剪枝耐心值，连续多少代没有改善就剪枝
+            initial_property_value: 初始分子的属性值
+            optimization_mode: 优化模式
             
         Returns:
             包含扩展树结构的字典
@@ -1376,7 +1384,9 @@ class MolecularEvolutionExpansion:
         # 使用队列进行广度优先搜索
         queue = deque[tuple[str, int, str]]([(self.initial_smiles, 0, "0")])  # (smiles, depth, parent_id) 根节点的parent_id设为"0"
         node_counter = 0
-        expansion_tree["nodes"][str(node_counter)] = {
+        
+        # 初始化根节点
+        root_node = {
             "id": str(node_counter),
             "smiles": self.initial_smiles,
             "depth": 0,
@@ -1384,16 +1394,59 @@ class MolecularEvolutionExpansion:
             "operation": None,
             "details": {}
         }
+        
+        # 如果提供了预测器，为根节点添加属性值
+        if predictor and initial_property_value is not None:
+            root_node["property_value"] = initial_property_value
+            root_node["property_change"] = 0.0
+            root_node["accumulated_change"] = 0.0
+        
+        expansion_tree["nodes"][str(node_counter)] = root_node
         node_counter += 1
         
-        seen_molecules = {self.initial_smiles}
+        seen_molecules = {self.initial_smiles}  # 存储已处理的分子
         
         while queue:
             current_smiles, depth, parent_id = queue.popleft()
             
+            # 获取当前节点
+            current_node = expansion_tree["nodes"].get(parent_id)
+            if not current_node:
+                continue
+            
             # 达到最大深度时停止扩展
             if depth >= max_depth:
                 continue
+                
+            # 检查是否需要剪枝该分支
+            if predictor and pruning_patience > 0:
+                # 从当前节点回溯到最近的属性改善点
+                should_prune = False
+                stagnation_count = 0
+                last_improvement_depth = depth
+                
+                # 计算该路径的连续未改善次数
+                current_backtrack_id = parent_id
+                while current_backtrack_id:
+                    backtrack_node = expansion_tree["nodes"].get(current_backtrack_id)
+                    if not backtrack_node:
+                        break
+                    
+                    # 如果该节点的属性变化是改善的，重置停滞计数
+                    if "property_change" in backtrack_node:
+                        change = backtrack_node["property_change"]
+                        if (optimization_direction == 'increase' and change > 0) or \
+                           (optimization_direction == 'decrease' and change < 0):
+                            last_improvement_depth = backtrack_node["depth"]
+                            break
+                    
+                    # 向前回溯
+                    current_backtrack_id = backtrack_node.get("parent_id")
+                
+                stagnation_count = depth - last_improvement_depth
+                if stagnation_count >= pruning_patience:
+                    print(f"剪枝分支，起始节点: {current_smiles}，连续未改善次数: {stagnation_count}")
+                    continue
                 
             # 解析当前分子
             current_mol = Chem.MolFromSmiles(current_smiles)
@@ -1402,25 +1455,53 @@ class MolecularEvolutionExpansion:
                 
             # 获取可能的操作
             possible_operations = self._get_possible_operations(current_mol)
-            random.shuffle(possible_operations)
             
-            branch_count = 0
-            for operation in possible_operations:
-                if branch_count >= max_branching:
-                    break
-                    
-                # 应用操作
-                operation_type = operation["type"]
-                operation_params = operation.get("params", {})
+            # 如果有预测器，先对每个可能的操作进行预测，然后根据预测结果排序
+            if predictor:
+                operations_with_predictions = []
+                for operation in possible_operations:
+                    try:
+                        # 应用操作生成新分子
+                        operation_type = operation["type"]
+                        operation_params = operation.get("params", {})
+                        new_mol = self._apply_operation(current_mol, operation_type, **operation_params)
+                        
+                        if new_mol and self.validate_molecule(new_mol):
+                            new_smiles = Chem.MolToSmiles(new_mol)
+                            
+                            # 预测属性变化
+                            # UPDATE 这里代码设计有些耦合。
+                            property_change = predictor.predict_property_change(current_smiles, new_smiles, operation)
+                            
+                            operations_with_predictions.append((operation, new_smiles, property_change))
+                    except Exception as e:
+                        # 记录错误但继续处理其他操作
+                        continue
                 
-                new_mol = self._apply_operation(current_mol, operation_type, **operation_params)
+                # 过滤掉预测值为None的操作; eg. 不合法的 SMILES，或者 rdkit 无法解析 3D 结构的。
+                operations_with_predictions = [(op, smiles, change) for op, smiles, change in operations_with_predictions if change is not None]
                 
-                if new_mol and self.validate_molecule(new_mol):
-                    new_smiles = Chem.MolToSmiles(new_mol)
+                # 根据优化方向排序操作
+                if optimization_direction == 'increase':
+                    operations_with_predictions.sort(key=lambda x: x[2], reverse=True)
+                else:
+                    operations_with_predictions.sort(key=lambda x: x[2])
+                
+                # 限制分支数量
+                branch_count = 0
+                for operation, new_smiles, property_change in operations_with_predictions:
+                    if branch_count >= max_branching:
+                        break
                     
                     # 避免重复分子
                     if new_smiles not in seen_molecules:
                         seen_molecules.add(new_smiles)
+                        
+                        # 计算累计变化和新属性值
+                        current_accumulated = current_node.get("accumulated_change", 0)
+                        new_accumulated = current_accumulated + property_change
+                        current_value = current_node.get("property_value", 0)
+                        new_value = current_value + property_change
                         
                         # 添加新节点
                         node_id = str(node_counter)
@@ -1429,22 +1510,27 @@ class MolecularEvolutionExpansion:
                             "smiles": new_smiles,
                             "depth": depth + 1,
                             "parent_id": parent_id,
-                            "operation": operation_type,
-                            "details": operation_params
+                            "operation": operation["type"],
+                            "details": operation.get("params", {}),
+                            "property_change": property_change,
+                            "accumulated_change": new_accumulated,
+                            "property_value": new_value
                         }
                         
                         # 添加边
                         expansion_tree["edges"].append({
                             "from": parent_id,
                             "to": node_id,
-                            "operation": operation_type,
-                            "details": operation_params
+                            "operation": operation["type"],
+                            "details": operation.get("params", {})
                         })
                         
                         # 添加到队列继续扩展
                         queue.append((new_smiles, depth + 1, node_id))
                         node_counter += 1
                         branch_count += 1
+            else:
+               raise NotImplementedError("[Molecular Evolver] 预测器未定义")
                         
         return expansion_tree
     
@@ -1531,11 +1617,11 @@ class MolecularEvolutionExpansion:
                     "smiles_from": expansion["smiles_from"],
                     "smiles_to": expansion["smiles_to"],
                     "operations": [{
-                        "position": str(expansion["details"].get("connect_to", "")) if expansion["operation"] == "add_atom" 
+                        "position": str(expansion["details"].get("atom_idx", "")) if expansion["operation"] == "add_atom" 
                                   else str(expansion["details"].get("atom_idx", "")) if expansion["operation"] == "replace_atom"
-                                  else f"{expansion['details'].get('atom1_idx', '')}-{expansion['details'].get('atom2_idx', '')}" if "bond" in expansion["operation"]
+                                  else f"{expansion['details'].get('atom_idx', '')}-{expansion['details'].get('atom2_idx', '')}" if "bond" in expansion["operation"]
                                   else "",
-                        "atom": expansion["details"].get("atom_symbol", expansion["details"].get("new_symbol", "")),
+                        "atom": expansion["details"].get("atom_symbol", expansion["details"].get("atom_symbol", "")),
                         "operation": expansion["operation"],
                         "from_atom": expansion["smiles_from"]
                     }]
@@ -1635,15 +1721,24 @@ class MolecularEvolutionExpansion:
             
             # 构造操作信息
             operation_info = f" [{child_node['operation']}]" if child_node['operation'] else ""
+            
+            # 构造变化值信息
+            change_info = ""  
+            if 'property_change' in child_node:
+                change_info = f" (变化: {child_node['property_change']:.4f})"
+            
+            # 构造属性值和深度信息
+            property_info = f", 属性值: {child_node['property_value']:.6f}" if 'property_value' in child_node else ""
             depth_info = f" (深度: {child_node['depth']})"
             
             # 打印当前子节点
             if is_last_child:
-                print(f"{prefix}└── {child_node['smiles']}{operation_info}{depth_info}")
+                print(f"{prefix}└── {child_node['smiles']}{operation_info}{change_info}{property_info}{depth_info}")
                 new_prefix = f"{prefix}    "
             else:
-                print(f"{prefix}├── {child_node['smiles']}{operation_info}{depth_info}")
+                print(f"{prefix}├── {child_node['smiles']}{operation_info}{change_info}{property_info}{depth_info}")
                 new_prefix = f"{prefix}│   "
+            
             
             # 递归打印孙节点
             self._print_tree_recursive(nodes, children_map, child_id, new_prefix, is_last_child)
@@ -1672,7 +1767,8 @@ class MolecularEvolutionExpansion:
         
         # 打印根节点
         root_node = nodes["0"]
-        print(f"└── {root_node['smiles']} (深度: {root_node['depth']})")
+        property_info = f", 属性值: {root_node['property_value']:.6f}" if 'property_value' in root_node else ""
+        print(f"└── {root_node['smiles']} (深度: {root_node['depth']}{property_info})")
         
         # 构建父子关系映射（基于边数据）
         children_map = {}

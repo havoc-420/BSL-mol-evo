@@ -10,23 +10,43 @@ from rdkit import DataStructs
 from rdkit.Chem import Descriptors
 import warnings
 import json
+from tqdm import tqdm
 warnings.filterwarnings('ignore')
 
 class QM9OptimizationPairs:
-    def __init__(self, data_path=None, qm9_root=None, csv_path=None, indices_path=None):
+    def __init__(self, data_path=None, qm9_root=None, csv_path=None, indices_path=None, smiles_properties_path=None):
         """
         初始化 QM9 优化对提取器
         
         参数:
         - data_path: QM9 数据文件路径，如果为None则使用示例数据
         - qm9_root: QM9 数据集根目录，用于直接从 PyTorch Geometric 数据集加载
-        - csv_path: CSV文件路径，包含SMILES和相关属性
+        - csv_path: CSV或JSON文件路径，包含SMILES和相关属性
         - indices_path: 索引文件路径，用于过滤测试集
+        - smiles_properties_path: 包含SMILES和实际属性值的CSV文件路径
         """
         if csv_path:
-            self.df = pd.read_csv(csv_path)
+            # 检查文件扩展名，支持CSV和JSON格式
+            if csv_path.endswith('.json'):
+                # 加载JSON文件并转换为DataFrame
+                with open(csv_path, 'r', encoding='utf-8') as f:
+                    json_data = json.load(f)
+                # 根据JSON数据结构创建DataFrame
+                self.df = pd.DataFrame(json_data)
+            else:
+                # 加载CSV文件
+                self.df = pd.read_csv(csv_path)
         elif data_path:
-            self.df = pd.read_csv(data_path)
+            # 检查文件扩展名，支持CSV和JSON格式
+            if data_path.endswith('.json'):
+                # 加载JSON文件并转换为DataFrame
+                with open(data_path, 'r', encoding='utf-8') as f:
+                    json_data = json.load(f)
+                # 根据JSON数据结构创建DataFrame
+                self.df = pd.DataFrame(json_data)
+            else:
+                # 加载CSV文件
+                self.df = pd.read_csv(data_path)
         elif qm9_root:
             self.df = self._load_qm9_dataset(qm9_root)
         else:
@@ -36,6 +56,34 @@ class QM9OptimizationPairs:
         # 如果提供了索引文件路径，则加载测试集索引并过滤数据
         if indices_path:
             self._filter_test_set(indices_path)
+        
+        # 从smiles_properties_path加载实际属性值
+        self.smiles_to_properties = {}
+        if smiles_properties_path:
+            try:
+                print(f"正在加载SMILES属性文件: {smiles_properties_path}")
+                props_df = pd.read_csv(smiles_properties_path)
+                # 创建SMILES到属性的映射
+                for _, row in props_df.iterrows():
+                    if 'smiles' in row:
+                        self.smiles_to_properties[row['smiles']] = row.to_dict()
+                print(f"成功加载 {len(self.smiles_to_properties)} 个分子的属性数据")
+            except Exception as e:
+                print(f"加载SMILES属性文件时出错: {e}")
+        else:
+            # 默认使用qm9_smiles_all_atoms.csv
+            default_path = '/home/data2/rhj/project/mol_editor/mol_evo/dataset/data/qm9_smiles_all_atoms.csv'
+            try:
+                print(f"正在加载默认SMILES属性文件: {default_path}")
+                props_df = pd.read_csv(default_path)
+                # 创建SMILES到属性的映射
+                for _, row in props_df.iterrows():
+                    if 'smiles' in row:
+                        self.smiles_to_properties[row['smiles']] = row.to_dict()
+                print(f"成功加载 {len(self.smiles_to_properties)} 个分子的属性数据")
+            except Exception as e:
+                print(f"加载默认SMILES属性文件时出错: {e}")
+                self.smiles_to_properties = {}
         
         # 预处理分子
         self._preprocess_molecules()
@@ -58,7 +106,7 @@ class QM9OptimizationPairs:
             
             # 过滤数据框，只保留测试集索引对应的数据
             self.df = self.df.iloc[test_indices].reset_index(drop=True)
-            print(f"已过滤数据集，仅保留测试集 {len(test_indices)} 个样本")
+            print(f"已过滤数据集，仅保留测试集 {len(test_indices)} 个样本 to {len(self.df)}")
             
         except Exception as e:
             print(f"加载索引文件时出错: {e}")
@@ -248,10 +296,35 @@ class QM9OptimizationPairs:
         lg = RDLogger.logger()
         lg.setLevel(RDLogger.CRITICAL)
         
-        # 添加进度条
-        from tqdm import tqdm
+        # 检查数据结构，支持两种格式：
+        # 1. 传统格式：每行包含一个smiles字段
+        # 2. JSON格式：每行包含smiles_from和smiles_to字段
         
-        for idx, smiles in enumerate(tqdm(self.df['smiles'], desc="处理分子")):
+        # 创建一个临时的smiles列表，用于处理
+        smiles_list = []
+        original_indices = []
+        
+        # 检查是否存在smiles_from和smiles_to字段（JSON格式）
+        if 'smiles_from' in self.df.columns and 'smiles_to' in self.df.columns:
+            print("检测到JSON格式数据，处理smiles_from和smiles_to字段")
+            # 收集所有的smiles_from和smiles_to
+            for idx, row in self.df.iterrows():
+                # 添加smiles_from
+                smiles_list.append(row['smiles_from'])
+                original_indices.append((idx, 'from'))
+                # 添加smiles_to
+                smiles_list.append(row['smiles_to'])
+                original_indices.append((idx, 'to'))
+        else:
+            # 使用传统的smiles字段
+            for idx, row in self.df.iterrows():
+                if 'smiles' in row:
+                    smiles_list.append(row['smiles'])
+                    original_indices.append((idx, None))
+        
+        print(f"开始处理 {len(smiles_list)} 个分子...")
+        
+        for idx, smiles in enumerate(tqdm(smiles_list, desc="处理分子")):
             mol = Chem.MolFromSmiles(smiles)
             if mol is not None:
                 # 过滤过于简单的分子（例如只含有氢原子或原子数少于3的分子）
@@ -334,87 +407,211 @@ class QM9OptimizationPairs:
         """
         
         pairs = []
-        n_valid = len(self.valid_indices)
         
         print(f"开始构建 {target_attr.upper()} 优化对...")
         print(f"优化方向: {improvement_direction}")
         
-        # 添加进度条
-        from tqdm import tqdm
-        pbar = tqdm(total=min(n_valid, total_max_pairs//max_pairs_per_seed), desc=f"构建{target_attr.upper()}对")
-        
-        for i in range(n_valid):
-            seed_idx = self.valid_indices[i]
-            seed_mol = self.molecules[i]
-            seed_value = self.df.iloc[seed_idx][target_attr]
+        # 检查是否为JSON格式数据（含有smiles_from和smiles_to字段）
+        if 'smiles_from' in self.df.columns and 'smiles_to' in self.df.columns:
+            print("使用JSON格式数据构建优化对，从CSV获取实际属性值...")
             
-            candidate_pairs = []
+            # 创建所有smiles的集合
+            all_smiles = set(self.df['smiles_from']).union(set(self.df['smiles_to']))
+            print(f"JSON数据中包含 {len(all_smiles)} 个不同的分子")
             
-            for j in range(n_valid):
-                if i == j:
-                    continue
+            # 计算在属性CSV中找到的分子数量
+            found_smiles_count = sum(1 for s in all_smiles if s in self.smiles_to_properties)
+            print(f"在属性CSV中找到 {found_smiles_count}/{len(all_smiles)} 个分子的属性值")
+            
+            # 添加进度条
+            from tqdm import tqdm
+            pbar = tqdm(total=min(len(self.df), total_max_pairs), desc=f"构建{target_attr.upper()}对")
+            
+            # 构建分子到索引的映射，用于快速查找
+            smiles_to_idx = {}
+            for idx, mol in enumerate(self.molecules):
+                smiles = Chem.MolToSmiles(mol)
+                if smiles not in smiles_to_idx:
+                    smiles_to_idx[smiles] = idx
+            
+            # 遍历JSON数据中的每一行
+            for _, row in self.df.iterrows():
+                # 获取分子对
+                smiles_from = row['smiles_from']
+                smiles_to = row['smiles_to']
+                
+                # 检查两个分子的属性是否都在CSV中
+                if smiles_from in self.smiles_to_properties and smiles_to in self.smiles_to_properties:
+                    # 从CSV中获取实际属性值
+                    a_property_value = self.smiles_to_properties[smiles_from].get(target_attr, 0.0)
+                    b_property_value = self.smiles_to_properties[smiles_to].get(target_attr, 0.0)
                     
-                candidate_idx = self.valid_indices[j]
-                candidate_value = self.df.iloc[candidate_idx][target_attr]
-                
-                # 检查属性改进
-                if improvement_direction == 'higher':
-                    improvement = candidate_value > seed_value
-                    improvement_amount = candidate_value - seed_value
-                else:  # 'lower'
-                    improvement = candidate_value < seed_value
-                    improvement_amount = seed_value - candidate_value
-                
-                if improvement and improvement_amount >= min_improvement:
+                    # 计算改进幅度
+                    improvement = b_property_value - a_property_value
+                    
                     # 计算相似度
-                    similarity = self.calculate_similarity(i, j)
+                    similarity = 0.0
+                    if smiles_from in smiles_to_idx and smiles_to in smiles_to_idx:
+                        similarity = self.calculate_similarity(
+                            smiles_to_idx[smiles_from], 
+                            smiles_to_idx[smiles_to]
+                        )
                     
-                    if similarity >= similarity_threshold:
-                        candidate_pairs.append({
-                            'j_index': j,
-                            'improvement_amount': improvement_amount,
-                            'similarity': similarity
-                        })
-            
-            # 为当前种子分子选择最佳候选
-            if candidate_pairs:
-                # 按改进幅度排序
-                candidate_pairs.sort(key=lambda x: x['improvement_amount'], reverse=True)
+                    # 根据优化方向过滤
+                    if improvement_direction == 'higher':
+                        is_improvement = improvement > min_improvement
+                    else:  # 'lower'
+                        is_improvement = improvement < -min_improvement
+                    
+                    if is_improvement and similarity >= similarity_threshold:
+                        # 构建优化对数据
+                        pair_data = {
+                            'A_smiles': smiles_from,
+                            'B_smiles': smiles_to,
+                            f'A_{target_attr}': a_property_value,
+                            f'B_{target_attr}': b_property_value,
+                            'improvement': improvement,
+                            'improvement_abs': abs(improvement),
+                            'similarity': similarity,
+                            'operations': row.get('operations', []),
+                            # 添加其他可能的属性
+                            'all_changes': {k: v for k, v in row.items() if k.endswith('_change')}
+                        }
+                        
+                        pairs.append(pair_data)
+                        
+                        if len(pairs) >= total_max_pairs:
+                            break
                 
-                # 选择前几个候选
-                selected = candidate_pairs[:max_pairs_per_seed]
+                pbar.update(1)
                 
-                for candidate in selected:
-                    j = candidate['j_index']
-                    candidate_idx = self.valid_indices[j]
-                    
-                    pair_data = {
-                        'A_smiles': self.df.iloc[seed_idx]['smiles'],
-                        'B_smiles': self.df.iloc[candidate_idx]['smiles'],
-                        f'A_{target_attr}': seed_value,
-                        f'B_{target_attr}': self.df.iloc[candidate_idx][target_attr],
-                        'improvement': self.df.iloc[candidate_idx][target_attr] - seed_value,
-                        'improvement_abs': candidate['improvement_amount'],
-                        'similarity': candidate['similarity'],
-                        'A_homo': self.df.iloc[seed_idx]['homo'],
-                        'A_lumo': self.df.iloc[seed_idx]['lumo'],
-                        'A_gap': self.df.iloc[seed_idx]['gap'],
-                        'B_homo': self.df.iloc[candidate_idx]['homo'],
-                        'B_lumo': self.df.iloc[candidate_idx]['lumo'],
-                        'B_gap': self.df.iloc[candidate_idx]['gap'],
-                    }
-                    
-                    pairs.append(pair_data)
-                    
-                    if len(pairs) >= total_max_pairs:
-                        break
+                if len(pairs) >= total_max_pairs:
+                    break
             
-            pbar.update(1)
+            pbar.close()
+        else:
+            # 使用传统方法构建优化对
+            print("使用传统方法构建优化对，从CSV获取实际属性值...")
+            n_valid = len(self.valid_indices)
             
-            if len(pairs) >= total_max_pairs:
-                break
-        
-        pbar.close()
+            # 添加进度条
+            from tqdm import tqdm
+            pbar = tqdm(total=min(n_valid, total_max_pairs//max_pairs_per_seed), desc=f"构建{target_attr.upper()}对")
+            
+            # 获取每个分子的SMILES
+            smiles_list = [Chem.MolToSmiles(mol) for mol in self.molecules]
+            
+            # 计算在CSV中找到属性值的分子数量
+            found_count = sum(1 for smiles in smiles_list if smiles in self.smiles_to_properties)
+            print(f"在传统模式中，{found_count}/{len(smiles_list)} 个分子在CSV中找到属性值")
+            
+            for i in range(n_valid):
+                seed_mol = self.molecules[i]
+                seed_smiles = smiles_list[i]
+                
+                # 从CSV中获取种子分子的值
+                if seed_smiles in self.smiles_to_properties:
+                    seed_value = self.smiles_to_properties[seed_smiles].get(target_attr, None)
+                else:
+                    # 回退到从原始数据获取
+                    seed_idx = self.valid_indices[i]
+                    seed_value = None
+                    if seed_idx < len(self.df) and target_attr in self.df.columns:
+                        seed_value = self.df.iloc[seed_idx][target_attr]
+                
+                if seed_value is None:
+                    pbar.update(1)
+                    continue
+                
+                candidate_pairs = []
+                
+                for j in range(n_valid):
+                    if i == j:
+                        continue
+                        
+                    candidate_mol = self.molecules[j]
+                    candidate_smiles = smiles_list[j]
+                    
+                    # 从CSV中获取候选分子的值
+                    if candidate_smiles in self.smiles_to_properties:
+                        candidate_value = self.smiles_to_properties[candidate_smiles].get(target_attr, None)
+                    else:
+                        # 回退到从原始数据获取
+                        candidate_idx = self.valid_indices[j]
+                        candidate_value = None
+                        if candidate_idx < len(self.df) and target_attr in self.df.columns:
+                            candidate_value = self.df.iloc[candidate_idx][target_attr]
+                    
+                    if candidate_value is None:
+                        continue
+                    
+                    # 检查属性改进
+                    if improvement_direction == 'higher':
+                        improvement = candidate_value > seed_value
+                        improvement_amount = candidate_value - seed_value
+                    else:  # 'lower'
+                        improvement = candidate_value < seed_value
+                        improvement_amount = seed_value - candidate_value
+                    
+                    if improvement and improvement_amount >= min_improvement:
+                        # 计算相似度
+                        similarity = self.calculate_similarity(i, j)
+                        
+                        if similarity >= similarity_threshold:
+                            candidate_pairs.append({
+                                'j_index': j,
+                                'improvement_amount': improvement_amount,
+                                'similarity': similarity
+                            })
+                
+                # 为当前种子分子选择最佳候选
+                if candidate_pairs:
+                    # 按改进幅度排序
+                    candidate_pairs.sort(key=lambda x: x['improvement_amount'], reverse=True)
+                    
+                    # 选择前几个候选
+                    selected = candidate_pairs[:max_pairs_per_seed]
+                    
+                    for candidate in selected:
+                        j = candidate['j_index']
+                        candidate_smiles = smiles_list[j]
+                        
+                        # 再次确保获取候选分子的值
+                        if candidate_smiles in self.smiles_to_properties:
+                            candidate_value = self.smiles_to_properties[candidate_smiles].get(target_attr, 0.0)
+                        else:
+                            candidate_idx = self.valid_indices[j]
+                            candidate_value = self.df.iloc[candidate_idx][target_attr] if candidate_idx < len(self.df) and target_attr in self.df.columns else 0.0
+                        
+                        # 构建对数据
+                        pair_data = {
+                            'A_smiles': seed_smiles,
+                            'B_smiles': candidate_smiles,
+                            f'A_{target_attr}': seed_value,
+                            f'B_{target_attr}': candidate_value,
+                            'improvement': candidate_value - seed_value,
+                            'improvement_abs': candidate['improvement_amount'],
+                            'similarity': candidate['similarity']
+                        }
+                        
+                        # 添加其他可能的属性（从CSV中获取）
+                        for attr in ['homo', 'lumo', 'gap']:
+                            if seed_smiles in self.smiles_to_properties:
+                                pair_data[f'A_{attr}'] = self.smiles_to_properties[seed_smiles].get(attr)
+                            if candidate_smiles in self.smiles_to_properties:
+                                pair_data[f'B_{attr}'] = self.smiles_to_properties[candidate_smiles].get(attr)
+                        
+                        pairs.append(pair_data)
+                        
+                        if len(pairs) >= total_max_pairs:
+                            break
+                
+                pbar.update(1)
+                
+                if len(pairs) >= total_max_pairs:
+                    break
+            
+            pbar.close()
         
         pairs_df = pd.DataFrame(pairs)
         
@@ -487,6 +684,196 @@ class QM9OptimizationPairs:
             pair = pairs_df.iloc[i]
             print(f"  {i+1}. A: {pair['A_smiles']} -> B: {pair['B_smiles']}")
             print(f"     改进: {pair['improvement_abs']:.3f} eV, 相似度: {pair['similarity']:.3f}")
+    
+    def create_test_smiles_optimization_pairs(self, target_attr,
+                                        improvement_direction='higher',
+                                        similarity_threshold=0.6,
+                                        min_improvement=0.05,
+                                        total_max_pairs=5000):
+        """
+        从test数据中获取smiles，使用笛卡尔积方式生成优化对
+        
+        参数:
+        - target_attr: 目标属性 ('homo', 'lumo', 'gap')
+        - improvement_direction: 'higher' 或 'lower'
+        - similarity_threshold: 分子相似度阈值
+        - min_improvement: 最小改进幅度
+        - total_max_pairs: 总最大对数
+        """
+        pairs = []
+        
+        print(f"开始从test数据构建 {target_attr.upper()} 优化对 (笛卡尔积方式)...")
+        print(f"优化方向: {improvement_direction}")
+        
+        # 确保我们有test数据
+        if not hasattr(self, 'test_df') or self.test_df.empty:
+            print("警告: 没有test数据，正在使用所有数据")
+            # 如果没有test数据，使用原始数据
+            smiles_list = []
+            for idx, row in self.df.iterrows():
+                if 'smiles' in row:
+                    smiles_list.append(row['smiles'])
+                elif 'smiles_from' in row and 'smiles_to' in row:
+                    smiles_list.append(row['smiles_from'])
+                    smiles_list.append(row['smiles_to'])
+        else:
+            # 从test数据中提取smiles
+            smiles_list = []
+            for idx, row in self.test_df.iterrows():
+                if 'smiles' in row:
+                    smiles_list.append(row['smiles'])
+                elif 'smiles_from' in row and 'smiles_to' in row:
+                    smiles_list.append(row['smiles_from'])
+                    smiles_list.append(row['smiles_to'])
+        
+        # 去重以避免重复计算
+        unique_smiles = list(set(smiles_list))
+        print(f"从test数据中找到 {len(unique_smiles)} 个不同的分子")
+        
+        # 计算在属性CSV中找到的分子数量
+        found_smiles_count = sum(1 for s in unique_smiles if s in self.smiles_to_properties)
+        print(f"在属性CSV中找到 {found_smiles_count}/{len(unique_smiles)} 个分子的属性值")
+        
+        # 过滤出在CSV中有属性值的分子
+        valid_smiles = [s for s in unique_smiles if s in self.smiles_to_properties]
+        print(f"使用 {len(valid_smiles)} 个在CSV中有属性值的分子进行笛卡尔积计算")
+        
+        # 计算分子到索引的映射，用于快速查找
+        smiles_to_idx = {}
+        valid_molecules = []
+        valid_fingerprints = []
+        
+        for idx, smiles in enumerate(valid_smiles):
+            mol = Chem.MolFromSmiles(smiles)
+            if mol is not None:
+                valid_molecules.append(mol)
+                fp = self._calculate_fingerprint(mol)
+                valid_fingerprints.append(fp)
+                smiles_to_idx[smiles] = len(valid_molecules) - 1
+        
+        print(f"成功处理 {len(valid_molecules)} 个有效分子")
+        
+        # 添加进度条
+        from tqdm import tqdm
+        total_combinations = len(valid_smiles) * (len(valid_smiles) - 1)
+        pbar = tqdm(total=min(total_combinations, total_max_pairs), desc=f"构建{target_attr.upper()}对")
+        
+        # 使用笛卡尔积生成所有可能的分子对
+        for i in range(len(valid_smiles)):
+            for j in range(len(valid_smiles)):
+                if i == j:
+                    continue
+                
+                smiles_from = valid_smiles[i]
+                smiles_to = valid_smiles[j]
+                
+                # 从CSV中获取实际属性值
+                a_property_value = self.smiles_to_properties[smiles_from].get(target_attr, 0.0)
+                b_property_value = self.smiles_to_properties[smiles_to].get(target_attr, 0.0)
+                
+                # 计算改进幅度
+                improvement = b_property_value - a_property_value
+                
+                # 根据优化方向过滤
+                if improvement_direction == 'higher':
+                    is_improvement = improvement > min_improvement
+                else:  # 'lower'
+                    is_improvement = improvement < -min_improvement
+                
+                # 计算相似度
+                similarity = 0.0
+                if smiles_from in smiles_to_idx and smiles_to in smiles_to_idx:
+                    similarity = DataStructs.TanimotoSimilarity(
+                        valid_fingerprints[smiles_to_idx[smiles_from]],
+                        valid_fingerprints[smiles_to_idx[smiles_to]]
+                    )
+                
+                if is_improvement and similarity >= similarity_threshold:
+                    # 构建优化对数据
+                    pair_data = {
+                        'A_smiles': smiles_from,
+                        'B_smiles': smiles_to,
+                        f'A_{target_attr}': a_property_value,
+                        f'B_{target_attr}': b_property_value,
+                        'improvement': improvement,
+                        'improvement_abs': abs(improvement),
+                        'similarity': similarity
+                    }
+                    
+                    # 添加其他可能的属性（从CSV中获取）
+                    for attr in ['homo', 'lumo', 'gap']:
+                        if smiles_from in self.smiles_to_properties:
+                            pair_data[f'A_{attr}'] = self.smiles_to_properties[smiles_from].get(attr)
+                        if smiles_to in self.smiles_to_properties:
+                            pair_data[f'B_{attr}'] = self.smiles_to_properties[smiles_to].get(attr)
+                    
+                    pairs.append(pair_data)
+                    
+                    if len(pairs) >= total_max_pairs:
+                        pbar.close()
+                        pairs_df = pd.DataFrame(pairs)
+                        if len(pairs_df) > 0:
+                            # 去重并排序
+                            pairs_df = pairs_df.drop_duplicates(subset=['A_smiles', 'B_smiles'])
+                            pairs_df = pairs_df.sort_values('improvement_abs', ascending=False)
+                        print(f"生成 {len(pairs_df)} 个 {target_attr.upper()} 优化对 (笛卡尔积方式)")
+                        return pairs_df
+                
+                pbar.update(1)
+        
+        pbar.close()
+        
+        pairs_df = pd.DataFrame(pairs)
+        
+        if len(pairs_df) > 0:
+            # 去重并排序
+            pairs_df = pairs_df.drop_duplicates(subset=['A_smiles', 'B_smiles'])
+            pairs_df = pairs_df.sort_values('improvement_abs', ascending=False)
+        
+        print(f"生成 {len(pairs_df)} 个 {target_attr.upper()} 优化对 (笛卡尔积方式)")
+        return pairs_df
+    
+    def create_all_test_smiles_optimization_pairs(self, output_prefix='qm9_test_smiles_optimization'):
+        """从test数据中获取smiles，为所有三个属性创建笛卡尔积优化对"""
+        
+        # HOMO 优化对：提高 HOMO 能量
+        homo_pairs = self.create_test_smiles_optimization_pairs(
+            'homo', 
+            improvement_direction='higher',
+            similarity_threshold=0.6,
+            min_improvement=0.05
+        )
+        
+        # LUMO 优化对：降低 LUMO 能量
+        lumo_pairs = self.create_test_smiles_optimization_pairs(
+            'lumo',
+            improvement_direction='lower', 
+            similarity_threshold=0.6,
+            min_improvement=0.05
+        )
+        
+        # Gap 优化对：减小 HOMO-LUMO gap
+        gap_pairs = self.create_test_smiles_optimization_pairs(
+            'gap',
+            improvement_direction='lower',
+            similarity_threshold=0.6, 
+            min_improvement=0.05
+        )
+        
+        # 保存结果
+        if len(homo_pairs) > 0:
+            homo_pairs.to_csv(f'{output_prefix}_homo_pairs.csv', index=False)
+            print(f"保存 HOMO 测试优化对到: {output_prefix}_homo_pairs.csv")
+        
+        if len(lumo_pairs) > 0:
+            lumo_pairs.to_csv(f'{output_prefix}_lumo_pairs.csv', index=False)
+            print(f"保存 LUMO 测试优化对到: {output_prefix}_lumo_pairs.csv")
+        
+        if len(gap_pairs) > 0:
+            gap_pairs.to_csv(f'{output_prefix}_gap_pairs.csv', index=False)
+            print(f"保存 GAP 测试优化对到: {output_prefix}_gap_pairs.csv")
+        
+        return homo_pairs, lumo_pairs, gap_pairs
 
 def main():
     """主函数"""
@@ -497,19 +884,30 @@ def main():
     # 从 PyTorch Geometric QM9 数据集加载数据
     # extractor = QM9OptimizationPairs(qm9_root='raw-data/QM9')
     
-    # 从CSV文件加载数据，并使用索引文件过滤测试集
+    # 从CSV/JSON文件加载数据，并使用索引文件过滤测试集
+    # 默认使用qm9_smiles_all_atoms.csv获取实际属性值
     extractor = QM9OptimizationPairs(
         csv_path='mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.json',
-        indices_path='mol_evo/dataset/data/dataset_indices/indices_20251122_213847_seed42.json'
+        indices_path='mol_evo/dataset/data/dataset_indices/indices_20251127_122155_seed42.json'
     )
     
-    # 为所有属性创建优化对
-    homo_pairs, lumo_pairs, gap_pairs = extractor.create_all_optimization_pairs()
+    # 从test数据中获取smiles，使用笛卡尔积方式生成更多优化对
+    print("\n=== 从test数据中获取smiles，使用笛卡尔积方式生成优化对 ===")
+    test_homo_pairs, test_lumo_pairs, test_gap_pairs = extractor.create_all_test_smiles_optimization_pairs()
     
-    # 分析结果
-    extractor.analyze_pairs(homo_pairs, 'HOMO')
-    extractor.analyze_pairs(lumo_pairs, 'LUMO') 
-    extractor.analyze_pairs(gap_pairs, 'GAP')
+    # 分析test数据生成的优化对
+    extractor.analyze_pairs(test_homo_pairs, 'HOMO (Test)')
+    extractor.analyze_pairs(test_lumo_pairs, 'LUMO (Test)') 
+    extractor.analyze_pairs(test_gap_pairs, 'GAP (Test)')
+    
+    # 可选：使用原始方法创建优化对
+    # print("\n=== 使用原始方法创建优化对 ===")
+    # homo_pairs, lumo_pairs, gap_pairs = extractor.create_all_optimization_pairs()
+    # 
+    # # 分析结果
+    # extractor.analyze_pairs(homo_pairs, 'HOMO')
+    # extractor.analyze_pairs(lumo_pairs, 'LUMO') 
+    # extractor.analyze_pairs(gap_pairs, 'GAP')
 
 if __name__ == "__main__":
     main()
