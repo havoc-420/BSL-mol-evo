@@ -11,10 +11,10 @@ cd /home/data2/rhj/project/mol_editor && python -m mol_evo.core.evolution_optimi
   --format text
 ```
 
-
 # Test with Initial Property Value
 
 ```bash
+## 30000
 cd /home/data2/rhj/project/mol_editor && python -m mol_evo.core.evolution_optimizer \
   --model-path /home/data2/rhj/project/mol_editor/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251111_191050-homo_change_pct-30000-300/last.pth \
   --model-dir /home/data2/rhj/project/mol_editor/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251111_191050-homo_change_pct-30000-300 \
@@ -27,6 +27,7 @@ cd /home/data2/rhj/project/mol_editor && python -m mol_evo.core.evolution_optimi
   --max-branching 2 \
   --format text
 
+# 120000
 python -m mol_evo.core.evolution_optimizer \
   --model-path /home/data2/rhj/project/mol_editor/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200/last.pth \
   --model-dir /home/data2/rhj/project/mol_editor/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200 \
@@ -43,6 +44,7 @@ python -m mol_evo.core.evolution_optimizer \
 ## Examples
 
 0. no-cut
+
 ```bash
 优化后的进化树结构:
 └── CC (深度: 0, 属性值: -0.299876)
@@ -374,10 +376,11 @@ python -m mol_evo.core.evolution_optimizer \
                 ├── FC1NO1 [form_ring] (变化: 1.2726), 属性值: 0.051818 (深度: 4)
                 ├── NN(O)F [replace_atom] (变化: 0.5085), 属性值: 0.034395 (深度: 4)
                 └── NOC(N)F [add_atom] (变化: 0.2491), 属性值: 0.028481 (深度: 4)
-(mol-edit) rhj@wb-ubuntu-110-31-underground:~/project/mol_editor$ 
+(mol-edit) rhj@wb-ubuntu-110-31-underground:~/project/mol_editor$
 ```
 
 1. cut
+
 ```bash
 ValueError: 无法将SMILES转换为图数据
 开始剪枝，优化方向: increase, 耐心值: 2
@@ -412,5 +415,3 @@ ValueError: 无法将SMILES转换为图数据
         ├── OCF [replace_atom] (变化: -1.4722), 属性值: 0.141615 (深度: 2)
         └── COF [replace_atom] (变化: -1.5399), 属性值: 0.161889 (深度: 2)
 ```
-
-## 

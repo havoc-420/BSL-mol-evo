@@ -526,7 +526,7 @@ class EvolutionTreeOptimizer:
         
         # 获取初始分子的属性值
         initial_property_value = self.initial_property_value
-        if initial_property_value is None and self.initial_smiles_csv:  # UPDATE
+        if initial_property_value is None and self.initial_smiles_csv:  # UPDATE 根据默认文件中的属性值
             if initial_smiles in self.initial_properties:
                 initial_property_value = self.initial_properties[initial_smiles]
                 print(f"初始分子 {initial_smiles} 的属性值: {initial_property_value}")
@@ -607,6 +607,7 @@ class EvolutionTreeOptimizer:
         
         return evolution_tree
         
+    # TAG dev 打印优化后的进化树
     def print_optimized_tree(self, evolution_tree, format='text'):
         """
         打印优化后的进化树

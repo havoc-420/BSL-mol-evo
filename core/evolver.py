@@ -210,6 +210,7 @@ class MoleculeEvolverAnalysis: # MoleculeEvolver
         except Exception as e:
             return [f"路径生成错误: {str(e)}"]
 
+    # MARK
     def generate_path_dict(self) -> list:
         """
         生成格式化的进化路径，返回字典格式的操作列表。
@@ -644,6 +645,13 @@ class MolecularEvolutionExpansion:
                 self.error_stats["other_errors"] += 1
                 return False
                 
+            # 检查分子是否有多个碎片（例如断开环后产生的多部分分子如CC.N）  # UPDATE 现在 dataset 中并不包含跳过 碎片分子 的进化案例。
+            # 通过将分子转换为SMILES并检查是否包含点号来判断
+            smiles = Chem.MolToSmiles(temp_mol)
+            if '.' in smiles:
+                self.error_stats["other_errors"] += 1
+                return False
+                
             # 尝试计算分子量来确保分子完整性
             Chem.rdMolDescriptors.CalcExactMolWt(temp_mol)
                 
@@ -659,32 +667,6 @@ class MolecularEvolutionExpansion:
                 self.error_stats["other_errors"] += 1
             return False
     
-    def _add_atom_operation(self, mol: Chem.Mol, atom_symbol: str = None, connect_to: int = None) -> Optional[Chem.Mol]:
-        """添加原子操作"""
-        try:
-            if atom_symbol is None:
-                atom_symbol = random.choice(self.common_atoms)
-            
-            # 创建新原子
-            new_atom = Chem.Atom(atom_symbol)
-            new_mol = Chem.RWMol(mol)
-            new_idx = new_mol.AddAtom(new_atom)
-            
-            # 如果指定了连接位置，则创建键
-            if connect_to is not None and connect_to < new_mol.GetNumAtoms() - 1:
-                new_mol.AddBond(connect_to, new_idx, Chem.BondType.SINGLE)
-            
-            # 更新分子 - 内联 _sanitize_mol 方法的实现
-            try:
-                Chem.SanitizeMol(new_mol)
-                return Chem.Mol(new_mol)
-            except:
-                return None
-            
-        except Exception as e:
-            self._update_error_stats(e)
-            return None
-
     def _get_all_possible_operations(self, mol: Chem.Mol) -> List[Dict]:
         """
         获取所有可能的操作，而不是基于权重的随机选择
@@ -805,6 +787,32 @@ class MolecularEvolutionExpansion:
             # 其他操作保持不变
             return self._apply_other_operation(mol, operation_type, **kwargs)
     
+    def _add_atom_operation(self, mol: Chem.Mol, atom_symbol: str = None, connect_to: int = None) -> Optional[Chem.Mol]:
+        """添加原子操作"""
+        try:
+            if atom_symbol is None:
+                atom_symbol = random.choice(self.common_atoms)
+            
+            # 创建新原子
+            new_atom = Chem.Atom(atom_symbol)
+            new_mol = Chem.RWMol(mol)
+            new_idx = new_mol.AddAtom(new_atom)
+            
+            # 如果指定了连接位置，则创建键
+            if connect_to is not None and connect_to < new_mol.GetNumAtoms() - 1:
+                new_mol.AddBond(connect_to, new_idx, Chem.BondType.SINGLE)
+            
+            # 更新分子 - 内联 _sanitize_mol 方法的实现
+            try:
+                Chem.SanitizeMol(new_mol)
+                return Chem.Mol(new_mol)
+            except:
+                return None
+            
+        except Exception as e:
+            self._update_error_stats(e)
+            return None
+
     def _apply_other_operation(self, mol: Chem.Mol, operation_type: str, **kwargs) -> Optional[Chem.Mol]:
         """应用其他操作"""
         try:
@@ -827,26 +835,6 @@ class MolecularEvolutionExpansion:
         except Exception as e:
             self._update_error_stats(e)
             return None
-    
-    def _update_error_stats(self, e: Exception):
-        """更新错误统计"""
-        # 确保 error_stats 属性存在
-        if not hasattr(self, 'error_stats'):
-            self.error_stats = {
-                "valence_errors": 0,
-                "kekulization_errors": 0,
-                "other_errors": 0,
-                "total_attempts": 0
-            }
-        
-        self.error_stats["total_attempts"] += 1
-        error_msg = str(e).lower()
-        if "explicit valence" in error_msg:
-            self.error_stats["valence_errors"] += 1
-        elif "kekulize" in error_msg or "aromatic" in error_msg:
-            self.error_stats["kekulization_errors"] += 1
-        else:
-            self.error_stats["other_errors"] += 1
     
     def _replace_atom_operation(self, mol: Chem.Mol, atom_idx: int = None, new_symbol: str = None) -> Optional[Chem.Mol]:
         """替换原子操作"""
@@ -1043,11 +1031,21 @@ class MolecularEvolutionExpansion:
         
         return path
     
+    # MARK
     def _get_possible_operations(self, mol: Chem.Mol) -> List[Dict]:
-        """获取当前分子所有可能的操作（全量扩展，移除权重）"""
+        """获取当前分子所有可能的操作（全量扩展，移除权重）
+        
+        支持的操作类型包括：
+        - 添加操作：add_atom, replace_atom, form_double_bond, form_triple_bond, form_ring
+        - 移除操作：remove_add_stereo, remove_form_double_bond, remove_form_double_ring, 
+                   remove_form_ring, remove_form_triple_bond
+        - 立体化学操作：add_stereo
+        
+        返回的操作列表与generate_path_dict方法生成的操作格式一致，支持配置文件中的所有操作类型。
+        """
         operations = []
         
-        # 添加原子操作
+        # 1. 添加原子操作
         if "add_atom" in self.operation_type_keys:
             for atom_symbol in self.common_atoms:
                 for connect_to in range(mol.GetNumAtoms()):
@@ -1056,7 +1054,7 @@ class MolecularEvolutionExpansion:
                         "params": {"atom_symbol": atom_symbol, "connect_to": connect_to}
                     })
         
-        # 替换原子操作
+        # 2. 替换原子操作
         if "replace_atom" in self.operation_type_keys:
             for atom_idx in range(mol.GetNumAtoms()):
                 current_symbol = mol.GetAtomWithIdx(atom_idx).GetSymbol()
@@ -1067,42 +1065,74 @@ class MolecularEvolutionExpansion:
                             "params": {"atom_idx": atom_idx, "new_symbol": new_symbol}
                         })
         
-        # 形成键操作
-        bond_operations_map = {
-            "form_double_bond": ["form_double_bond"],
-            "form_triple_bond": ["form_triple_bond"],
-            "form_ring": ["form_ring"],
-            "form_double_ring": ["form_double_ring"],
-            "form_triple_ring": ["form_triple_ring"],
-            "form_aromatic_ring": ["form_aromatic_ring"]
+        # 3. 键操作管理 - 正向操作（形成键）
+        bond_formation_map = {
+            "form_double_bond": {"type": "form_double_bond", "bond_type": Chem.BondType.DOUBLE},
+            "form_triple_bond": {"type": "form_triple_bond", "bond_type": Chem.BondType.TRIPLE},
+            "form_ring": {"type": "form_ring", "bond_type": Chem.BondType.SINGLE},
+            "form_double_ring": {"type": "form_double_ring", "bond_type": Chem.BondType.DOUBLE},
+            "form_aromatic_ring": {"type": "form_aromatic_ring", "bond_type": Chem.BondType.AROMATIC}
         }
         
-        for op_key, op_types in bond_operations_map.items():
+        # 3.1 生成形成键操作（针对非键合原子对）
+        for op_key, op_info in bond_formation_map.items():
             if op_key in self.operation_type_keys:
-                for op_type in op_types:
-                    for i in range(mol.GetNumAtoms()):
-                        for j in range(i + 1, mol.GetNumAtoms()):
-                            if not mol.GetBondBetweenAtoms(i, j):
-                                operations.append({
-                                    "type": op_type,
-                                    "params": {"atom1_idx": i, "atom2_idx": j}
-                                })
+                for i in range(mol.GetNumAtoms()):
+                    for j in range(i + 1, mol.GetNumAtoms()):
+                        if not mol.GetBondBetweenAtoms(i, j):
+                            operations.append({
+                                "type": op_info["type"],
+                                "params": {"atom1_idx": i, "atom2_idx": j}
+                            })
         
-        # 注释掉断开键操作，因为这个操作不太可控
-        # 断开键操作
-        # for bond in mol.GetBonds():
-        #     i, j = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
-        #     operations.append({
-        #         "type": "break_bond",
-        #         "params": {"atom1_idx": i, "atom2_idx": j}
-        #     })
+        # 4. 键操作管理 - 反向操作（移除键）
+        bond_removal_map = {
+            "remove_form_double_bond": {"type": "remove_form_double_bond", "bond_type": Chem.BondType.DOUBLE},
+            "remove_form_triple_bond": {"type": "remove_form_triple_bond", "bond_type": Chem.BondType.TRIPLE},
+            "remove_form_ring": {"type": "remove_form_ring", "bond_type": Chem.BondType.SINGLE},
+            "remove_form_double_ring": {"type": "remove_form_double_ring", "bond_type": Chem.BondType.DOUBLE}
+        }
         
-        # 立体化学操作
+        # 4.1 生成移除键操作（针对已存在的特定类型键）
+        for op_key, op_info in bond_removal_map.items():
+            if op_key in self.operation_type_keys:
+                for bond in mol.GetBonds():
+                    if bond.GetBondType() == op_info["bond_type"]:
+                        i, j = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
+                        # 确保索引顺序一致
+                        atom1_idx, atom2_idx = sorted([i, j])
+                        operations.append({
+                            "type": op_info["type"],
+                            "params": {"atom1_idx": atom1_idx, "atom2_idx": atom2_idx}
+                        })
+        
+        # 5. 立体化学操作
+        # 5.1 添加立体化学
         if "add_stereo" in self.operation_type_keys:
             operations.append({
                 "type": "add_stereo",
                 "params": {}
             })
+        
+        # 5.2 移除立体化学
+        if "remove_add_stereo" in self.operation_type_keys:
+            # 查找具有立体化学的中心
+            chiral_centers = Chem.FindMolChiralCenters(mol, includeUnassigned=False)
+            for center_idx, _ in chiral_centers:
+                operations.append({
+                    "type": "remove_add_stereo",
+                    "params": {"atom_idx": center_idx}
+                })
+            
+            # 查找具有立体化学的双键
+            for bond in mol.GetBonds():
+                if bond.GetStereo() > Chem.BondStereo.STEREOANY:
+                    i, j = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
+                    atom1_idx, atom2_idx = sorted([i, j])
+                    operations.append({
+                        "type": "remove_add_stereo",
+                        "params": {"atom1_idx": atom1_idx, "atom2_idx": atom2_idx}
+                    })
         
         return operations
     
@@ -1322,6 +1352,7 @@ class MolecularEvolutionExpansion:
         
         return all_results
 
+    # MARK
     def generate_expansion_tree(self, max_depth: int = 3, max_branching: int = 5) -> Dict:
         """
         生成从初始分子开始的扩展树，用于分子优化迭代
@@ -1343,7 +1374,7 @@ class MolecularEvolutionExpansion:
         }
         
         # 使用队列进行广度优先搜索
-        queue = deque([(self.initial_smiles, 0, "0")])  # (smiles, depth, parent_id) 根节点的parent_id设为"0"
+        queue = deque[tuple[str, int, str]]([(self.initial_smiles, 0, "0")])  # (smiles, depth, parent_id) 根节点的parent_id设为"0"
         node_counter = 0
         expansion_tree["nodes"][str(node_counter)] = {
             "id": str(node_counter),
@@ -1559,7 +1590,27 @@ class MolecularEvolutionExpansion:
             "total_attempts": 0
         }
     
-    # TAG Debug: 打印树形结构
+    # TAG Debug
+    def _update_error_stats(self, e: Exception):
+        """更新错误统计"""
+        # 确保 error_stats 属性存在
+        if not hasattr(self, 'error_stats'):
+            self.error_stats = {
+                "valence_errors": 0,
+                "kekulization_errors": 0,
+                "other_errors": 0,
+                "total_attempts": 0
+            }
+        
+        self.error_stats["total_attempts"] += 1
+        error_msg = str(e).lower()
+        if "explicit valence" in error_msg:
+            self.error_stats["valence_errors"] += 1
+        elif "kekulize" in error_msg or "aromatic" in error_msg:
+            self.error_stats["kekulization_errors"] += 1
+        else:
+            self.error_stats["other_errors"] += 1
+    
     def _print_tree_recursive(self, nodes: Dict, children_map: Dict, node_id: str, prefix: str, is_last: bool) -> None:
         """
         递归打印树形结构
