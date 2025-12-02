@@ -77,6 +77,9 @@ def main():
     parser.add_argument('--prediction-mode', '-pm', type=str, default='denormalized',
                        choices=['denormalized', 'standardized'],
                        help='预测模式: denormalized(反标准化预测) 或 standardized(标准差预测) (默认: denormalized)')
+    parser.add_argument('--sample-method', '-sm', type=str, default='random',
+                       choices=['random', 'sequential'],
+                       help='采样方式: random(随机采样) 或 sequential(顺序采样) (默认: random)')
     parser.add_argument('--config-file', '-cf2', type=str, 
                        default='/home/data2/rhj/project/mol_editor/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct-config.yaml',
                        help='配置文件路径 (默认使用qm9配置文件)')
@@ -268,7 +271,8 @@ def main():
                         args.num_samples,
                         args.random_seed,
                         args.prediction_mode,
-                        logger
+                        logger,
+                        sample_method=args.sample_method
                     )
                 else:
                     # 执行CSV批量预测
@@ -280,7 +284,8 @@ def main():
                         args.num_samples,
                         args.random_seed,
                         args.prediction_mode,
-                        logger
+                        logger,
+                        sample_method=args.sample_method
                     )
                 
                 if error_stats:
@@ -313,7 +318,7 @@ def main():
 
 def batch_predict_json(model_path, model_dir, json_file, indices_file=None, use_test_indices=False, 
                       num_samples=10, random_seed=42, prediction_mode='denormalized', logger=None, 
-                      save_intermediates=True):
+                      save_intermediates=True, sample_method='random'):
     """
     从JSON文件批量预测并计算误差，支持索引过滤
     
@@ -327,6 +332,8 @@ def batch_predict_json(model_path, model_dir, json_file, indices_file=None, use_
         random_seed: 随机种子
         prediction_mode: 预测模式
         logger: 日志记录器
+        save_intermediates: 是否保存中间结果
+        sample_method: 采样方法 ('random' 随机采样, 'sequential' 顺序采样)
         
     Returns:
         预测结果和误差统计
@@ -375,9 +382,15 @@ def batch_predict_json(model_path, model_dir, json_file, indices_file=None, use_
     # 转换为DataFrame便于处理
     df = pd.DataFrame(data_list)
     
-    # 随机采样
+    # 采样方式选择
     if len(df) > num_samples:
-        df = df.sample(n=num_samples, random_state=random_seed).reset_index(drop=True)
+        # 根据sample_method参数选择采样策略
+        if sample_method == 'sequential':
+            # 按顺序采样，取前num_samples个样本
+            df = df.iloc[:num_samples].reset_index(drop=True)
+        else:
+            # 随机采样（默认方式）
+            df = df.sample(n=num_samples, random_state=random_seed).reset_index(drop=True)
     
     # 初始化预测统计结果
     predictions = []

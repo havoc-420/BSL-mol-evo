@@ -32,13 +32,13 @@ python -m mol_evo.core.evolution_optimizer \
   --model-path /home/data2/rhj/project/mol_editor/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200/last.pth \
   --model-dir /home/data2/rhj/project/mol_editor/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200 \
   --config-file /home/data2/rhj/project/mol_editor/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct-config.yaml \
-  --initial-smiles CC \
-  --initial-property-value 2.83270525932312 \
+  --initial-smiles CCO \
+  --initial-property-value 2.171468734741211 \
   --target-property lumo \
   --optimization-mode sub \
-  --direction decrease \
+  --direction increase \
   --max-depth 2 \
-  --max-branching 4 \
+  --max-branching 8 \
   --format text
 ```
 

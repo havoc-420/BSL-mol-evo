@@ -293,7 +293,7 @@ def compare_with_ground_truth(model_paths, model_dirs, csv_file, row_index, pred
     return predictions_list, true_values, row
 
 
-def batch_predict(model_path, model_dir, csv_file, num_samples=10, random_seed=42, prediction_mode='denormalized', logger=None):
+def batch_predict(model_path, model_dir, csv_file, num_samples=10, random_seed=42, prediction_mode='denormalized', logger=None, sample_method='random'):
     """
     批量预测并计算误差
     
@@ -305,6 +305,7 @@ def batch_predict(model_path, model_dir, csv_file, num_samples=10, random_seed=4
         random_seed: 随机种子
         prediction_mode: 预测模式 ('denormalized' 反标准化预测, 'standardized' 标准差预测)
         logger: 日志记录器
+        sample_method: 采样方法 ('random' 随机采样, 'sequential' 顺序采样)
         
     Returns:
         预测结果和误差统计
@@ -315,9 +316,14 @@ def batch_predict(model_path, model_dir, csv_file, num_samples=10, random_seed=4
     # 读取数据
     df = pd.read_csv(csv_file)
     
-    # 随机采样
+    # 根据采样方法选择采样策略
     if len(df) > num_samples:
-        df = df.sample(n=num_samples, random_state=random_seed).reset_index(drop=True)
+        if sample_method == 'sequential':
+            # 顺序采样
+            df = df.iloc[:num_samples].reset_index(drop=True)
+        else:
+            # 随机采样
+            df = df.sample(n=num_samples, random_state=random_seed).reset_index(drop=True)
     
     # 初始化误差统计
     error_stats = []
