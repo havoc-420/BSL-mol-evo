@@ -9,8 +9,10 @@ import os
 import argparse
 import logging
 import json
-import pandas as pd
+import os
 import numpy as np
+import pandas as pd
+from datetime import datetime
 from tqdm import tqdm
 
 # 设置项目根目录路径
@@ -310,7 +312,8 @@ def main():
 
 
 def batch_predict_json(model_path, model_dir, json_file, indices_file=None, use_test_indices=False, 
-                      num_samples=10, random_seed=42, prediction_mode='denormalized', logger=None):
+                      num_samples=10, random_seed=42, prediction_mode='denormalized', logger=None, 
+                      save_intermediates=True):
     """
     从JSON文件批量预测并计算误差，支持索引过滤
     
@@ -381,6 +384,9 @@ def batch_predict_json(model_path, model_dir, json_file, indices_file=None, use_
     true_values = []
     error_stats = []
     
+    # 用于保存中间输入、输出和标签的列表
+    intermediate_results = []
+    
     # 提前加载模型（避免重复加载）
     if logger:
         logger.info(f"加载模型: {model_path}")
@@ -410,6 +416,23 @@ def batch_predict_json(model_path, model_dir, json_file, indices_file=None, use_
                 prediction_mode,
                 model=model  # 传入已加载的模型实例
             )
+            
+            # 保存中间结果（输入、输出和标签）
+            intermediate_data = {
+                'index': idx,
+                'input': {
+                    'smiles_from': row['smiles_from'],
+                    'smiles_to': row['smiles_to'],
+                    'to_atom_symbol': to_atom_symbol,
+                    'operation_type': operation_type
+                },
+                'output': {
+                    'primary_pred': primary_pred,
+                    'secondary_pred': secondary_pred
+                },
+                'label': row.get(target_prop, None)
+            }
+            intermediate_results.append(intermediate_data)
             
             # 获取预测值和真实值
             pred_value = primary_pred.get(target_prop, 0.0)
@@ -487,6 +510,48 @@ def batch_predict_json(model_path, model_dir, json_file, indices_file=None, use_
             'num_samples': len(predictions),
             'prediction_mode': prediction_mode
         }
+    
+    # 保存预测结果到文件，获取保存目录
+    prediction_output_file = save_prediction_results(
+        error_stats, df,
+        model_path, model_dir,
+        json_file, num_samples,
+        random_seed, prediction_mode,
+        logger.level if logger else logging.INFO
+    )
+    
+    # 从预测结果文件路径中提取目录
+    output_dir = os.path.dirname(prediction_output_file)
+    
+    # 保存中间结果到JSON文件
+    if save_intermediates and intermediate_results:
+        # 生成文件名
+        output_file = os.path.join(output_dir, f'intermediate_results.json')
+        
+        # 转换numpy类型为Python原生类型以支持JSON序列化
+        def convert_numpy_types(obj):
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, np.generic):
+                return obj.item()
+            elif isinstance(obj, dict):
+                return {key: convert_numpy_types(value) for key, value in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_numpy_types(item) for item in obj]
+            else:
+                return obj
+        
+        # 保存为JSON文件
+        try:
+            # 转换中间结果中的numpy类型
+            serializable_results = convert_numpy_types(intermediate_results)
+            with open(output_file, 'w') as f:
+                json.dump(serializable_results, f, indent=2)
+            if logger:
+                logger.info(f"中间结果已保存到: {output_file}")
+        except Exception as e:
+            if logger:
+                logger.error(f"保存中间结果失败: {e}")
     
     return error_stats, df
 
