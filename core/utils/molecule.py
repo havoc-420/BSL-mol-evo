@@ -343,7 +343,7 @@ class MoleculeCache:
         self.logger = logger
         self.cache_dir = self._get_cache_dir()
         self.cache_file = os.path.join(self.cache_dir, f"{self.cache_name}.pt")
-        print(f"[MoleculeCache] Using cache file: {self.cache_file}")
+        # print(f"[MoleculeCache] Using cache file: {self.cache_file}")
         self.cache_data = self._load_cache()
         self.cache_hits = 0
         self.cache_misses = 0

@@ -99,42 +99,17 @@ def get_target_property(model_dir):
     return 'mu_change'
 
 
-def predict_property_changes(model_path, model_dir, smiles_from, smiles_to, to_atom_symbol, operation_type, prediction_mode='denormalized'):
+def load_model(model_path, model_dir):
     """
-    使用训练好的模型预测属性变化
+    加载训练好的模型
     
     Args:
         model_path: 模型文件路径
         model_dir: 模型目录路径
-        smiles_from: 起始分子的SMILES
-        smiles_to: 目标分子的SMILES
-        to_atom_symbol: 变化涉及的原子类型
-        operation_type: 操作类型
-        prediction_mode: 预测模式 ('denormalized' 反标准化预测, 'standardized' 标准差预测)
         
     Returns:
-        预测的属性变化值
+        加载好的模型实例
     """
-    # 获取目标属性名称
-    target_prop = get_target_property(model_dir)
-    
-    # 准备数据
-    from_data, to_data, edge_attr, property_stats = prepare_single_prediction_data(
-        smiles_from, smiles_to, to_atom_symbol, operation_type, model_dir)
-    
-    # 添加严格的数据验证
-    if from_data is None or to_data is None:
-        raise ValueError("分子图数据为None")
-    
-    # 检查必要的图属性
-    for data in [from_data, to_data]:
-        if not hasattr(data, 'x') or data.x is None:
-            raise ValueError("分子数据不完整，缺少节点特征x")
-        if not hasattr(data, 'edge_index') or data.edge_index is None:
-            raise ValueError("分子数据不完整，缺少边索引")
-        if not hasattr(data, 'edge_attr') or data.edge_attr is None:
-            raise ValueError("分子数据不完整，缺少边属性")
-    
     # 从配置文件加载维度参数
     config = load_model_config(model_dir)
     
@@ -174,6 +149,52 @@ def predict_property_changes(model_path, model_dir, smiles_from, smiles_to, to_a
     model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
     
     model.eval()
+    return model
+
+def predict_property_changes(model_path=None, model_dir=None, smiles_from=None, smiles_to=None, 
+                            to_atom_symbol=None, operation_type=None, prediction_mode='denormalized', 
+                            model=None):
+    """
+    使用训练好的模型预测属性变化
+    
+    Args:
+        model_path: 模型文件路径（当model为None时必需）
+        model_dir: 模型目录路径（当model为None时必需）
+        smiles_from: 起始分子的SMILES
+        smiles_to: 目标分子的SMILES
+        to_atom_symbol: 变化涉及的原子类型
+        operation_type: 操作类型
+        prediction_mode: 预测模式 ('denormalized' 反标准化预测, 'standardized' 标准差预测)
+        model: 已加载的模型实例（可选，如果提供则忽略model_path）
+        
+    Returns:
+        预测的属性变化值
+    """
+    # 获取目标属性名称
+    target_prop = get_target_property(model_dir)
+    
+    # 准备数据
+    from_data, to_data, edge_attr, property_stats = prepare_single_prediction_data(
+        smiles_from, smiles_to, to_atom_symbol, operation_type, model_dir)
+    
+    # 添加严格的数据验证
+    if from_data is None or to_data is None:
+        raise ValueError("分子图数据为None")
+    
+    # 检查必要的图属性
+    for data in [from_data, to_data]:
+        if not hasattr(data, 'x') or data.x is None:
+            raise ValueError("分子数据不完整，缺少节点特征x")
+        if not hasattr(data, 'edge_index') or data.edge_index is None:
+            raise ValueError("分子数据不完整，缺少边索引")
+        if not hasattr(data, 'edge_attr') or data.edge_attr is None:
+            raise ValueError("分子数据不完整，缺少边属性")
+    
+    # 如果没有提供模型，则加载模型
+    if model is None:
+        if model_path is None or model_dir is None:
+            raise ValueError("当model为None时，必须提供model_path和model_dir")
+        model = load_model(model_path, model_dir)
     
     # 进行预测
     with torch.no_grad():
@@ -250,14 +271,20 @@ def compare_with_ground_truth(model_paths, model_dirs, csv_file, row_index, pred
     else:
         true_values = {'mu_change': row['mu_change']}
     
+    # 预加载所有模型，避免重复加载提高效率
+    models = [load_model(model_path, model_dir) for model_path, model_dir in zip(model_paths, model_dirs)]
+    
     # 对每个模型进行预测
     predictions_list = []
-    for model_path, model_dir in zip(model_paths, model_dirs):
+    for model, model_dir in zip(models, model_dirs):
         primary_pred, secondary_pred = predict_property_changes(
-            model_path, model_dir,
-            row['smiles_from'], row['smiles_to'],
-            row['to_atom_symbol'], row['operation_type'],
-            prediction_mode
+            smiles_from=row['smiles_from'], 
+            smiles_to=row['smiles_to'],
+            to_atom_symbol=row['to_atom_symbol'], 
+            operation_type=row['operation_type'],
+            prediction_mode=prediction_mode,
+            model=model,
+            model_dir=model_dir
         )
         
         # 根据预测模式使用相应的预测值
@@ -295,14 +322,20 @@ def batch_predict(model_path, model_dir, csv_file, num_samples=10, random_seed=4
     # 初始化误差统计
     error_stats = []
     
+    # 只加载一次模型，避免重复加载提高效率
+    model = load_model(model_path, model_dir)
+    
     # 逐行预测
     for idx, row in tqdm(df.iterrows(), total=len(df), desc="批量预测"):
         try:
             primary_pred, secondary_pred = predict_property_changes(
-                model_path, model_dir,
-                row['smiles_from'], row['smiles_to'],
-                row['to_atom_symbol'], row['operation_type'],
-                prediction_mode
+                smiles_from=row['smiles_from'], 
+                smiles_to=row['smiles_to'],
+                to_atom_symbol=row['to_atom_symbol'], 
+                operation_type=row['operation_type'],
+                prediction_mode=prediction_mode,
+                model=model,
+                model_dir=model_dir
             )
             
             # 计算误差

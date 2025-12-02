@@ -8,6 +8,10 @@ import sys
 import os
 import argparse
 import logging
+import json
+import pandas as pd
+import numpy as np
+from tqdm import tqdm
 
 # 设置项目根目录路径
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -29,6 +33,9 @@ try:
     )
     from mol_evo.utils.predict.result_utils import save_prediction_results
     from mol_evo.core.data.processing import load_operation_config, get_operation_types
+    from mol_evo.utils.predict.prediction_utils import get_target_property
+    from mol_evo.utils.predict.model_utils import load_property_stats, is_model_normalized
+    
 except ImportError as e:
     print(f"导入模块失败: {e}")
     sys.exit(1)
@@ -50,6 +57,12 @@ def main():
                        help='操作类型 (单次预测)')
     parser.add_argument('--csv-file', '-cf', type=str, default='mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties.csv',
                        help='CSV文件路径 (批量预测)')
+    parser.add_argument('--json-file', '-jf', type=str, default='mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.json',
+                       help='JSON文件路径 (批量预测)')
+    parser.add_argument('--indices-file', '-if', type=str, default='mol_evo/dataset/data/dataset_indices/indices_20251127_122155_seed42.json',
+                       help='数据集索引文件路径，用于过滤test数据')
+    parser.add_argument('--use-test-indices', '-uti', action='store_true',
+                       help='是否使用test_indices进行数据过滤')
     parser.add_argument('--row-index', '-ri', type=int,
                        help='CSV文件中的行索引，用于对比预测值和真实值')
     parser.add_argument('--num-samples', '-ns', type=int, default=100,
@@ -68,6 +81,14 @@ def main():
     
     args = parser.parse_args()
     
+    # 参数验证
+    if args.use_test_indices and not args.indices_file:
+        parser.error('--indices-file必须在使用--use-test-indices时提供')
+    
+    # 确保批量预测时至少提供一种数据文件
+    if args.row_index is None and not args.smiles_from and not args.csv_file and not args.json_file:
+        parser.error('必须提供--csv-file或--json-file用于批量预测，或提供单次预测的参数')
+    
     # 设置日志记录器
     log_level = getattr(logging, args.log_level.upper())
     logger = setup_logger(log_level)
@@ -77,7 +98,6 @@ def main():
     load_operation_config(config_path=args.config_file)
     
     # 导入获取操作类型的函数
-    
     # 在加载配置后验证操作类型
     if args.operation_type:
         valid_operations = get_operation_types()
@@ -88,7 +108,7 @@ def main():
     
     # 检查是单次预测还是批量预测
     single_prediction = args.smiles_from and args.smiles_to and args.atom_symbol and args.operation_type
-    batch_prediction = args.csv_file and args.row_index is None
+    batch_prediction = (args.csv_file or args.json_file) and args.row_index is None
     comparison_prediction = args.csv_file and args.row_index is not None
     
     if not single_prediction and not batch_prediction and not comparison_prediction:
@@ -122,10 +142,13 @@ def main():
         if hasattr(args, 'model_dir') and args.model_dir:
             stats_file = os.path.join(args.model_dir, "training_data.json")
             if not os.path.exists(stats_file):
-                logger.warning(f"模型目录中未找到训练数据文件 {stats_file}")
-                logger.warning("将无法进行反标准化以获得原始尺度的预测值")
+                # 适配新文件结构
+                stats_file = os.path.join(args.model_dir, "training_process.json")
+                if not os.path.exists(stats_file):
+                    logger.warning(f"模型目录中未找到训练过程文件 {stats_file}")
+                    logger.warning("将无法进行反标准化以获得原始尺度的预测值")
         
-        # TAG 执行单次预测  # TODO to-check
+        # TAG 执行单次预测
         if single_prediction:
             primary_pred, secondary_pred = predict_property_changes(
                 args.model_path, args.model_dir,
@@ -223,28 +246,249 @@ def main():
         
         # TAG 执行批量预测
         elif batch_prediction:
-            error_stats, sampled_df = batch_predict(
-                args.model_path, args.model_dir,
-                args.csv_file, args.num_samples, args.random_seed, args.prediction_mode, logger
-            )
+            logger.info(f"执行批量预测")
+            logger.info(f"加载模型: {args.model_path}")
             
-            if error_stats:
-                print_error_statistics(error_stats, logger)
+            try:
+                # 根据文件类型选择不同的预测函数
+                if args.json_file:
+                    logger.info(f"使用JSON数据集: {args.json_file}")
+                    if args.use_test_indices:
+                        logger.info(f"使用test_indices过滤数据，索引文件: {args.indices_file}")
+                    
+                    # 执行JSON批量预测
+                    error_stats, sampled_df = batch_predict_json(
+                        args.model_path,
+                        args.model_dir,
+                        args.json_file,
+                        args.indices_file,
+                        args.use_test_indices,
+                        args.num_samples,
+                        args.random_seed,
+                        args.prediction_mode,
+                        logger
+                    )
+                else:
+                    # 执行CSV批量预测
+                    logger.info(f"使用CSV数据集: {args.csv_file}")
+                    error_stats, sampled_df = batch_predict(
+                        args.model_path,
+                        args.model_dir,
+                        args.csv_file,
+                        args.num_samples,
+                        args.random_seed,
+                        args.prediction_mode,
+                        logger
+                    )
                 
-                # 保存预测结果
-                output_file = save_prediction_results(
-                    error_stats, sampled_df,
-                    args.model_path, args.model_dir,
-                    args.csv_file, args.num_samples,
-                    args.random_seed, args.prediction_mode,
-                    args.log_level
-                )
+                if error_stats:
+                    print_error_statistics(error_stats, logger)
+                    
+                    # 保存预测结果
+                    output_file = save_prediction_results(
+                        error_stats, sampled_df,
+                        args.model_path, args.model_dir,
+                        args.csv_file or args.json_file,
+                        args.num_samples,
+                        args.random_seed, args.prediction_mode,
+                        args.log_level
+                    )
+                    
+                    logger.info(f"预测结果已保存到: {output_file}")
                 
-                logger.info(f"预测结果已保存到: {output_file}")
+                logger.info(f"批量预测完成！")
+                
+            except Exception as e:
+                logger.error(f"批量预测失败: {e}")
+                import traceback
+                traceback.print_exc()
+                sys.exit(1)
             
     except Exception as e:
         logger.error(f"预测过程中发生错误: {e}")
         raise
+
+
+def batch_predict_json(model_path, model_dir, json_file, indices_file=None, use_test_indices=False, 
+                      num_samples=10, random_seed=42, prediction_mode='denormalized', logger=None):
+    """
+    从JSON文件批量预测并计算误差，支持索引过滤
+    
+    Args:
+        model_path: 模型文件路径
+        model_dir: 模型目录路径
+        json_file: JSON文件路径
+        indices_file: 索引文件路径
+        use_test_indices: 是否使用test_indices进行过滤
+        num_samples: 采样数量
+        random_seed: 随机种子
+        prediction_mode: 预测模式
+        logger: 日志记录器
+        
+    Returns:
+        预测结果和误差统计
+    """
+    # 获取目标属性名称
+    target_prop = get_target_property(model_dir)
+    
+    # 读取JSON数据
+    if logger:
+        logger.info(f"读取JSON文件: {json_file}")
+    
+    try:
+        with open(json_file, 'r') as f:
+            data_list = json.load(f)
+    except Exception as e:
+        if logger:
+            logger.error(f"读取JSON文件失败: {e}")
+        raise
+    
+    # 如果需要使用test_indices进行过滤
+    filtered_indices = None
+    if use_test_indices and indices_file:
+        if logger:
+            logger.info(f"使用test_indices过滤数据，索引文件: {indices_file}")
+        try:
+            with open(indices_file, 'r') as f:
+                indices_data = json.load(f)
+                filtered_indices = set(indices_data.get('test_indices', []))
+                if logger:
+                    logger.info(f"加载了 {len(filtered_indices)} 个测试索引")
+        except Exception as e:
+            if logger:
+                logger.error(f"读取索引文件失败: {e}")
+            raise
+    
+    # 过滤数据
+    if filtered_indices:
+        filtered_data = []
+        for idx, item in enumerate(data_list):
+            if idx in filtered_indices:
+                filtered_data.append(item)
+        data_list = filtered_data
+        if logger:
+            logger.info(f"过滤后的数据量: {len(data_list)}")
+    
+    # 转换为DataFrame便于处理
+    df = pd.DataFrame(data_list)
+    
+    # 随机采样
+    if len(df) > num_samples:
+        df = df.sample(n=num_samples, random_state=random_seed).reset_index(drop=True)
+    
+    # 初始化预测统计结果
+    predictions = []
+    true_values = []
+    error_stats = []
+    
+    # 提前加载模型（避免重复加载）
+    if logger:
+        logger.info(f"加载模型: {model_path}")
+    # 从导入的模块中使用load_model函数
+    from mol_evo.utils.predict.prediction_utils import load_model
+    model = load_model(model_path, model_dir)
+    
+    # 逐行预测
+    for idx, row in tqdm(df.iterrows(), total=len(df), desc="批量预测(JSON)"):
+        try:
+            # 从operations中提取atom信息
+            operations = row.get('operations', [])
+            if not operations:
+                if logger:
+                    logger.warning(f"行 {idx} 没有operations信息，跳过")
+                continue
+            
+            # 获取第一个operation的atom作为to_atom_symbol
+            to_atom_symbol = operations[0].get('atom', '')
+            operation_type = operations[0].get('operation', '')
+            
+            # 进行预测 - 传入已加载的模型实例
+            primary_pred, secondary_pred = predict_property_changes(
+                model_path, model_dir,
+                row['smiles_from'], row['smiles_to'],
+                to_atom_symbol, operation_type,
+                prediction_mode,
+                model=model  # 传入已加载的模型实例
+            )
+            
+            # 获取预测值和真实值
+            pred_value = primary_pred.get(target_prop, 0.0)
+            true_value = row.get(target_prop, None)
+            
+            if true_value is not None:
+                # 计算误差
+                error = abs(pred_value - true_value)
+                
+                # 记录统计信息
+                stat = {
+                    'index': idx,
+                    'smiles_from': row['smiles_from'],
+                    'smiles_to': row['smiles_to'],
+                    'true_value': true_value,
+                    'predicted_value': pred_value,
+                    'absolute_error': error,
+                    'relative_error': error / (abs(true_value) + 1e-8)  # 避免除零
+                }
+                error_stats.append(stat)
+                predictions.append(pred_value)
+                true_values.append(true_value)
+            
+        except Exception as e:
+            if logger:
+                logger.error(f"处理行 {idx} 时出错: {e}")
+            continue
+    
+    # 如果有预测结果，计算综合统计
+    if predictions and true_values:
+        # 转换为numpy数组
+        predictions = np.array(predictions)
+        true_values = np.array(true_values)
+        
+        # 计算各种误差指标
+        mse = np.mean((predictions - true_values) ** 2)
+        rmse = np.sqrt(mse)
+        mae = np.mean(np.abs(predictions - true_values))
+        
+        # 计算R²
+        if len(predictions) > 1:
+            ss_tot = np.sum((true_values - np.mean(true_values)) ** 2)
+            ss_res = np.sum((true_values - predictions) ** 2)
+            r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+        else:
+            r2 = 0
+        
+        # 计算PCC (Pearson相关系数)
+        if len(predictions) > 1:
+            pcc = np.corrcoef(predictions, true_values)[0, 1] if np.std(predictions) > 0 and np.std(true_values) > 0 else 0
+        else:
+            pcc = 0
+        
+        # 计算rank loss
+        rank_loss = 0
+        
+        # 计算相对误差百分比
+        relative_errors = np.abs((predictions - true_values) / (true_values + 1e-8)) * 100
+        mean_relative_error = np.mean(relative_errors)
+        
+        # 构建完整的误差统计结果
+        error_stats = {
+            'property_names': [target_prop],
+            'mse': np.array([mse]),
+            'rmse': np.array([rmse]),
+            'mae': np.array([mae]),
+            'r2': np.array([r2]),
+            'pcc': np.array([pcc]),
+            'rank_loss': np.array([rank_loss]),
+            'relative_error_percent': np.array([mean_relative_error]),
+            'pred_mean': np.array([np.mean(predictions)]),
+            'target_mean': np.array([np.mean(true_values)]),
+            'pred_std': np.array([np.std(predictions)]),
+            'target_std': np.array([np.std(true_values)]),
+            'num_samples': len(predictions),
+            'prediction_mode': prediction_mode
+        }
+    
+    return error_stats, df
 
 
 def run4debug():
@@ -269,12 +513,15 @@ def run4debug():
             self.atom_symbol = "0"
             self.operation_type = "replace_atom"
             self.csv_file = "mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties.csv"
+            self.json_file = "mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.json"
+            self.indices_file = "mol_evo/dataset/data/dataset_indices/indices_20251127_122155_seed42.json"
+            self.use_test_indices = False
             self.row_index = None
             self.num_samples = 100
             self.random_seed = 42
             self.log_level = "INFO"
             self.prediction_mode = "denormalized"
-            self.config_file = "/home/data2/rhj/project/mol_editor/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct-config.yaml"
+            self.config_file = "/home/data2/rhj/project/mol_editor/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct-config.yaml"   # UPDATE 这个或许得跟 model 本身的训练关联起来，然后根据 model-path 方便的链接；
     
     args = Args()
     
@@ -297,7 +544,7 @@ def run4debug():
     
     # 检查是单次预测还是批量预测
     single_prediction = args.smiles_from and args.smiles_to and args.atom_symbol and args.operation_type
-    batch_prediction = args.csv_file and args.row_index is None
+    batch_prediction = (args.csv_file or args.json_file) and args.row_index is None
     comparison_prediction = args.csv_file and args.row_index is not None
     
     if not single_prediction and not batch_prediction and not comparison_prediction:
