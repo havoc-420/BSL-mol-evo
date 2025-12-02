@@ -39,7 +39,8 @@ python -m mol_evo.core.evolution_optimizer \
   --direction increase \
   --max-depth 2 \
   --max-branching 8 \
-  --format text
+  --format text \
+  --topK 20
 ```
 
 ## Examples

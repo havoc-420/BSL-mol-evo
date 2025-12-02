@@ -634,13 +634,14 @@ class EvolutionTreeOptimizer:
             # 递归打印孙节点
             self._print_tree_recursive(nodes, children_map, child_id, new_prefix, is_last_child)
 
-    def save_optimized_tree(self, evolution_tree, output_file=None):
+    def save_optimized_tree(self, evolution_tree, output_file=None, output_dir=None):
         """
         保存优化后的进化树到文件
         
         Args:
             evolution_tree: 带有预测值的进化树
             output_file: 输出文件路径，如果为None则使用默认路径
+            output_dir: 输出目录路径，如果为None则使用默认路径
         """
         # 添加统计信息到进化树
         evolution_tree["statistics"] = {
@@ -652,7 +653,10 @@ class EvolutionTreeOptimizer:
         if output_file is None:
             # 创建带时间戳的输出目录
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            default_output_dir = os.path.join(project_root, "mol_evo", "output", "evo-mo", timestamp)
+            if output_dir is None:
+                default_output_dir = os.path.join(project_root, "mol_evo", "output", "evo-mo", timestamp)
+            else:
+                default_output_dir = output_dir
             os.makedirs(default_output_dir, exist_ok=True)
             
             # 生成默认文件名
@@ -662,9 +666,9 @@ class EvolutionTreeOptimizer:
             output_file = os.path.join(default_output_dir, f"evolution_tree_{smiles_part}.json")
         else:
             # 检查并创建输出目录
-            output_dir = os.path.dirname(output_file)
-            if output_dir and not os.path.exists(output_dir):
-                os.makedirs(output_dir)
+            dir_path = os.path.dirname(output_file)
+            if dir_path and not os.path.exists(dir_path):
+                os.makedirs(dir_path)
         
         # 写入文件
         with open(output_file, 'w', encoding='utf-8') as f:
@@ -672,6 +676,113 @@ class EvolutionTreeOptimizer:
         
         print(f"进化树已保存到: {output_file}")
         return output_file
+        
+    def get_topK_results(self, evolution_tree, topK=5):
+        """
+        获取进化树中效果最好的K个节点结果
+        
+        Args:
+            evolution_tree: 带有预测值的进化树
+            topK: 要保留的结果数量
+            
+        Returns:
+            排序后的topK个结果列表，每个结果包含SMILES和属性值
+        """
+        nodes = evolution_tree.get("nodes", {})
+        initial_smiles = evolution_tree.get("initial_smiles")
+        
+        # 获取根节点信息（初始分子）
+        root_node = nodes.get("0")
+        initial_property_value = root_node.get("property_value") if root_node else None
+        
+        # 收集所有叶节点（深度最大的节点）
+        leaf_nodes = []
+        for node_id, node in nodes.items():
+            # 跳过根节点，只考虑非根节点
+            if node_id != "0":
+                property_value = node.get("property_value")
+                if property_value is not None:
+                    leaf_nodes.append({
+                        "smiles": node["smiles"],
+                        "property_value": property_value,
+                        "depth": node.get("depth", 0)
+                    })
+        
+        # 根据优化方向排序
+        optimization_direction = getattr(self, 'optimization_direction', 'increase')
+        if optimization_direction == 'increase':
+            # 最大化目标，降序排序
+            sorted_nodes = sorted(leaf_nodes, key=lambda x: x["property_value"], reverse=True)
+        else:
+            # 最小化目标，升序排序
+            sorted_nodes = sorted(leaf_nodes, key=lambda x: x["property_value"])
+        
+        # 返回topK个结果
+        topK_results = sorted_nodes[:topK]
+        
+        # 添加初始分子信息
+        result = {
+            "initial_smiles": initial_smiles,
+            "initial_property_value": initial_property_value,
+            "topK_results": topK_results
+        }
+        
+        return result
+        
+    def save_topK_results_to_csv(self, topK_results, csv_output_file=None, output_dir=None):
+        """
+        将topK结果保存为CSV文件，格式为：mol_start, value_start, mol_1, value_1, mol_2, value_2, ...
+        
+        Args:
+            topK_results: 包含初始分子和topK结果的字典
+            csv_output_file: 输出CSV文件路径，如果为None则使用默认路径
+            output_dir: 输出目录路径，如果为None则使用默认路径
+            
+        Returns:
+            输出CSV文件路径
+        """
+        initial_smiles = topK_results.get("initial_smiles", "")
+        initial_property_value = topK_results.get("initial_property_value", 0.0)
+        results = topK_results.get("topK_results", [])
+        
+        # 如果没有指定输出文件，则使用默认路径和文件名
+        if csv_output_file is None:
+            # 创建带时间戳的输出目录
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # 如果指定了输出目录，使用它；否则使用默认目录
+            if output_dir is None:
+                default_output_dir = os.path.join(project_root, "mol_evo", "output", "evo-mo", timestamp)
+            else:
+                default_output_dir = output_dir
+            os.makedirs(default_output_dir, exist_ok=True)
+            
+            # 生成默认文件名
+            # 简化文件名，只取SMILES的前20个字符
+            smiles_part = initial_smiles[:20] if initial_smiles else "unknown"
+            csv_output_file = os.path.join(default_output_dir, f"topK_results_{smiles_part}.csv")
+        else:
+            # 检查并创建输出目录
+            dir_path = os.path.dirname(csv_output_file)
+            if dir_path and not os.path.exists(dir_path):
+                os.makedirs(dir_path)
+        
+        # 构建CSV数据
+        csv_data = {}
+        # 添加初始分子信息
+        csv_data["mol_start"] = initial_smiles
+        csv_data["value_start"] = initial_property_value
+        
+        # 添加topK结果
+        for i, result in enumerate(results):
+            csv_data[f"mol_{i+1}"] = result["smiles"]
+            csv_data[f"value_{i+1}"] = result["property_value"]
+        
+        # 创建DataFrame并保存为CSV
+        df = pd.DataFrame([csv_data])
+        df.to_csv(csv_output_file, index=False, encoding='utf-8')
+        
+        print(f"TopK结果已保存到CSV文件: {csv_output_file}")
+        return csv_output_file
 
 
 def run():
@@ -704,6 +815,10 @@ def run():
                         default='text', help='输出格式')
     parser.add_argument('--output-file', type=str,
                         help='输出文件路径 (默认: mol_evo/output/evo-mo/{timestamp}/evolution_tree_{smiles}.json)')
+    parser.add_argument('--output-dir', type=str,
+                        help='输出目录路径 (默认: mol_evo/output/evo-mo/{timestamp}/)')
+    parser.add_argument('--topK', type=int, default=5,
+                        help='保留效果最好的K个结果并输出到CSV文件')
     
     args = parser.parse_args()
     
@@ -729,7 +844,15 @@ def run():
     )
     
     # 保存到文件（如果指定了输出文件）
-    output_file = optimizer.save_optimized_tree(optimized_tree, args.output_file)
+    output_file = optimizer.save_optimized_tree(optimized_tree, args.output_file, args.output_dir)
+    
+    # 处理topK结果并保存为CSV
+    topK_results = optimizer.get_topK_results(optimized_tree, args.topK)
+    # 生成CSV文件路径（如果有指定的JSON输出文件，则基于它生成CSV文件名）
+    csv_output_file = None
+    if args.output_file:
+        csv_output_file = os.path.splitext(args.output_file)[0] + "_topK.csv"
+    optimizer.save_topK_results_to_csv(topK_results, csv_output_file, args.output_dir)
     
     # 输出结果
     optimizer.print_optimized_tree(optimized_tree, args.format)
@@ -789,7 +912,15 @@ def run4debug():
     )
     
     # 保存到文件（如果指定了输出文件）
-    output_file = optimizer.save_optimized_tree(optimized_tree, output_file)
+    output_file = optimizer.save_optimized_tree(optimized_tree, output_file, output_dir=None)
+    
+    # 处理topK结果并保存为CSV（调试模式下使用默认值5）
+    topK_results = optimizer.get_topK_results(optimized_tree, topK=5)
+    # 生成CSV文件路径（如果有指定的JSON输出文件，则基于它生成CSV文件名）
+    csv_output_file = None
+    if output_file:
+        csv_output_file = os.path.splitext(output_file)[0] + "_topK.csv"
+    optimizer.save_topK_results_to_csv(topK_results, csv_output_file, output_dir=None)
     
     # 输出结果
     optimizer.print_optimized_tree(optimized_tree, format_type)

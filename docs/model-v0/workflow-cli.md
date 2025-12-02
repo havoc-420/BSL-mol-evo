@@ -109,3 +109,9 @@ python mol_evo/predict_v0.py \
 ```bash
 conda activate mol-edit && python mol_evo/predict_v0.py --model-path /home/data2/rhj/project/mol_editor/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200/last.pth --model-dir /home/data2/rhj/project/mol_editor/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200 --json-file mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.json --indices-file mol_evo/dataset/data/dataset_indices/indices_20251127_122155_seed42.json --use-test-indices --num-samples 40 --config-file mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct-config.yaml --sample-method sequential
 ```
+
+## batch predict
+
+```bash
+conda activate mol-edit && python mol_evo/scripts/batch_optimizer.py --start-index 0 --end-index 2 --batch-size 1
+```
