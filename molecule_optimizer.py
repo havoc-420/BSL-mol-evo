@@ -30,7 +30,7 @@ try:
     from mol_evo.core.utils.molecule import MoleculeCache
     from mol_evo.utils.predict.model_utils import load_property_stats, load_training_params
     from mol_evo.utils.predict.data_utils import prepare_single_prediction_data
-    from mol_evo.core.evolver import MoleculeEvolverAnalysis
+    # from mol_evo.core.evolver import MoleculeEvolverAnalysis
 except ImportError as e:
     print(f"无法导入必要的模块: {e}")
     traceback.print_exc()
@@ -97,6 +97,8 @@ class MoleculeOptimizer:
         self.operation_types = ['add_atom', 'replace_atom', 'remove_atom', 
                                'form_bond', 'form_double_bond', 'form_triple_bond', 
                                'form_ring', 'form_aromatic_ring']  # 支持的操作类型
+        # 设置设备（优先使用GPU，如果没有则使用CPU）
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self._load_model()
         
     def _load_model(self):
@@ -131,8 +133,10 @@ class MoleculeOptimizer:
             output_dim=output_dim
         )
         
-        # 加载模型权重
-        self.model.load_state_dict(torch.load(self.model_path, map_location=torch.device('cpu')))
+        # 加载模型权重并移动到选定设备
+        print(f"使用设备: {self.device}")
+        self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))
+        self.model = self.model.to(self.device)
         self.model.eval()
         
         print(f"模型加载成功: {self.model_path}")
@@ -169,6 +173,11 @@ class MoleculeOptimizer:
                 print(f"数据准备失败: from={smiles_from}, to={smiles_to}")
                 return None
                 
+            # 将数据移动到模型所在设备
+            from_data = from_data.to(self.device)
+            to_data = to_data.to(self.device)
+            edge_attr = edge_attr.to(self.device)
+            
             # 进行预测
             with torch.no_grad():
                 predictions = self.model(from_data, to_data, edge_attr)
