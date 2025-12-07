@@ -285,6 +285,10 @@ class EvolutionTreeOptimizer:
             mean, std = self.property_stats[self.target_property]
             predictions = predictions * std + mean
         
+        # 确保返回的是一维浮点数列表，即使模型返回的是二维张量
+        if len(predictions.shape) > 1:
+            predictions = predictions.squeeze()
+            
         return predictions.cpu().numpy().tolist()
             
     def _add_batch_info(self, data):

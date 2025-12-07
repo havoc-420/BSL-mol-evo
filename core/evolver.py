@@ -1458,7 +1458,13 @@ class MolecularEvolutionExpansion:
             
             # 如果有预测器，先对每个可能的操作进行预测，然后根据预测结果排序
             if predictor:
-                operations_with_predictions = []
+                # 收集所有需要预测的操作
+                # TODO 这里是否需要 batch-size 的设定来限制呢？
+                batch_from_smiles = []
+                batch_to_smiles = []
+                batch_operations = []
+                valid_operations = []
+                
                 for operation in possible_operations:
                     try:
                         # 应用操作生成新分子
@@ -1469,17 +1475,39 @@ class MolecularEvolutionExpansion:
                         if new_mol and self.validate_molecule(new_mol):
                             new_smiles = Chem.MolToSmiles(new_mol)
                             
-                            # 预测属性变化
-                            # UPDATE 这里代码设计有些耦合。
-                            property_change = predictor.predict_property_change(current_smiles, new_smiles, operation)
-                            
-                            operations_with_predictions.append((operation, new_smiles, property_change))
+                            # 添加到批量预测列表
+                            batch_from_smiles.append(current_smiles)
+                            batch_to_smiles.append(new_smiles)
+                            batch_operations.append(operation)
+                            valid_operations.append((operation, new_smiles))
                     except Exception as e:
                         # 记录错误但继续处理其他操作
                         continue
                 
-                # 过滤掉预测值为None的操作; eg. 不合法的 SMILES，或者 rdkit 无法解析 3D 结构的。
-                operations_with_predictions = [(op, smiles, change) for op, smiles, change in operations_with_predictions if change is not None]
+                # 进行批量预测
+                operations_with_predictions = []
+                if batch_from_smiles:
+                    try:
+                        # 调用批量预测方法
+                        property_changes = predictor.predict_batch(batch_from_smiles, batch_to_smiles, batch_operations)
+                        
+                        # 过滤掉预测值为None的操作
+                        for i, (operation, new_smiles) in enumerate(valid_operations):
+                            if i < len(property_changes):
+                                property_change = property_changes[i]
+                                # 确保property_change是有效的数值类型
+                                if property_change is not None and not (isinstance(property_change, list) or isinstance(property_change, dict)):
+                                    operations_with_predictions.append((operation, new_smiles, property_change))
+                    except Exception as e:
+                        print(f"批量预测出错: {e}")
+                        # 如果批量预测失败，回退到逐个预测
+                        for operation, new_smiles in valid_operations:
+                            try:
+                                property_change = predictor.predict_property_change(current_smiles, new_smiles, operation)
+                                if property_change is not None:
+                                    operations_with_predictions.append((operation, new_smiles, property_change))
+                            except Exception as e:
+                                continue
                 
                 # 根据优化方向排序操作
                 if optimization_direction == 'increase':
