@@ -123,7 +123,7 @@ python mol_evo/dataset/build_ab_pairs.py
 base single cli example in [mo-cli.md](../mo/mo-cli.md).
 
 ```bash
-conda activate mol-edit && python -m mol_evo.scripts.batch_optimizer --input-csv /home/data2/rhj/project/mol_editor/mol_evo/dataset/eval-data/20251205_131636/qm9_test_molecules.csv --output-json /home/data2/rhj/project/mol_editor/test_output.json --target-property lumo --start-index 0 --end-index 100 --max-depth 3 --max-branching 6
+conda activate mol-edit && python -m mol_evo.scripts.batch_optimizer --input-csv /home/data2/rhj/project/mol_editor/mol_evo/dataset/eval-data/20251205_131636/qm9_test_molecules.csv --output-json /home/data2/rhj/project/mol_editor/test_output.json --target-property lumo --start-index 0 --end-index 5 --max-depth 3 --max-branching 6
 
 conda activate mol-edit && python mol_evo/scripts/batch_optimizer.py \
 --input-csv /home/data2/rhj/project/mol_editor/mol_evo/dataset/eval-data/20251205_131636/qm9_test_molecules.csv --target-property lumo \

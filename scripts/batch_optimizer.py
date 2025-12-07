@@ -103,25 +103,11 @@ def run_evolution_optimizer(optimizer, smiles, property_value, args, output_dir)
     """运行分子优化"""
     run_id = str(uuid.uuid4())[:8]
     
-    # 创建日志文件
-    log_file = os.path.join(output_dir, f"{smiles[:20].replace('/', '_')}_{run_id}.log")
-    
     print(f"\n=== 开始处理分子: {smiles} ===")
     print(f"初始属性值: {property_value}")
-    print(f"日志文件: {log_file}")
     
     try:
         start_time = time.time()
-        
-        # 创建日志文件
-        with open(log_file, 'w') as f:
-            f.write(f"=== 运行分子优化 ===\n")
-            f.write(f"分子SMILES: {smiles}\n")
-            f.write(f"初始属性值: {property_value}\n")
-            f.write(f"优化方向: {args.direction}\n")
-            f.write(f"最大深度: {args.max_depth}\n")
-            f.write(f"最大分支数: {args.max_branching}\n")
-            f.write(f"开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         
         # 设置优化器的初始属性值
         optimizer.initial_property_value = property_value
@@ -150,16 +136,8 @@ def run_evolution_optimizer(optimizer, smiles, property_value, args, output_dir)
         
         end_time = time.time()
         
-        # 记录日志
-        with open(log_file, 'a') as f:
-            f.write(f"\n处理完成，耗时: {end_time - start_time:.2f} 秒\n")
-            f.write(f"优化结果文件: {output_json}\n")
-            f.write(f"topK结果文件: {topk_csv}\n")
-            f.write(f"结束时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        
-        # 显示部分关键日志信息
+        # 显示部分关键信息
         print(f"处理完成，耗时: {end_time - start_time:.2f} 秒")
-        print(f"日志已保存到: {log_file}")
         print(f"找到 {len(topK_results)} 个topK结果")
         
         return {
@@ -168,8 +146,7 @@ def run_evolution_optimizer(optimizer, smiles, property_value, args, output_dir)
             'initial_property': property_value,
             'optimized_result': optimized_result,
             'topk_results': topK_results,
-            'runtime': end_time - start_time,
-            'log_file': log_file
+            'runtime': end_time - start_time
         }
         
     except Exception as e:
@@ -177,19 +154,11 @@ def run_evolution_optimizer(optimizer, smiles, property_value, args, output_dir)
         error_msg = str(e)
         print(f"处理失败: {smiles}, 错误: {error_msg}")
         
-        # 保存错误日志
-        with open(log_file, 'a') as f:
-            f.write(f"\n=== 错误: {error_msg} ===\n")
-            f.write("\n\n=== 堆栈跟踪 ===\n")
-            f.write(traceback.format_exc())
-            f.write(f"\n结束时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        
         return {
             'status': 'error',
             'smiles': smiles,
             'initial_property': property_value,
-            'error': error_msg,
-            'log_file': log_file
+            'error': error_msg
         }
 
 def batch_process(data_list, args, output_dir):
@@ -252,19 +221,14 @@ def batch_process(data_list, args, output_dir):
             f.write(f"状态: {result['status']}\n")
             if result['status'] == 'success':
                 f.write(f"耗时: {result['runtime']:.2f} 秒\n")
-                f.write(f"日志文件: {result['log_file']}\n")
                 f.write(f"优化结果数量: {len(result['optimized_result'].get('results', [])) if 'optimized_result' in result else 0}\n")
                 f.write(f"topK结果数量: {len(result['topk_results']) if 'topk_results' in result else 0}\n")
             else:
                 f.write(f"错误信息: {result['error']}\n")
-                if 'log_file' in result:
-                    f.write(f"错误日志文件: {result['log_file']}\n")
         
         # 定期保存结果（每5个分子保存一次）
         if (i+1) % 5 == 0 or (i+1) == total_count:
             save_path = save_results(results_dict, args.output_json, output_dir)
-            print(f"\n=== 结果已保存到: {save_path} ===")
-            print(f"已处理 {i+1}/{total_count} 个分子")
     
     # 记录总耗时
     batch_end_time = time.time()
@@ -329,6 +293,7 @@ def main():
     
     # 执行批量处理
     start_time = time.time()
+    # TAG core
     results_dict = batch_process(data_list, args, output_dir)
     end_time = time.time()
     

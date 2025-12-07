@@ -18,6 +18,7 @@ import traceback
 import time  # 添加时间统计功能
 from datetime import datetime  # 用于生成默认文件名
 import numpy as np  # 用于处理numpy数据类型
+from torch_geometric.data import Batch
 
 # 禁用RDKit的警告信息
 RDLogger.DisableLog('rdApp.*')
@@ -182,6 +183,110 @@ class EvolutionTreeOptimizer:
         except Exception as e:
             print(f"加载初始属性时出错: {e}")
             
+    def predict_batch(self, from_smiles_list, to_smiles_list, operation_details_list):
+        """
+        批量预测分子属性变化
+        
+        Args:
+            from_smiles_list: 起始分子SMILES列表
+            to_smiles_list: 目标分子SMILES列表
+            operation_details_list: 操作详情字典列表，每个字典包含操作类型和相关参数
+            
+        Returns:
+            批量预测的属性变化值
+        """
+        if not from_smiles_list or not to_smiles_list or not operation_details_list:
+            return []
+            
+        # 确保三个列表长度相同
+        assert len(from_smiles_list) == len(to_smiles_list) == len(operation_details_list), "输入列表长度必须相同"
+        
+        # 准备批量数据
+        from_data_list = []
+        to_data_list = []
+        edge_attr_list = []
+        
+        for i in range(len(from_smiles_list)):
+            smiles_from = from_smiles_list[i]
+            smiles_to = to_smiles_list[i]
+            operation_details = operation_details_list[i]
+            
+            try:
+                # 验证输入分子
+                mol_from = Chem.MolFromSmiles(smiles_from)
+                mol_to = Chem.MolFromSmiles(smiles_to)
+                
+                if not mol_from or not mol_to:
+                    print(f"无效的SMILES: from={smiles_from}, to={smiles_to}")
+                    continue
+                    
+                # 从操作详情中提取必要信息
+                operation_type = operation_details.get("type", "unknown")
+                operation_params = operation_details.get("params", {})
+                atom = operation_params.get("atom_symbol", "")
+                position = operation_params.get("atom_idx", "")
+                
+                # 准备分子图数据
+                from_data = smiles_to_graph_data(smiles_from, self.molecule_cache)
+                to_data = smiles_to_graph_data(smiles_to, self.molecule_cache)
+                
+                if from_data is None or to_data is None:
+                    print(f"无法将分子转换为图数据: from={smiles_from}, to={smiles_to}")
+                    continue
+                    
+                # 添加batch信息
+                from_data = self._add_batch_info(from_data)
+                to_data = self._add_batch_info(to_data)
+                
+                # 构建边特征（不含属性变化）
+                data_dict = {
+                    'smiles_from': smiles_from,
+                    'smiles_to': smiles_to,
+                    'operations': [{
+                        "atom": atom,
+                        "operation": operation_type,
+                        "position": str(position)
+                    }]
+                }
+                
+                # 构建边特征，不包含属性变化和位置编码
+                edge_feat = prepare_edge_features(data_dict, self.property_stats, 
+                                                include_property_changes=False, 
+                                                include_position_encoding=False)
+                
+                edge_attr = torch.FloatTensor(np.array(edge_feat))
+                
+                # 添加到批量列表
+                from_data_list.append(from_data)
+                to_data_list.append(to_data)
+                edge_attr_list.append(edge_attr)
+                
+            except Exception as e:
+                print(f"处理SMILES对时出错: from={smiles_from}, to={smiles_to}, error={e}")
+                continue
+        
+        # 如果没有有效的数据，返回空列表
+        if not from_data_list or not to_data_list or not edge_attr_list:
+            return []
+        
+        # 批量处理图数据
+        from_batch = Batch.from_data_list(from_data_list)
+        to_batch = Batch.from_data_list(to_data_list)
+        
+        # 批量处理边特征
+        edge_attr_batch = torch.stack(edge_attr_list)
+        
+        # 执行批量预测
+        with torch.no_grad():
+            predictions = self.model(from_batch, to_batch, edge_attr_batch)
+        
+        # 反标准化处理
+        if self.property_stats and self.target_property in self.property_stats:
+            mean, std = self.property_stats[self.target_property]
+            predictions = predictions * std + mean
+        
+        return predictions.cpu().numpy().tolist()
+            
     def _add_batch_info(self, data):
         """
         为图数据添加batch信息
@@ -229,7 +334,6 @@ class EvolutionTreeOptimizer:
             operation_params = operation_details.get("params", {})
             atom = operation_params.get("atom_symbol", "")
             position = operation_params.get("atom_idx", "")
-            
             
             # 准备数据
             from_data = smiles_to_graph_data(smiles_from, self.molecule_cache)
@@ -535,11 +639,11 @@ class EvolutionTreeOptimizer:
         # 生成进化树，同时进行预测和剪枝
         evolver = MolecularEvolutionExpansion(initial_smiles, config_file=self.config_file)
         
-        # 传入预测器和相关参数，实现生成过程中的预测和剪枝
+        # TAG 传入预测器和相关参数，实现生成过程中的预测和剪枝
         evolution_tree = evolver.generate_expansion_tree(
             max_depth=max_depth, 
             max_branching=max_branching,
-            predictor=self,
+            predictor=self, # INFO 关键预测器
             optimization_direction=optimization_direction,
             pruning_patience=pruning_patience,
             initial_property_value=initial_property_value,
