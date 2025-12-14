@@ -123,7 +123,7 @@ python mol_evo/dataset/build_ab_pairs.py
 base single cli example in [mo-cli.md](../mo/mo-cli.md).
 
 ```bash
-conda activate mol-edit && python -m mol_evo.scripts.batch_optimizer --input-csv /home/data2/rhj/project/mol_editor/mol_evo/dataset/eval-data/20251205_131636/qm9_test_molecules.csv --output-json /home/data2/rhj/project/mol_editor/test_output.json --target-property lumo --start-index 0 --end-index 50 --max-depth 3 --max-branching 6
+conda activate mol-edit && CUDA_VISIBLE_DEVICES=3 python -m mol_evo.scripts.batch_optimizer --input-csv /home/data2/rhj/project/mol_editor/mol_evo/dataset/eval-data/20251205_131636/qm9_test_molecules.csv --output-json /home/data2/rhj/project/mol_editor/test_output.json --target-property lumo --start-index 0 --end-index 50 --max-depth 4 --max-branching 8
 
 conda activate mol-edit && python mol_evo/scripts/batch_optimizer.py \
 --input-csv /home/data2/rhj/project/mol_editor/mol_evo/dataset/eval-data/20251205_131636/qm9_test_molecules.csv --target-property lumo \
@@ -133,5 +133,5 @@ conda activate mol-edit && python mol_evo/scripts/batch_optimizer.py \
 # Analyze MO Results
 
 ```bash
-
+conda activate mol-edit && python mol_evo/evaluate_batch_mo.py /home/data2/rhj/project/mol_editor/mol_evo/output/evo-mo/batch_optimization_20251207_200713 --target-prop lumo --direction decrease --max-files 2 --item-size 2
 ```

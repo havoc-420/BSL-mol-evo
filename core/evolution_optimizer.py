@@ -149,8 +149,12 @@ class EvolutionTreeOptimizer:
             output_dim=output_dim
         )
         
-        # 加载模型权重
-        self.model.load_state_dict(torch.load(self.model_path, map_location=torch.device('cpu')))
+        # 检查GPU是否可用
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        
+        # 加载模型权重并移动到GPU/CPU
+        self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))
+        self.model.to(self.device)
         self.model.eval()
         
         print(f"模型加载成功: {self.model_path}")
@@ -270,11 +274,11 @@ class EvolutionTreeOptimizer:
             return []
         
         # 批量处理图数据
-        from_batch = Batch.from_data_list(from_data_list)
-        to_batch = Batch.from_data_list(to_data_list)
+        from_batch = Batch.from_data_list(from_data_list).to(self.device)
+        to_batch = Batch.from_data_list(to_data_list).to(self.device)
         
         # 批量处理边特征
-        edge_attr_batch = torch.stack(edge_attr_list)
+        edge_attr_batch = torch.stack(edge_attr_list).to(self.device)
         
         # 执行批量预测
         with torch.no_grad():
@@ -626,6 +630,17 @@ class EvolutionTreeOptimizer:
         print(f"优化方向: {optimization_direction}")
         print(f"剪枝耐心值: {pruning_patience}")
         
+        # 检查中断标志
+        if hasattr(self, 'interrupted') and self.interrupted:
+            print("检测到中断信号，停止进化树优化")
+            return {
+                "initial_smiles": initial_smiles,
+                "max_depth": max_depth,
+                "max_branching": max_branching,
+                "nodes": {},
+                "edges": []
+            }
+        
         # 获取初始分子的属性值
         initial_property_value = self.initial_property_value
         if initial_property_value is None and self.initial_smiles_csv:  # UPDATE 根据默认文件中的属性值
@@ -642,6 +657,9 @@ class EvolutionTreeOptimizer:
         
         # 生成进化树，同时进行预测和剪枝
         evolver = MolecularEvolutionExpansion(initial_smiles, config_file=self.config_file)
+        
+        # 添加中断标志到evolver
+        evolver.interrupted = hasattr(self, 'interrupted') and self.interrupted
         
         # TAG 传入预测器和相关参数，实现生成过程中的预测和剪枝
         evolution_tree = evolver.generate_expansion_tree(

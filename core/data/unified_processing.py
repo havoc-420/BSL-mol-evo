@@ -15,7 +15,6 @@ from rdkit.Chem import AllChem
 from rdkit import DataStructs
 from typing import List, Tuple, Dict, Optional, Any
 from tqdm import tqdm
-import os
 from concurrent.futures import ThreadPoolExecutor, as_completed, CancelledError
 import multiprocessing
 from threading import Lock
@@ -59,7 +58,7 @@ def signal_handler(signum, frame):
     print("\n正在中断处理过程，请稍候...")
 
 # 注册信号处理器
-signal.signal(signal.SIGINT, signal_handler)
+# signal.signal(signal.SIGINT, signal_handler)  # MO 中不是很适合
 
 def prepare_edge_features(row: pd.Series, property_stats: Dict[str, Tuple[float, float]] = None,
                          include_property_changes: bool = False,
@@ -136,12 +135,18 @@ def process_single_row(idx, row, is_fragnet_model, cache, types, target_property
         # TAG smiles data generation
         if is_fragnet_model:
             # 使用 FragNet 数据处理函数
+            if interrupted: return None
             from_data = smile_to_fragnet_features(row['smiles_from'])
+            if interrupted: return None
             to_data = smile_to_fragnet_features(row['smiles_to'])
         else:
             # 使用标准的 smiles_to_graph_data 函数
+            if interrupted: return None
             from_data = smiles_to_graph_data(row['smiles_from'], cache)
+            if interrupted: return None
             to_data = smiles_to_graph_data(row['smiles_to'], cache)
+            
+        if interrupted: return None
             
         # 检查数据是否有效
         if from_data is None or to_data is None:
@@ -150,9 +155,13 @@ def process_single_row(idx, row, is_fragnet_model, cache, types, target_property
                 logger.warning(message)
             return None
             
+        if interrupted: return None
+            
         # TAG 准备演化操作边特征 (操作信息特征 Hav)
         edge_feat = prepare_edge_features(row, property_stats, include_property_changes=False, include_position_encoding=False)
         
+        if interrupted: return None
+            
         # 准备目标属性特征
         target_value = 0.0
         if target_property in row and not pd.isna(row[target_property]):
@@ -268,66 +277,59 @@ def build_molecule_evolution_dataset_v0(
         
         # 处理完成的任务
         completed_count = 0
-        try:
-            # 创建 tqdm 进度条
-            pbar = tqdm(total=len(df), desc="构建图数据缓存[v0]")
-            while future_to_idx:
-                if interrupted:
+        # 创建 tqdm 进度条
+        pbar = tqdm(total=len(df), desc="构建图数据缓存[v0]")
+        while future_to_idx:
+            if interrupted:
+                print("收到中断信号，正在取消未完成的任务...")
+                for f in future_to_idx.keys():
+                    f.cancel()
+                break
+                
+            # 获取已完成的任务
+            done_futures = [f for f in list(future_to_idx.keys()) if f.done()]
+            if not done_futures:
+                # 没有完成的任务，短暂等待
+                import time
+                time.sleep(0.1)
+                continue
+                
+            for future in done_futures:
+                try:
+                    result = future.result(timeout=30)  # 设置超时时间
+                    if result is not None:
+                        from_data, to_data, edge_feat, target_value = result
+                        from_data_list.append(from_data)
+                        to_data_list.append(to_data)
+                        edge_attr_list.append(edge_feat)
+                        target_features_list.append([target_value])
+                except CancelledError:
+                    # 任务被取消
+                    pass
+                except Exception as e:
+                    print(f"处理任务时发生异常: {e}")
+                    
+                # 更新完成计数和进度条
+                completed_count += 1
+                idx = future_to_idx.pop(future)
+                
+                # 定期更新进度条描述，显示缓存命中信息
+                if completed_count % 10 == 0 or completed_count == len(df):  # 每10个任务或完成时更新
+                    stats = cache.get_stats()
+                    pbar.set_description(f"构建图数据缓存[v0] 命中:{stats['hits']}/{stats['total']}")
+                    
+                pbar.update(1)
+                
+                if interrupted:  # 每处理一个任务都检查中断状态
                     print("收到中断信号，正在取消未完成的任务...")
                     for f in future_to_idx.keys():
                         f.cancel()
                     break
                     
-                # 获取已完成的任务
-                done_futures = [f for f in list(future_to_idx.keys()) if f.done()]
-                if not done_futures:
-                    # 没有完成的任务，短暂等待
-                    import time
-                    time.sleep(0.1)
-                    continue
-                    
-                for future in done_futures:
-                    try:
-                        result = future.result(timeout=30)  # 设置超时时间
-                        if result is not None:
-                            from_data, to_data, edge_feat, target_value = result
-                            from_data_list.append(from_data)
-                            to_data_list.append(to_data)
-                            edge_attr_list.append(edge_feat)
-                            target_features_list.append([target_value])
-                    except CancelledError:
-                        # 任务被取消
-                        pass
-                    except Exception as e:
-                        print(f"处理任务时发生异常: {e}")
-                        
-                    # 更新完成计数和进度条
-                    completed_count += 1
-                    idx = future_to_idx.pop(future)
-                    
-                    # 定期更新进度条描述，显示缓存命中信息
-                    if completed_count % 10 == 0 or completed_count == len(df):  # 每10个任务或完成时更新
-                        stats = cache.get_stats()
-                        pbar.set_description(f"构建图数据缓存[v0] 命中:{stats['hits']}/{stats['total']}")
-                        
-                    pbar.update(1)
-                    
-                    if completed_count % 100 == 0:  # 每处理100个任务检查一次中断状态
-                        if interrupted:
-                            print("收到中断信号，正在取消未完成的任务...")
-                            for f in future_to_idx.keys():
-                                f.cancel()
-                            break
-                            
-            pbar.close()
-        except KeyboardInterrupt:
-            print("检测到键盘中断，正在取消所有任务...")
-            for f in future_to_idx.keys():
-                f.cancel()
-            # 等待任务取消完成
-            executor.shutdown(wait=False)
-            print("任务取消完成")
-            sys.exit(1)
+        pbar.close()
+        
+        # 关闭执行器
+        executor.shutdown(wait=False)
     
     if len(edge_attr_list) > 0:
         edge_attrs = torch.FloatTensor(np.array(edge_attr_list))
@@ -385,18 +387,28 @@ def process_single_row_unified(idx, row, is_fragnet_model, is_equiformer_model, 
         # 根据模型类型选择适当的数据处理函数
         if is_fragnet_model:
             # 使用 FragNet 数据处理函数
+            if interrupted: return None
             from_data = smile_to_fragnet_features(row['smiles_from'])
+            if interrupted: return None
             to_data = smile_to_fragnet_features(row['smiles_to'])
         elif is_equiformer_model:
             # 对于Equiformer模型，暂时使用指纹方法
+            if interrupted: return None
             from_fp = smiles_to_fingerprint(row['smiles_from'])
+            if interrupted: return None
             to_fp = smiles_to_fingerprint(row['smiles_to'])
+            if interrupted: return None
             from_data = Data(x=torch.FloatTensor(from_fp).unsqueeze(0))
+            if interrupted: return None
             to_data = Data(x=torch.FloatTensor(to_fp).unsqueeze(0))
         else:
             # 使用标准的 smiles_to_graph_data 函数
+            if interrupted: return None
             from_data = smiles_to_graph_data(row['smiles_from'], cache)
+            if interrupted: return None
             to_data = smiles_to_graph_data(row['smiles_to'], cache)
+            
+        if interrupted: return None
             
         # 检查数据是否有效
         if from_data is None or to_data is None:
@@ -405,9 +417,13 @@ def process_single_row_unified(idx, row, is_fragnet_model, is_equiformer_model, 
                 logger.warning(message)
             return None
             
+        if interrupted: return None
+            
         # 准备边特征
         edge_feat = prepare_edge_features(row, property_stats, include_property_changes=False)
         
+        if interrupted: return None
+            
         # 准备目标属性特征
         target_value = 0.0
         if target_property in row and not pd.isna(row[target_property]):
@@ -526,44 +542,36 @@ def build_molecule_evolution_dataset_unified(
         
         # 处理完成的任务
         completed_count = 0
-        try:
-            for future in tqdm(as_completed(future_to_idx), total=len(df), desc="构建图数据缓存[unified]"):
-                if interrupted:
-                    print("收到中断信号，正在取消未完成的任务...")
-                    for f in future_to_idx.keys():
-                        f.cancel()
-                    break
-                    
-                try:
-                    result = future.result(timeout=30)  # 设置超时时间
-                    if result is not None:
-                        from_data, to_data, edge_feat, target_value = result
-                        from_data_list.append(from_data)
-                        to_data_list.append(to_data)
-                        edge_attr_list.append(edge_feat)
-                        target_features_list.append([target_value])
-                except CancelledError:
-                    # 任务被取消
-                    pass
-                except Exception as e:
-                    print(f"处理任务时发生异常: {e}")
-                    
-                completed_count += 1
-                if completed_count % 100 == 0:  # 每处理100个任务检查一次中断状态
-                    if interrupted:
-                        print("收到中断信号，正在取消未完成的任务...")
-                        for f in future_to_idx.keys():
-                            f.cancel()
-                        break
-                        
-        except KeyboardInterrupt:
-            print("检测到键盘中断，正在取消所有任务...")
-            for f in future_to_idx.keys():
-                f.cancel()
-            # 等待任务取消完成
-            executor.shutdown(wait=False)
-            print("任务取消完成")
-            sys.exit(1)
+        for future in tqdm(as_completed(future_to_idx), total=len(df), desc="构建图数据缓存[unified]"):
+            if interrupted:
+                print("收到中断信号，正在取消未完成的任务...")
+                for f in future_to_idx.keys():
+                    f.cancel()
+                break
+                
+            try:
+                result = future.result(timeout=30)  # 设置超时时间
+                if result is not None:
+                    from_data, to_data, edge_feat, target_value = result
+                    from_data_list.append(from_data)
+                    to_data_list.append(to_data)
+                    edge_attr_list.append(edge_feat)
+                    target_features_list.append([target_value])
+            except CancelledError:
+                # 任务被取消
+                pass
+            except Exception as e:
+                print(f"处理任务时发生异常: {e}")
+                
+            completed_count += 1
+            if interrupted:  # 每处理一个任务都检查中断状态
+                print("收到中断信号，正在取消未完成的任务...")
+                for f in future_to_idx.keys():
+                    f.cancel()
+                break
+        
+        # 关闭执行器
+        executor.shutdown(wait=False)
     
     if len(edge_attr_list) > 0:
         edge_attrs = torch.FloatTensor(np.array(edge_attr_list))

@@ -64,28 +64,35 @@ def smile_to_graph_xyz(smile, types):
     mol = Chem.MolFromSmiles(smile)
     
     if mol is None:
-        print(f"无法解析SMILES: {smile}")
+        print(f"[molecule.py - smile_to_graph_xyz] 无法解析SMILES: {smile}")
         return None, None, None, None, None
     
     mol = Chem.AddHs(mol)
     try:
-        AllChem.EmbedMolecule(mol, ETKDG_PARAMS)
+        # 检查EmbedMolecule的返回值，成功返回构象ID（通常是0），失败返回-1
+        conf_id = AllChem.EmbedMolecule(mol, ETKDG_PARAMS)
+        if conf_id == -1:
+            raise ValueError("EmbedMolecule failed to generate conformer")
         conf = mol.GetConformer()
         pos = conf.GetPositions()
         pos = torch.tensor(pos, dtype=torch.float)
-    except Exception:
-        # UPDATE 暂时没有用到，就先不提示了。
-        # print(f'无法生成3D坐标，尝试使用{ETKDG_VERSION_USED}生成坐标...', repr(e))
+    except Exception as e:
+        # INFO 几乎第二次也都是失败
+        # print(f"[molecule.py - smile_to_graph_xyz] 分子 {smile} 无法生成3D坐标，尝试移除立体构型后使用{ETKDG_VERSION_USED}重新生成...", repr(e))
         # 去除立体构型
-        Chem.RemoveStereochemistry(mol)
-        try:
-            # 第二次尝试生成坐标
-            AllChem.EmbedMolecule(mol, ETKDG_PARAMS)
-            conf = mol.GetConformer()
-            pos = conf.GetPositions()
-            pos = torch.tensor(pos, dtype=torch.float)
-        except Exception:
-            pos = None  # 明确设置为None
+        # Chem.RemoveStereochemistry(mol)
+        # try:
+        #     # 第二次尝试生成坐标
+        #     conf_id = AllChem.EmbedMolecule(mol, ETKDG_PARAMS)
+        #     if conf_id == -1:
+        #         raise ValueError("EmbedMolecule failed to generate conformer in second attempt")
+        #     conf = mol.GetConformer()
+        #     pos = conf.GetPositions()
+        #     pos = torch.tensor(pos, dtype=torch.float)
+        # except Exception as e:
+        #     print(f"[molecule.py - smile_to_graph_xyz] 分子 {smile} 即使移除立体构型后仍无法生成3D坐标，使用{ETKDG_VERSION_USED}失败...", repr(e))
+        #     pos = None  # 明确设置为None
+        pos = None
     
     # 检查是否成功生成坐标
     if pos is None:
@@ -102,9 +109,8 @@ def smile_to_graph_xyz(smile, types):
     num_hs = []
     for atom in mol.GetAtoms():
         symbol = atom.GetSymbol()
-        if symbol not in types:
-            continue
-        type_idx.append(types[symbol])
+        # UPDATE 为不在types字典中的原子分配默认类型0（H），而不是跳过
+        type_idx.append(types.get(symbol, 0))
         atomic_number.append(atom.GetAtomicNum())                       # 原子序数
         aromatic.append(1 if atom.GetIsAromatic() else 0)               # 芳香性
         hybridization = atom.GetHybridization()                         # 杂化类型 * 3

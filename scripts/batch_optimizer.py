@@ -15,6 +15,24 @@ import pandas as pd
 import uuid
 import traceback
 from rdkit import RDLogger
+import signal
+
+# 全局中断标志
+interrupted = False
+
+# 信号处理函数
+def signal_handler(sig, frame):
+    """处理中断信号"""
+    global interrupted
+    if interrupted:
+        # 如果已经中断过，直接退出
+        print("再次收到中断信号，立即退出！")
+        sys.exit(0)
+    print("正在中断处理过程，请稍候...")
+    interrupted = True
+
+# 注册信号处理器
+signal.signal(signal.SIGINT, signal_handler)
 
 # 禁用RDKit的警告信息
 RDLogger.DisableLog('rdApp.*')
@@ -163,7 +181,7 @@ def run_evolution_optimizer(optimizer, smiles, property_value, args, output_dir)
 
 def batch_process(data_list, args, output_dir):
     """批量处理数据"""
-    results_dict = {}
+    results_dict = {}    
     total_count = len(data_list)
     
     # 创建总日志文件
@@ -201,7 +219,7 @@ def batch_process(data_list, args, output_dir):
             f.write(f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"初始属性值: {property_value}\n")
         
-        # 运行优化
+        # 运行优化，传递中断标志
         result = run_evolution_optimizer(
             optimizer,
             smiles, 
@@ -229,7 +247,7 @@ def batch_process(data_list, args, output_dir):
         # 定期保存结果（每5个分子保存一次）
         if (i+1) % 5 == 0 or (i+1) == total_count:
             save_path = save_results(results_dict, args.output_json, output_dir)
-    
+
     # 记录总耗时
     batch_end_time = time.time()
     total_time = batch_end_time - batch_start_time

@@ -988,6 +988,11 @@ class MolecularEvolutionExpansion:
         for step in range(1, steps + 1):
             # 获取可能的操作
             possible_operations = self._get_possible_operations(current_mol)
+            
+            # 检查中断标志
+            if hasattr(self, 'interrupted') and self.interrupted:
+                print("检测到中断信号，停止进化树生成")
+                break
             if not possible_operations:
                 break
             
@@ -1407,12 +1412,22 @@ class MolecularEvolutionExpansion:
         seen_molecules = {self.initial_smiles}  # 存储已处理的分子
         
         while queue:
+            # 检查中断标志
+            if hasattr(self, 'interrupted') and self.interrupted:
+                print("检测到中断信号，停止进化树生成")
+                break
+                
             current_smiles, depth, parent_id = queue.popleft()
             
             # 获取当前节点
             current_node = expansion_tree["nodes"].get(parent_id)
             if not current_node:
                 continue
+            
+            # 检查中断标志
+            if hasattr(self, 'interrupted') and self.interrupted:
+                print("检测到中断信号，停止进化树生成")
+                break
             
             # 达到最大深度时停止扩展
             if depth >= max_depth:
@@ -1452,6 +1467,11 @@ class MolecularEvolutionExpansion:
             current_mol = Chem.MolFromSmiles(current_smiles)
             if not current_mol:
                 continue
+            
+            # 检查中断标志
+            if hasattr(self, 'interrupted') and self.interrupted:
+                print("检测到中断信号，停止进化树生成")
+                break
                 
             # 获取可能的操作
             possible_operations = self._get_possible_operations(current_mol)
@@ -1467,11 +1487,17 @@ class MolecularEvolutionExpansion:
                 
                 for operation in possible_operations:
                     try:
+                        # 检查中断标志
+                        if hasattr(self, 'interrupted') and self.interrupted:
+                            print("检测到中断信号，停止进化树生成")
+                            break
+                        
                         # 应用操作生成新分子
                         operation_type = operation["type"]
                         operation_params = operation.get("params", {})
                         new_mol = self._apply_operation(current_mol, operation_type, **operation_params)
                         
+                        # 检查新分子是否有效
                         if new_mol and self.validate_molecule(new_mol):
                             new_smiles = Chem.MolToSmiles(new_mol)
                             
@@ -1484,10 +1510,20 @@ class MolecularEvolutionExpansion:
                         # 记录错误但继续处理其他操作
                         continue
                 
+                # 检查中断标志
+                if hasattr(self, 'interrupted') and self.interrupted:
+                    print("检测到中断信号，停止进化树生成")
+                    break
+                
                 # 进行批量预测
                 operations_with_predictions = []
                 if batch_from_smiles:
                     try:
+                        # 检查中断标志
+                        if hasattr(self, 'interrupted') and self.interrupted:
+                            print("检测到中断信号，停止进化树生成")
+                            break
+                        
                         # 调用批量预测方法
                         property_changes = predictor.predict_batch(batch_from_smiles, batch_to_smiles, batch_operations)
                         
@@ -1515,15 +1551,30 @@ class MolecularEvolutionExpansion:
                 else:
                     operations_with_predictions.sort(key=lambda x: x[2])
                 
+                # 检查中断标志
+                if hasattr(self, 'interrupted') and self.interrupted:
+                    print("检测到中断信号，停止进化树生成")
+                    break
+                
                 # 限制分支数量
                 branch_count = 0
                 for operation, new_smiles, property_change in operations_with_predictions:
                     if branch_count >= max_branching:
                         break
                     
+                    # 检查中断标志
+                    if hasattr(self, 'interrupted') and self.interrupted:
+                        print("检测到中断信号，停止进化树生成")
+                        break
+                    
                     # 避免重复分子
                     if new_smiles not in seen_molecules:
                         seen_molecules.add(new_smiles)
+                        
+                        # 检查中断标志
+                        if hasattr(self, 'interrupted') and self.interrupted:
+                            print("检测到中断信号，停止进化树生成")
+                            break
                         
                         # 计算累计变化和新属性值
                         current_accumulated = current_node.get("accumulated_change", 0)
