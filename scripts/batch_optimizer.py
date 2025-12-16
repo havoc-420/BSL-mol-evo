@@ -59,13 +59,13 @@ def parse_args():
     parser.add_argument('--output-json', type=str,
                         help='输出的JSON文件路径')
     parser.add_argument('--model-path', type=str,
-                        default='/home/data2/rhj/project/mol_editor/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200/last.pth',
+                        default='/home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200/last.pth',
                         help='模型文件路径')
     parser.add_argument('--model-dir', type=str,
-                        default='/home/data2/rhj/project/mol_editor/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200',
+                        default='/home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200',
                         help='模型目录路径')
     parser.add_argument('--config-file', type=str,
-                        default='/home/data2/rhj/project/mol_editor/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct-config.yaml',
+                        default='/home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct-config.yaml',
                         help='配置文件路径')
     parser.add_argument('--target-property', type=str, default='lumo',
                         help='目标属性名称')

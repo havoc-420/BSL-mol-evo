@@ -21,7 +21,7 @@ python calculate_property_changes.py -i data/qm9-evo-pairs-step-1-pairs-127730.j
 加载重原子文件: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████| 8/8 [00:00<00:00, 87.94it/s]
 计算属性变化...
 计算属性变化: 100%|██████████████████████████████████████████████████████████████████████████████████████████| 127730/127730 [04:48<00:00, 442.80it/s]
-保存结果到 /home/data2/rhj/project/mol_editor/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.json...
+保存结果到 /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.json...
 完成!
 
 属性变化统计信息:
@@ -80,7 +80,7 @@ cd mol_evo/..
 CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py \
   --epochs 200 \
   --learning-rate 0.0001 \
-  --data-file '/home/data2/rhj/project/mol_editor/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.json' \
+  --data-file '/home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.json' \
   --max-pairs 120000 \
   --batch-size 512 \
   --target-property gap_change_pct
@@ -96,8 +96,8 @@ CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py \
 
 ```bash
 python mol_evo/predict_v0.py \
-  --model-path /home/data2/rhj/project/mol_editor/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200/last.pth \
-  --model-dir /home/data2/rhj/project/mol_editor/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200 \
+  --model-path /home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200/last.pth \
+  --model-dir /home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200 \
   --smiles-from 'COC' \
   --smiles-to 'OCCO' \
   --atom-symbol 'O' \
@@ -107,7 +107,7 @@ python mol_evo/predict_v0.py \
 ## batch test
 
 ```bash
-conda activate mol-edit && python mol_evo/predict_v0.py --model-path /home/data2/rhj/project/mol_editor/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200/last.pth --model-dir /home/data2/rhj/project/mol_editor/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200 --json-file mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.json --indices-file mol_evo/dataset/data/dataset_indices/indices_20251127_122155_seed42.json --use-test-indices --num-samples 40 --config-file mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct-config.yaml --sample-method sequential
+conda activate mol-edit && python mol_evo/predict_v0.py --model-path /home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200/last.pth --model-dir /home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200 --json-file mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.json --indices-file mol_evo/dataset/data/dataset_indices/indices_20251127_122155_seed42.json --use-test-indices --num-samples 40 --config-file mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct-config.yaml --sample-method sequential
 ```
 
 ## batch predict
@@ -123,14 +123,13 @@ python mol_evo/dataset/build_ab_pairs.py
 base single cli example in [mo-cli.md](../mo/mo-cli.md).
 
 ```bash
-conda activate mol-edit && CUDA_VISIBLE_DEVICES=1 python -m mol_evo.scripts.batch_optimizer --input-csv /home/data2/rhj/project/mol_editor/mol_evo/dataset/eval-data/20251205_131636/qm9_test_molecules.csv --output-json /home/data2/rhj/project/mol_editor/test_output.json --target-property lumo --start-index 0 --end-index 50 --max-depth 4 --max-branching 8
+conda activate mol-edit && CUDA_VISIBLE_DEVICES=1 python -m mol_evo.scripts.batch_optimizer --input-csv /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/eval-data/20251205_131636/qm9_test_molecules.csv --output-json /home/rhj/projects/mol_opt/mol-ofo/test_output.json --target-property lumo --start-index 0 --end-index 50 --max-depth 4 --max-branching 8
 
-conda activate mol-edit && python mol_evo/scripts/batch_optimizer.py \
---input-csv /home/data2/rhj/project/mol_editor/mol_evo/dataset/eval-data/20251205_131636/qm9_test_molecules.csv --target-property lumo --start-index 0 --end-index 200 --max-depth 4 --max-branching 8
+
 ```
 
 # Analyze MO Results
 
 ```bash
-conda activate mol-edit && python mol_evo/evaluate_batch_mo.py /home/data2/rhj/project/mol_editor/mol_evo/output/evo-mo/batch_optimization_20251207_200713 --target-prop lumo --direction decrease --max-files 2 --item-size 2
+conda activate mol-edit && python mol_evo/evaluate_batch_mo.py /home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/evo-mo/batch_optimization_20251207_200713 --target-prop lumo --direction decrease --max-files 2 --item-size 2
 ```

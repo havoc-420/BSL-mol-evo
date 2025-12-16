@@ -14,7 +14,8 @@
 ### 1. 模型基础
 
 使用基于 step=1 数据集训练的模型作为基础预测器：
-- 模型路径: `/home/data2/rhj/project/mol_editor/mol_evo/output/v0/visnet_linear_linear/train-20251022_072726-mu_change-30000-500`
+
+- 模型路径: `/home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/visnet_linear_linear/train-20251022_072726-mu_change-30000-500`
 - 目标属性: mu_change (偶极矩变化)
 - 模型架构: VisNet + Linear + Linear
 
@@ -36,6 +37,7 @@ A --(step1)--> A1 --(step2)--> B
 根据用户需求采用不同的策略生成和筛选分子：
 
 1. 候选分子列表模式：
+
    - 从用户提供的候选分子列表中筛选满足条件的分子
    - 属性上升需求: 筛选预测变化值 > 0 的分子
    - 属性下降需求: 筛选预测变化值 < 0 的分子
@@ -75,7 +77,7 @@ A --(step1)--> A1 --(step2)--> B
 ### 4. 束搜索策略
 
 - 为避免组合爆炸，采用束搜索（beam search）策略
-- 每层扩展所有可能操作后，仅保留属性预测最优的前k个节点继续搜索
+- 每层扩展所有可能操作后，仅保留属性预测最优的前 k 个节点继续搜索
 - 束宽度（beam width）作为可配置参数
 - 平衡搜索广度与计算开销
 
@@ -121,6 +123,7 @@ python mol_evo/molecule_optimizer.py \
 ## 输出结果
 
 脚本将输出满足条件的分子列表，包括：
+
 - 分子 SMILES
 - 预测的属性变化值
 - 演化深度（树形搜索模式）

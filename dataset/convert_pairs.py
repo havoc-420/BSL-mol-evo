@@ -189,10 +189,10 @@ def handle_json_decode_error_with_position(content, pos, e):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='将step-2格式的JSON文件转换为step-1格式')
     parser.add_argument('--input', '-i', type=str, 
-                        default="/home/data2/rhj/project/mol_editor/mol_evo/dataset/data/qm9-evo-pairs-step-2-pairs.json",
+                        default="/home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/qm9-evo-pairs-step-2-pairs.json",
                         help='输入文件路径')
     parser.add_argument('--output', '-o', type=str,
-                        default="/home/data2/rhj/project/mol_editor/mol_evo/dataset/data",
+                        default="/home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data",
                         help='输出目录路径')
     
     args = parser.parse_args()

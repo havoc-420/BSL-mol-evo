@@ -81,7 +81,7 @@ def main():
                        choices=['random', 'sequential'],
                        help='采样方式: random(随机采样) 或 sequential(顺序采样) (默认: random)')
     parser.add_argument('--config-file', '-cf2', type=str, 
-                       default='/home/data2/rhj/project/mol_editor/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct-config.yaml',
+                       default='/home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct-config.yaml',
                        help='配置文件路径 (默认使用qm9配置文件)')
     
     args = parser.parse_args()
@@ -574,8 +574,8 @@ def run4debug():
     使用硬编码参数运行预测器，方便调试
     示例用法，参数来自:
     python mol_evo/predict_v0.py \
-      --model-path /home/data2/rhj/project/mol_editor/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200/last.pth \
-      --model-dir /home/data2/rhj/project/mol_editor/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200 \
+      --model-path /home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200/last.pth \
+      --model-dir /home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200 \
       --smiles-from 'CC' \
       --smiles-to 'CO' \
       --atom-symbol '0' \
@@ -584,8 +584,8 @@ def run4debug():
     # 硬编码的参数
     class Args:
         def __init__(self):
-            self.model_path = "/home/data2/rhj/project/mol_editor/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200/last.pth"
-            self.model_dir = "/home/data2/rhj/project/mol_editor/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200"
+            self.model_path = "/home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200/last.pth"
+            self.model_dir = "/home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200"
             self.smiles_from = "CC"
             self.smiles_to = "CO"
             self.atom_symbol = "0"
@@ -599,7 +599,7 @@ def run4debug():
             self.random_seed = 42
             self.log_level = "INFO"
             self.prediction_mode = "denormalized"
-            self.config_file = "/home/data2/rhj/project/mol_editor/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct-config.yaml"   # UPDATE 这个或许得跟 model 本身的训练关联起来，然后根据 model-path 方便的链接；
+            self.config_file = "/home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct-config.yaml"   # UPDATE 这个或许得跟 model 本身的训练关联起来，然后根据 model-path 方便的链接；
     
     args = Args()
     

@@ -9,6 +9,7 @@
 主测试脚本，用于测试分子进化路径的生成。
 
 #### 功能
+
 - 分析单个分子的构建路径
 - 生成多条分子进化路径
 - 生成分子进化树（支持全量扩展）
@@ -36,29 +37,29 @@ python test_evolution_tree.py --test-type reverse --target-smiles CCO
 python test_evolution_tree.py CC --test-type evolution --config-file /path/to/config.yaml
 
 # 使用配置文件运行进化树测试
-python test_evolution_tree.py CC --test-type tree --config-file /home/data2/rhj/project/mol_editor/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct.yaml
+python test_evolution_tree.py CC --test-type tree --config-file /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct.yaml
 
 # 使用配置文件运行进化路径生成测试
-python test_evolution_tree.py CC --test-type evolution --config-file /home/data2/rhj/project/mol_editor/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct.yaml --num-paths 5 --steps-per-path 3
+python test_evolution_tree.py CC --test-type evolution --config-file /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct.yaml --num-paths 5 --steps-per-path 3
 ```
 
 #### 配置文件支持
 
-脚本支持通过YAML配置文件动态加载原子类型和操作类型。配置文件格式如下：
+脚本支持通过 YAML 配置文件动态加载原子类型和操作类型。配置文件格式如下：
 
 ```yaml
 atom_types:
-- C
-- N
-- O
-- F
+  - C
+  - N
+  - O
+  - F
 
 operation_types:
-- add_atom
-- replace_atom
-- form_double_bond
-- form_ring
-- add_stereo
+  - add_atom
+  - replace_atom
+  - form_double_bond
+  - form_ring
+  - add_stereo
 ```
 
 使用配置文件可以确保生成的进化路径与训练数据集保持一致。
@@ -68,6 +69,7 @@ operation_types:
 验证生成的分子进化路径与训练数据集格式一致性的脚本。
 
 #### 功能
+
 - 加载并分析数据集样本
 - 分析生成路径的格式
 - 比较数据集和生成路径的格式差异
@@ -84,6 +86,7 @@ python validate_dataset_consistency.py
 生成与训练数据格式一致的分子演化数据。
 
 #### 功能
+
 - 生成分子演化对
 - 转换为训练数据格式
 - 保存训练数据
@@ -128,7 +131,7 @@ python generate_training_data.py
 ```json
 {
   "smiles_from": "起始分子SMILES",
-  "smiles_to": "目标分子SMILES", 
+  "smiles_to": "目标分子SMILES",
   "operations": [
     {
       "position": "操作位置",
@@ -151,26 +154,27 @@ python generate_training_data.py
 根据项目要求，我们做了以下修改：
 
 1. **已从系统中完全移除 `add_fragment` 操作**。现在系统只使用 `add_atom` 操作来添加新的原子，包括原本通过 `add_fragment` 添加的复杂片段。这样做的好处是：
+
    - 确保与训练数据集的操作类型保持完全一致
    - 简化了操作类型系统
    - 保持了系统的统一性，所有添加操作都通过原子级别进行
 
 2. **移除了操作权重配置，改为全量扩展树生成**。对于复杂片段（如甲基、乙基等），现在会分解为多个 `add_atom` 操作来实现，确保与训练数据集格式的一致性。全量扩展意味着：
+
    - 不再基于权重进行随机选择
    - 生成所有可能的操作变体
    - 提供更全面的分子演化可能性
    - 适用于需要完整搜索空间的场景
    - 移除了所有与权重相关的参数，包括 `operation_weights` 和 `weight` 字段
 
-3. **支持从外部YAML配置文件动态加载原子类型和操作类型**。通过配置文件可以确保系统与特定数据集的操作类型和原子类型保持一致，提高系统的灵活性和适应性。
+3. **支持从外部 YAML 配置文件动态加载原子类型和操作类型**。通过配置文件可以确保系统与特定数据集的操作类型和原子类型保持一致，提高系统的灵活性和适应性。
 
 这种修改简化了操作类型系统，同时保持了功能的完整性，并且能够生成更全面的分子演化路径。
-
 
 ## 测试
 
 ```bash
-cd /home/data2/rhj/project/mol_editor && python mol_evo/tests/mo-tree-gen/standalone_test_evolution.py --config-file /home/data2/rhj/project/mol_editor/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct.yaml
+cd /home/rhj/projects/mol_opt/mol-ofo && python mol_evo/tests/mo-tree-gen/standalone_test_evolution.py --config-file /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct.yaml
 
-cd /home/data2/rhj/project/mol_editor && python -m mol_evo.core.evolver expand CC --num-paths 2 --max-steps 3 --format json --config-file /home/data2/rhj/project/mol_editor/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct.yaml
+cd /home/rhj/projects/mol_opt/mol-ofo && python -m mol_evo.core.evolver expand CC --num-paths 2 --max-steps 3 --format json --config-file /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct.yaml
 ```

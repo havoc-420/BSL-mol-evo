@@ -1,18 +1,18 @@
-# Batch在分子特征提取中的使用
+# Batch 在分子特征提取中的使用
 
 ## 概述
 
-在PyTorch Geometric (PyG)中，`batch`属性是一个重要的概念，特别是在处理多个图（分子）的批量数据时。在我们的分子编辑器项目中，[MoleculeFeatureExtractor](file:///home/data2/rhj/project/mol_editor/mol_evo/core/models/v0/gcn.py#L15-L53)模型支持使用`batch`属性来处理批量数据。
+在 PyTorch Geometric (PyG)中，`batch`属性是一个重要的概念，特别是在处理多个图（分子）的批量数据时。在我们的分子编辑器项目中，[MoleculeFeatureExtractor](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/gcn.py#L15-L53)模型支持使用`batch`属性来处理批量数据。
 
-## Batch的作用
+## Batch 的作用
 
-1. **批量处理**: 当需要同时处理多个分子时，PyG的DataLoader会自动创建`batch`属性，指示每个节点属于哪个图（分子）。
-2. **高效计算**: 使用`batch`可以更好地利用GPU并行计算能力，提高训练和推理效率。
+1. **批量处理**: 当需要同时处理多个分子时，PyG 的 DataLoader 会自动创建`batch`属性，指示每个节点属于哪个图（分子）。
+2. **高效计算**: 使用`batch`可以更好地利用 GPU 并行计算能力，提高训练和推理效率。
 3. **正确的池化操作**: 通过`global_mean_pool(x, batch)`，可以正确地对每个分子的节点特征进行池化，得到每个分子的图级表示。
 
 ## 当前实现
 
-在[MoleculeFeatureExtractor](file:///home/data2/rhj/project/mol_editor/mol_evo/core/models/v0/gcn.py#L15-L53)中，我们有以下处理逻辑：
+在[MoleculeFeatureExtractor](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/gcn.py#L15-L53)中，我们有以下处理逻辑：
 
 ```python
 batch = getattr(data, 'batch', None)
@@ -25,19 +25,20 @@ else:
 ```
 
 这段代码会检查输入数据是否包含`batch`属性：
-- 如果有`batch`属性，则使用`global_mean_pool`按照batch进行池化
+
+- 如果有`batch`属性，则使用`global_mean_pool`按照 batch 进行池化
 - 如果没有`batch`属性，则对所有节点特征取平均
 
 ## 测试脚本中的问题
 
-当前的测试脚本[test_v0_graph_feature_extractor.py](file:///home/data2/rhj/project/mol_editor/mol_evo/test_v0_graph_feature_extractor.py)只测试了单个分子的情况，没有使用batch。这虽然可以验证基本功能，但没有完全覆盖模型的批量处理能力。
+当前的测试脚本[test_v0_graph_feature_extractor.py](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/test_v0_graph_feature_extractor.py)只测试了单个分子的情况，没有使用 batch。这虽然可以验证基本功能，但没有完全覆盖模型的批量处理能力。
 
 ## 改进建议
 
-为了更全面地测试模型，建议在测试中添加对batch处理的支持：
+为了更全面地测试模型，建议在测试中添加对 batch 处理的支持：
 
 1. 创建多个分子的测试数据
-2. 使用PyG的DataLoader创建批量数据
+2. 使用 PyG 的 DataLoader 创建批量数据
 3. 验证模型在批量数据上的处理能力
 
 这样可以确保模型在实际使用场景中的正确性和效率。
@@ -47,9 +48,9 @@ else:
 下面给出 **使用 mini‑batch 方式加速 GCN 训练** 的完整思路与代码改动要点。  
 核心思路是把 **每个分子对 (from‑graph, to‑graph, edge‑feature, target)** 组织成一个 `Dataset`，再交给 **PyG 的 `DataLoader`** 进行批处理。这样：
 
-* **一次前向传播可以并行计算多个图**（利用 `Batch.from_data_list` 自动拼接节点、边、`batch` 索引）[[1]]  
-* **边特征（每个图的操作向量）** 直接在 `collate_fn` 中堆叠成 `(B, edge_feature_dim)`，模型的 `forward` 已经支持批维度。  
-* 训练、验证、测试循环只需遍历 `DataLoader`，不再在 `for i in range(N)` 中逐个调用模型，显著提升 GPU 利用率。
+- **一次前向传播可以并行计算多个图**（利用 `Batch.from_data_list` 自动拼接节点、边、`batch` 索引）[[1]]
+- **边特征（每个图的操作向量）** 直接在 `collate_fn` 中堆叠成 `(B, edge_feature_dim)`，模型的 `forward` 已经支持批维度。
+- 训练、验证、测试循环只需遍历 `DataLoader`，不再在 `for i in range(N)` 中逐个调用模型，显著提升 GPU 利用率。
 
 ---
 
@@ -77,7 +78,6 @@ class MoleculePairDataset(Dataset):
                 self.targets[idx])
 ```
 
-
 ---
 
 ## 2. 自定义 `collate_fn`
@@ -101,7 +101,6 @@ def pair_collate(batch):
     return from_batch, to_batch, edge_batch, target_batch
 ```
 
-
 > `Batch.from_data_list` 能把不同大小的图拼接成统一的 `batch`，并在内部生成 `batch` 索引供全局池化使用[[2]]。
 
 ---
@@ -120,7 +119,6 @@ train_loader = DataLoader(
         collate_fn=pair_collate,
         pin_memory=True)
 ```
-
 
 同理为 **验证 / 测试** 再各建一个 `DataLoader`（`shuffle=False`）。
 
@@ -178,7 +176,6 @@ for epoch in range(epochs):
         model.train()
 ```
 
-
 > 训练、验证、测试的 **梯度累加、学习率调度、早停** 逻辑保持不变，只是把原来的 `for i in range(N)` 替换为 `for batch in loader`。
 
 ---
@@ -206,17 +203,16 @@ with torch.no_grad():
     # 计算 RMSE、MAE、R²、阈值准确率等
 ```
 
-
 ---
 
 ## 6. 其它加速技巧（可选）
 
-| 技巧 | 说明 |
-|------|------|
-| **混合精度** (`torch.cuda.amp`) | 在 `with torch.cuda.amp.autocast():` 包裹前向、损失计算，可提升显存利用率并加速。 |
-| **梯度累加** | 当显存仍不足以容纳大 batch 时，可设 `batch_size=32`，每 `accum_steps=4` 次累加一次 `optimizer.step()`。 |
-| **多 GPU** (`torch.nn.DataParallel` 或 `DistributedDataParallel`) | 若机器有多块 GPU，可在模型外层包裹 `DataParallel`，`DataLoader` 的 `batch_size` 乘以 GPU 数。 |
-| **预取 & pin_memory** | `DataLoader(..., pin_memory=True, prefetch_factor=2)` 能进一步提升 CPU→GPU 数据传输效率。 |
+| 技巧                                                              | 说明                                                                                                    |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **混合精度** (`torch.cuda.amp`)                                   | 在 `with torch.cuda.amp.autocast():` 包裹前向、损失计算，可提升显存利用率并加速。                       |
+| **梯度累加**                                                      | 当显存仍不足以容纳大 batch 时，可设 `batch_size=32`，每 `accum_steps=4` 次累加一次 `optimizer.step()`。 |
+| **多 GPU** (`torch.nn.DataParallel` 或 `DistributedDataParallel`) | 若机器有多块 GPU，可在模型外层包裹 `DataParallel`，`DataLoader` 的 `batch_size` 乘以 GPU 数。           |
+| **预取 & pin_memory**                                             | `DataLoader(..., pin_memory=True, prefetch_factor=2)` 能进一步提升 CPU→GPU 数据传输效率。               |
 
 ---
 
@@ -246,14 +242,13 @@ test_loader  = DataLoader(test_dataset,  batch_size=64, shuffle=False,
 # 5️⃣ 训练 / 验证 / 测试循环 → 参考上文代码块
 ```
 
-
 ---
 
 ### 小结
 
-1. **把每个分子对包装成 `Dataset`**，并使用 **PyG 的 `DataLoader`** 进行 **mini‑batch**。  
-2. **`Batch.from_data_list`** 自动处理不同大小的图并生成 `batch` 索引，模型的全局池化 (`global_mean_pool / global_max_pool`) 已经支持批量输入[[3]][[4]]。  
-3. 只需把原来的 **单样本循环** 替换为 **批循环**，其余优化（学习率调度、早停、日志）保持不变。  
+1. **把每个分子对包装成 `Dataset`**，并使用 **PyG 的 `DataLoader`** 进行 **mini‑batch**。
+2. **`Batch.from_data_list`** 自动处理不同大小的图并生成 `batch` 索引，模型的全局池化 (`global_mean_pool / global_max_pool`) 已经支持批量输入[[3]][[4]]。
+3. 只需把原来的 **单样本循环** 替换为 **批循环**，其余优化（学习率调度、早停、日志）保持不变。
 4. 通过 **增大 batch_size、混合精度、梯度累加** 等手段，可进一步提升训练速度与显存利用率。
 
 这样改写后，训练过程会在 GPU 上一次处理数十甚至上百个分子对，显著缩短每个 epoch 的耗时，同时保持原有模型结构和评估指标不变。祝你实验顺利！
