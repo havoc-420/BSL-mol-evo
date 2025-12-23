@@ -77,6 +77,14 @@ def parse_args():
                         help='最大分支数')
     parser.add_argument('--direction', type=str, choices=['increase', 'decrease'], default='decrease',
                         help='优化方向')
+    parser.add_argument('--pruning-patience', type=int, default=2,
+                        help='剪枝耐心值')
+    parser.add_argument('--logp-min', type=float, default=0.0,
+                        help='logP的最小值')
+    parser.add_argument('--logp-max', type=float, default=5.0,
+                        help='logP的最大值')
+    parser.add_argument('--logp-patience', type=int, default=3,
+                        help='logP剪枝耐心值，连续多少代logP超出范围就剪枝')
     parser.add_argument('--topK', type=int, default=20,
                         help='保留效果最好的K个结果')
     parser.add_argument('--batch-size', type=int, default=10,
@@ -136,7 +144,9 @@ def run_evolution_optimizer(optimizer, smiles, property_value, args, output_dir)
             args.max_depth,
             args.max_branching,
             args.direction,
-            pruning_patience=3  # 使用默认值
+            pruning_patience=args.pruning_patience,
+            logp_range=(args.logp_min, args.logp_max),
+            logp_patience=args.logp_patience
         )
         
         # 保存优化结果
@@ -296,6 +306,7 @@ def main():
         f.write(f"最大深度: {args.max_depth}\n")
         f.write(f"最大分支数: {args.max_branching}\n")
         f.write(f"优化方向: {args.direction}\n")
+        f.write(f"剪枝耐心值: {args.pruning_patience}\n")
         f.write(f"topK值: {args.topK}\n")
         f.write(f"起始索引: {args.start_index}\n")
         f.write(f"结束索引: {args.end_index}\n")

@@ -5,6 +5,7 @@
 """
 
 from rdkit import Chem
+from rdkit.Chem import Crippen
 from collections import deque
 import re
 import random
@@ -627,6 +628,24 @@ class MolecularEvolutionExpansion:
         print("[INFO] Available operations:")
         for op_key, op_desc in self.operation_types.items():
             print(f"  {op_key}: {op_desc}")
+    
+    def calculate_logP(self, smiles: str) -> Optional[float]:
+        """计算分子的logP值
+        
+        Args:
+            smiles: 分子的SMILES字符串
+            
+        Returns:
+            logP值，如果计算失败则返回None
+        """
+        try:
+            mol = Chem.MolFromSmiles(smiles)
+            if mol is None:
+                return None
+            return Crippen.MolLogP(mol)
+        except Exception as e:
+            print(f"计算logP时出错 ({smiles}): {e}")
+            return None
     
     def validate_molecule(self, mol: Chem.Mol) -> bool:
         """验证分子是否有效"""
@@ -1361,7 +1380,7 @@ class MolecularEvolutionExpansion:
     def generate_expansion_tree(self, max_depth: int = 3, max_branching: int = 5, 
                               predictor=None, optimization_direction='increase', 
                               pruning_patience=3, initial_property_value=None, 
-                              optimization_mode=None) -> Dict:
+                              optimization_mode=None, logp_range=(0, 5), logp_patience=3) -> Dict:
         """
         生成从初始分子开始的扩展树，用于分子优化迭代，支持生成过程中的预测和剪枝
         
@@ -1373,6 +1392,8 @@ class MolecularEvolutionExpansion:
             pruning_patience: 剪枝耐心值，连续多少代没有改善就剪枝
             initial_property_value: 初始分子的属性值
             optimization_mode: 优化模式
+            logp_range: logP值的有效范围，默认(0, 5)
+            logp_patience: logP剪枝耐心值，连续多少代logP超出范围就剪枝
             
         Returns:
             包含扩展树结构的字典
@@ -1399,6 +1420,12 @@ class MolecularEvolutionExpansion:
             "operation": None,
             "details": {}
         }
+        
+        # 计算并添加根节点的logP值
+        root_logp = self.calculate_logP(self.initial_smiles)
+        root_node["logP"] = root_logp
+        # 记录logP是否在有效范围内
+        root_node["logP_in_range"] = root_logp is not None and logp_range[0] <= root_logp <= logp_range[1]
         
         # 如果提供了预测器，为根节点添加属性值
         if predictor and initial_property_value is not None:
@@ -1433,7 +1460,7 @@ class MolecularEvolutionExpansion:
             if depth >= max_depth:
                 continue
                 
-            # 检查是否需要剪枝该分支
+            # INFO 检查是否需要剪枝该分支
             if predictor and pruning_patience > 0:
                 # 从当前节点回溯到最近的属性改善点
                 should_prune = False
@@ -1462,7 +1489,33 @@ class MolecularEvolutionExpansion:
                 if stagnation_count >= pruning_patience:
                     print(f"剪枝分支，起始节点: {current_smiles}，连续未改善次数: {stagnation_count}")
                     continue
+            
+            # INFO 检查是否需要根据logP剪枝该分支
+            if logp_patience > 0:
+                # 从当前节点回溯到最近的logP在范围内的节点
+                logp_out_range_count = 0
+                last_valid_logp_depth = depth
                 
+                # 计算该路径的连续logP超出范围次数
+                current_backtrack_id = parent_id
+                while current_backtrack_id:
+                    backtrack_node = expansion_tree["nodes"].get(current_backtrack_id)
+                    if not backtrack_node:
+                        break
+                    
+                    # 检查该节点的logP是否在范围内
+                    if backtrack_node.get("logP_in_range", True):
+                        last_valid_logp_depth = backtrack_node["depth"]
+                        break
+                    
+                    # 向前回溯
+                    current_backtrack_id = backtrack_node.get("parent_id")
+                
+                logp_out_range_count = depth - last_valid_logp_depth
+                if logp_out_range_count >= logp_patience:
+                    print(f"根据logP剪枝分支，起始节点: {current_smiles}，连续超出范围次数: {logp_out_range_count}")
+                    continue
+            
             # 解析当前分子
             current_mol = Chem.MolFromSmiles(current_smiles)
             if not current_mol:
@@ -1582,6 +1635,11 @@ class MolecularEvolutionExpansion:
                         current_value = current_node.get("property_value", 0)
                         new_value = current_value + property_change
                         
+                        # 计算新分子的logP值
+                        new_logp = self.calculate_logP(new_smiles)
+                        # 检查logP是否在有效范围内
+                        logp_in_range = new_logp is not None and logp_range[0] <= new_logp <= logp_range[1]
+                        
                         # 添加新节点
                         node_id = str(node_counter)
                         expansion_tree["nodes"][node_id] = {
@@ -1593,7 +1651,9 @@ class MolecularEvolutionExpansion:
                             "details": operation.get("params", {}),
                             "property_change": property_change,
                             "accumulated_change": new_accumulated,
-                            "property_value": new_value
+                            "property_value": new_value,
+                            "logP": new_logp,
+                            "logP_in_range": logp_in_range
                         }
                         
                         # 添加边

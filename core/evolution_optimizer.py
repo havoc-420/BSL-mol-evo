@@ -610,7 +610,8 @@ class EvolutionTreeOptimizer:
                     queue.append((edge["to"], node["cumulative_change"]))
         
     def optimize_evolution_tree(self, initial_smiles, max_depth=2, max_branching=3, 
-                               optimization_direction='increase', pruning_patience=3):
+                               optimization_direction='increase', pruning_patience=3, 
+                               logp_range=(0, 5), logp_patience=3):
         """
         优化分子进化树
         
@@ -620,6 +621,8 @@ class EvolutionTreeOptimizer:
             max_branching: 最大分支数
             optimization_direction: 优化方向 ('increase' 或 'decrease')
             pruning_patience: 剪枝耐心值，连续多少代没有改善就剪枝
+            logp_range: logP值的有效范围，默认(0, 5)
+            logp_patience: logP剪枝耐心值，连续多少代logP超出范围就剪枝
             
         Returns:
             带有预测属性变化值的进化树
@@ -629,6 +632,8 @@ class EvolutionTreeOptimizer:
         print(f"最大分支数: {max_branching}")
         print(f"优化方向: {optimization_direction}")
         print(f"剪枝耐心值: {pruning_patience}")
+        print(f"logP有效范围: {logp_range}")
+        print(f"logP剪枝耐心值: {logp_patience}")
         
         # 检查中断标志
         if hasattr(self, 'interrupted') and self.interrupted:
@@ -669,7 +674,9 @@ class EvolutionTreeOptimizer:
             optimization_direction=optimization_direction,
             pruning_patience=pruning_patience,
             initial_property_value=initial_property_value,
-            optimization_mode=self.optimization_mode
+            optimization_mode=self.optimization_mode,
+            logp_range=logp_range,
+            logp_patience=logp_patience
         )
         
         # 更新尝试次数（这里简单地使用节点数量作为尝试次数）
