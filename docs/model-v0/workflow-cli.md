@@ -1,8 +1,14 @@
 # Data
 
-## 生成 evo-pair data
+## 生成 evo-pair data: task2
 
-// TODO
+```bash
+## 1.
+python mol-ofo/mol_evo/dataset/extract_evolution_pairs.py --csv /home/rhj/projects/mol_opt/data/gdcsv2/cell/cell_687787.csv
+
+## 2.
+
+```
 
 ## calculate_property_changes: 补充属性变化
 
