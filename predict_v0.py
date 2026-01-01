@@ -180,7 +180,6 @@ def main():
             print("-" * 45)
             
             # 从模型配置文件中读取目标属性
-            import json
             target_property = 'mu_change'  # 默认值
             try:
                 config_file = os.path.join(args.model_dir, 'model_config.json')

@@ -31,7 +31,7 @@ sys.path.insert(0, project_root)
 try:
     # 导入必要的模块
     from mol_evo.core.models.v0.visnet_linear_linear import MoleculeEvolutionVisnetLinearPredictor
-    from mol_evo.core.evolver import MolecularEvolutionExpansion
+    from mol_evo.core.molecular_evolution_expansion import MolecularEvolutionExpansion
     from mol_evo.core.data.processing import load_operation_config, get_atom_types, get_operation_types
     from mol_evo.utils.predict.model_utils import load_property_stats, load_training_params
     from mol_evo.utils.predict.data_utils import prepare_single_prediction_data

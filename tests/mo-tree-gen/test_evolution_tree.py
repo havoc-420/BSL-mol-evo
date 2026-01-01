@@ -13,7 +13,8 @@ import json
 # 添加项目根目录到Python路径
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from core.evolver import MolecularEvolutionExpansion, MoleculeEvolverAnalysis
+from core.molecular_evolution_expansion import MolecularEvolutionExpansion
+from core.evolver import MoleculeEvolverAnalysis
 
 def test_single_molecule_analysis(smiles):
     """

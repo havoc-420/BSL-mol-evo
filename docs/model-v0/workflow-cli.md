@@ -10,6 +10,12 @@ python mol-ofo/mol_evo/dataset/extract_evolution_pairs.py --csv /home/rhj/projec
 
 ```
 
+### 🐛 debug
+
+```bash
+python mol-ofo/mol_evo/dataset/extract_evolution_pairs.py --csv /home/rhj/projects/mol_opt/data/gdcsv2/cell/cell_687787_debug_v1.csv --mode preview_with_file
+```
+
 ## calculate_property_changes: 补充属性变化
 
 ```bash

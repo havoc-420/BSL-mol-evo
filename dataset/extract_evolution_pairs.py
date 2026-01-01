@@ -16,7 +16,8 @@ import time
 # 添加项目根目录到sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from mol_evo.core.similarity import calculate_evolutionary_similarity
+from rdkit import Chem
+from rdkit.Chem import AllChem
 from mol_evo.core.data.processing import calculate_molecular_similarity
 from mol_evo.core.evolver import MoleculeEvolverAnalysis
 
@@ -39,9 +40,94 @@ def convert_types(obj):
     else:
         return obj
 
-# 注意：旧的 `_convert_operation_dict` 函数已被删除。
-# 因为 MoleculeEvolverAnalysis 的 `generate_path_dict()` 方法现在直接输出符合分析需求的标准格式，
-# 所以该转换函数已不再需要。
+
+# TODO 得完善
+def generate_intermediate_smiles(start_smiles, operations):
+    """
+    根据起始SMILES和操作序列生成中间状态的SMILES
+    
+    Args:
+        start_smiles: 起始分子的SMILES字符串
+        operations: 操作序列，每个操作是一个字典
+        
+    Returns:
+        包含中间状态SMILES的列表，包括起始状态
+    """
+    intermediates = [start_smiles]
+    current_mol = Chem.MolFromSmiles(start_smiles)
+    
+    if current_mol is None:
+        return intermediates
+    
+    # 为了能够进行修改，我们需要创建一个可编辑的分子
+    editable_mol = Chem.RWMol(current_mol)
+    
+    for op in operations:
+        try:
+            op_type = op.get('operation', '')
+            position = op.get('position', '')
+            atom = op.get('atom')
+            
+            # 处理不同类型的操作
+            if op_type == 'add_atom' and position and atom:
+                # 添加原子
+                parent_idx = int(position)
+                if parent_idx < editable_mol.GetNumAtoms():
+                    new_atom = Chem.Atom(atom)
+                    new_idx = editable_mol.AddAtom(new_atom)
+                    editable_mol.AddBond(parent_idx, new_idx, Chem.BondType.SINGLE)
+            
+            elif op_type == 'add_fragment' and position and atom:
+                # 添加片段（简化处理，实际应用中可能需要更复杂的逻辑）
+                parent_idx = int(position)
+                if parent_idx < editable_mol.GetNumAtoms():
+                    # 尝试将片段SMILES转换为分子并连接
+                    frag_mol = Chem.MolFromSmiles(atom)
+                    if frag_mol is not None:
+                        # 简化处理：直接添加片段的原子并连接到父原子
+                        for frag_atom in frag_mol.GetAtoms():
+                            new_atom = Chem.Atom(frag_atom.GetSymbol())
+                            new_idx = editable_mol.AddAtom(new_atom)
+                            editable_mol.AddBond(parent_idx, new_idx, Chem.BondType.SINGLE)
+                            parent_idx = new_idx
+            
+            elif op_type.startswith('form_double_') and '-' in position:
+                # 形成双键
+                pos1, pos2 = map(int, position.split('-'))
+                if pos1 < editable_mol.GetNumAtoms() and pos2 < editable_mol.GetNumAtoms():
+                    bond = editable_mol.GetBondBetweenAtoms(pos1, pos2)
+                    if bond is not None:
+                        editable_mol.RemoveBond(pos1, pos2)
+                        editable_mol.AddBond(pos1, pos2, Chem.BondType.DOUBLE)
+            
+            elif op_type.startswith('form_triple_') and '-' in position:
+                # 形成三键
+                pos1, pos2 = map(int, position.split('-'))
+                if pos1 < editable_mol.GetNumAtoms() and pos2 < editable_mol.GetNumAtoms():
+                    bond = editable_mol.GetBondBetweenAtoms(pos1, pos2)
+                    if bond is not None:
+                        editable_mol.RemoveBond(pos1, pos2)
+                        editable_mol.AddBond(pos1, pos2, Chem.BondType.TRIPLE)
+            
+            elif op_type.startswith('form_ring') and '-' in position:
+                # 形成环（单键）
+                pos1, pos2 = map(int, position.split('-'))
+                if pos1 < editable_mol.GetNumAtoms() and pos2 < editable_mol.GetNumAtoms():
+                    editable_mol.AddBond(pos1, pos2, Chem.BondType.SINGLE)
+            
+            # 尝试生成当前状态的SMILES
+            # 需要先清理分子并分配环ID
+            Chem.SanitizeMol(editable_mol)
+            current_smiles = Chem.MolToSmiles(editable_mol)
+            intermediates.append(current_smiles)
+            
+        except Exception as e:
+            # 如果操作失败，使用当前分子状态
+            current_smiles = Chem.MolToSmiles(editable_mol)
+            intermediates.append(current_smiles)
+    
+    return intermediates
+
 
 def save_pairs_to_json(pairs, output_file, compact=False):
     """
@@ -116,7 +202,7 @@ def analyze_evolution_operation_dict(path1_dict, path2_dict):
     """
     # 将操作转换为可比较的字符串形式
     def op_to_str(op):
-        return f"{op.get('operation', '')}@{op.get('position', '')}@{op.get('atom', '')}"
+        return f"{op.get('operation', '')}@{op.get('position', '')}@{op.get('atom', '')}"   # INFO 没错，就是这里的 position 定位比较严格。
     
     # 将路径转换为字符串集合
     set1_str = {op_to_str(op) for op in path1_dict}
@@ -228,87 +314,17 @@ def process_molecule_pair(args, evolver_cache_dict=None):
         # 分析进化操作
         operation_result = analyze_evolution_operation_dict(path_n_dict, path_m_dict)
         
-        # 不再检查操作序列长度，直接保存所有进化路径
+        # 生成中间状态的SMILES
+        intermediates = generate_intermediate_smiles(smiles_n, operation_result)
         
         # 按照指定顺序创建pair_data字典
         pair_data = {
             'smiles_from': smiles_n,
             'smiles_to': smiles_m,
-            'operations': operation_result
+            'operations': operation_result,
+            'intermediates': intermediates
         }
         
-        return pair_data
-        
-    except Exception as e:
-        return None
-
-
-def process_molecule_pair_with_tracking(args, evolver_cache_dict=None, tracking_dict=None):
-    """
-    处理单个分子对的函数，用于多进程处理，同时支持进度跟踪
-    参数 args 是一个元组，包含 (task_id, i, j, smiles_n, smiles_m)
-    """
-    # 兼容两种格式的任务参数
-    if len(args) == 5:
-        # 新格式：包含task_id
-        task_id, _, _, smiles_n, smiles_m = args
-    else:
-        return None
-    
-    mol_n = Chem.MolFromSmiles(smiles_n)
-    mol_m = Chem.MolFromSmiles(smiles_m)
-    
-    if mol_n is None or mol_m is None:
-        return None
-    
-    # Calculate Morgan similarity and skip pairs below threshold (0.1)
-    similarity = calculate_molecular_similarity(smiles_n, smiles_m)
-    if similarity < 0.1:
-        return None
-    
-    try:
-        # 使用共享的evolver缓存避免重复创建MoleculeEvolverAnalysis实例
-        if evolver_cache_dict is not None:
-            # 从共享字典中获取或创建evolver实例
-            if smiles_n in evolver_cache_dict:
-                path_n_dict = evolver_cache_dict[smiles_n]
-            else:
-                evolver_n = MoleculeEvolverAnalysis(smiles_n)
-                path_n_dict = evolver_n.get_full_path_dict()
-                evolver_cache_dict[smiles_n] = path_n_dict
-            
-            if smiles_m in evolver_cache_dict:
-                path_m_dict = evolver_cache_dict[smiles_m]
-            else:
-                evolver_m = MoleculeEvolverAnalysis(smiles_m)
-                path_m_dict = evolver_m.get_full_path_dict()
-                evolver_cache_dict[smiles_m] = path_m_dict
-        else:
-            # 没有共享缓存时，直接创建evolver实例
-            evolver_n = MoleculeEvolverAnalysis(smiles_n)
-            evolver_m = MoleculeEvolverAnalysis(smiles_m)
-            
-            # 获取结构化进化路径
-            path_n_dict = evolver_n.get_full_path_dict()
-            path_m_dict = evolver_m.get_full_path_dict()
-        
-        # 分析进化操作
-        operation_result = analyze_evolution_operation_dict(path_n_dict, path_m_dict)
-        
-        # 不再检查操作序列长度，直接保存所有进化路径
-        
-        # 按照指定顺序创建pair_data字典
-        pair_data = {
-            'smiles_from': smiles_n,
-            'smiles_to': smiles_m,
-            'operations': operation_result
-        }
-        
-        # 如果提供了跟踪字典，则更新处理计数
-        if tracking_dict is not None:
-            with tracking_dict['lock']:
-                tracking_dict['processed_count'].value += 1
-                
         return pair_data
         
     except Exception as e:
@@ -409,7 +425,7 @@ def find_step_pairs(heavy_n_df, heavy_m_df, max_pairs=None, logger=None, preview
                 smiles_m = heavy_m_df.iloc[j]['smiles']
                 mol_m = Chem.MolFromSmiles(smiles_m)
                 
-                if mol_m is None:
+                if mol_m is None or smiles_n == smiles_m:
                     continue
                 
                 # Calculate Morgan similarity and skip pairs below threshold (0.1)
@@ -438,13 +454,17 @@ def find_step_pairs(heavy_n_df, heavy_m_df, max_pairs=None, logger=None, preview
                     # 分析进化操作
                     operation_result = analyze_evolution_operation_dict(path_n_dict, path_m_dict)
                     
-                    # 不再检查操作序列长度，直接保存所有进化路径
+                    # 生成中间状态的SMILES
+                    intermediates = generate_intermediate_smiles(smiles_n, operation_result)
                     
                     # 按照指定顺序创建pair_data字典
                     pair_data = {
                         'smiles_from': smiles_n,
                         'smiles_to': smiles_m,
-                        'operations': operation_result
+                        'smiles_from_path': path_n_dict,   # TEST
+                        'smiles_to_path': path_m_dict,
+                        'operations': operation_result,
+                        'intermediates': intermediates
                     }
                     
                     pairs.append(pair_data)
@@ -641,11 +661,11 @@ def select_mode_interactively():
         inquirer.List('mode',
                      message="请选择运行模式",
                      choices=[
-                         ('全量处理并保存到文件', 'full'),
-                         ('预览模式（仅输出到控制台）', 'preview'),
-                         ('预览并保存到文件', 'preview_with_file'),
-                         ('全量处理并保存到文件（紧凑格式）', 'full_compact'),
-                         ('预览并保存到文件（紧凑格式）', 'preview_with_file_compact')
+                         ('[full] 全量处理并保存到文件', 'full'),
+                         ('[preview] 预览模式（仅输出到控制台）', 'preview'),
+                         ('[preview_with_file] 预览并保存到文件', 'preview_with_file'),
+                         ('[full_compact] 全量处理并保存到文件（紧凑格式）', 'full_compact'),
+                         ('[preview_with_file_compact] 预览并保存到文件（紧凑格式）', 'preview_with_file_compact')
                      ])
     ]
     

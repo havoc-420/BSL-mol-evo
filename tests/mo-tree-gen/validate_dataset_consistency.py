@@ -12,7 +12,8 @@ from collections import Counter
 # 添加项目根目录到Python路径
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from core.evolver import MolecularEvolutionExpansion, MoleculeEvolverAnalysis
+from mol_evo.core.molecular_evolution_expansion import MolecularEvolutionExpansion
+from mol_evo.core.evolver import MoleculeEvolverAnalysis
 
 def load_sample_dataset(dataset_path):
     """

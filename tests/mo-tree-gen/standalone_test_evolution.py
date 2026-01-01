@@ -13,7 +13,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(o
 sys.path.insert(0, project_root)
 
 try:
-    from mol_evo.core.evolver import MolecularEvolutionExpansion
+    from mol_evo.core.molecular_evolution_expansion import MolecularEvolutionExpansion
     
     def test_evolution_generation(initial_smiles, num_paths=3, steps_per_path=3, config_file=None):
         """
