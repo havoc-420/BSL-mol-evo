@@ -41,7 +41,11 @@ def load_test_data(filename='test_data.json'):
         else:
             test_data_path = os.path.join(test_data_root, 'basic', filename)
     else:
-        test_data_path = os.path.join(os.path.dirname(__file__), 'testcases', filename)
+        # 根据文件名确定子目录
+        if 'extended' in filename:
+            test_data_path = os.path.join(os.path.dirname(__file__), '..', 'testcases', 'extended', filename)
+        else:
+            test_data_path = os.path.join(os.path.dirname(__file__), '..', 'testcases', 'basic', filename)
     
     with open(test_data_path, 'r', encoding='utf-8') as f:
         return json.load(f)

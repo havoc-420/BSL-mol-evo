@@ -4,18 +4,18 @@
 强大的分子进化路径生成器，能够将任意SMILES解析为原子级的、可重现的构建序列。
 """
 
-from rdkit import Chem
-from collections import deque
+import os
 import re
 import argparse
 import json
 import sys
 import numpy as np
+from collections import deque
+
+from rdkit import Chem
 from rdkit.Chem import rdDepictor, AllChem, rdchem
-from rdkit.Chem.rdmolfiles import MolToSmiles
 import matplotlib.pyplot as plt
 from rdkit.Chem import Draw
-import os
 
 try:
     from .utils.molecule import smile_to_graph_xyz
@@ -337,10 +337,10 @@ class MoleculeEvolverAnalysis: # MoleculeEvolver
                         "operation": op_type
                     })
             
-            # 按照位置对额外键操作进行排序
+            # 按照位置对额外键操作进行排序 # TODO ？
             extra_bond_ops.sort(key=lambda x: x["position"])
             
-            # 合并连续的芳香键和芳香环操作
+            # STAGE 合并连续的芳香键和芳香环操作
             merged_ops = []
             i = 0
             while i < len(extra_bond_ops):
@@ -358,7 +358,7 @@ class MoleculeEvolverAnalysis: # MoleculeEvolver
                         else:
                             break
                     
-                    # 如果有多个芳香操作，合并为一个成苯环操作
+                    # 如果有多个芳香操作，检查是否满足合并条件
                     if len(aromatic_ops) >= 2:
                         # 提取所有涉及的原子位置
                         positions = []
@@ -389,8 +389,94 @@ class MoleculeEvolverAnalysis: # MoleculeEvolver
                     merged_ops.append(current_op)
                     i += 1
             
-            # 将合并后的操作添加到路径
-            path += merged_ops
+            # 收集所有芳香操作和非芳香操作，用于判断是否需要第二次合并
+            aromatic_ops_all = []  # 所有芳香操作
+            non_aromatic_ops = []  # 所有非芳香操作
+            for op in merged_ops:
+                if op["operation"] in ["form_aromatic_bond", "form_aromatic_ring"]:
+                    aromatic_ops_all.append(op)
+                else:
+                    non_aromatic_ops.append(op)
+            
+            # 只有在前面记录了多个芳香环时，才进行第二次合并处理
+            if len(aromatic_ops_all) > 1:
+                # 第二次合并处理：查找所有可能的芳香操作组合（不要求连续）
+                second_merged_ops = []
+                
+                # 2. 如果没有芳香操作，直接返回
+                if not aromatic_ops_all:
+                    path += merged_ops
+                    return path_result
+                
+                # 3. 如果只有一个芳香操作，直接添加
+                if len(aromatic_ops_all) == 1:
+                    second_merged_ops = merged_ops
+                else:
+                    # 4. 尝试将所有芳香操作合并
+                    # 提取所有涉及的原子位置
+                    positions = []
+                    for op in aromatic_ops_all:
+                        pos_parts = op["position"].split("-")
+                        positions.extend(pos_parts)
+                    
+                    # 去重并排序
+                    unique_positions = sorted(list(set(positions)), key=int)
+                    total_atoms = len(unique_positions)
+                    
+                    # 检查是否满足合并条件：
+                    # 1. 总原子数不超过6
+                    # 2. 所有操作之间有足够的重叠（至少有一个重叠点）
+                    if total_atoms <= 6:
+                        # 检查所有操作是否有足够的重叠
+                        # 首先获取所有操作的原子位置集合
+                        op_positions = [set(op["position"].split("-")) for op in aromatic_ops_all]
+                        
+                        # 检查是否有共同的原子位置（至少2个重叠）
+                        has_enough_overlap = True
+                        
+                        # 检查任意两个操作之间是否有至少2个重叠原子
+                        for i in range(len(op_positions)):
+                            for j in range(i + 1, len(op_positions)):
+                                if len(op_positions[i].intersection(op_positions[j])) < 2:
+                                    has_enough_overlap = False
+                                    break
+                            if not has_enough_overlap:
+                                break
+                        
+                        if has_enough_overlap:
+                            # 生成位置字符串，格式为"0-1-2-3-4-5"
+                            merged_position = "-".join(unique_positions)
+                            
+                            # 创建合并后的操作
+                            merged_op = {
+                                "position": merged_position,
+                                "atom": None,
+                                "operation": "form_aromatic_ring"
+                            }
+                            
+                            # 添加合并后的操作和所有非芳香操作
+                            second_merged_ops = non_aromatic_ops + [merged_op]
+                            # 排序以保持一致性
+                            def sort_key(op_dict):
+                                pos = op_dict["position"]
+                                if "-" in pos:
+                                    parts = pos.split("-")
+                                    return [int(p) for p in parts]
+                                else:
+                                    return [int(pos)]
+                            second_merged_ops.sort(key=lambda x: sort_key(x))
+                        else:
+                            # 不满足条件，保持原操作
+                            second_merged_ops = merged_ops
+                    else:
+                        # 原子数超过6，不合并
+                        second_merged_ops = merged_ops
+                
+                # 将第二次合并后的操作添加到路径
+                path += second_merged_ops
+            else:
+                # 没有多个芳香环，直接使用合并后的操作
+                path += merged_ops
 
             # --- STAGE 立体化学处理 ---
             stereo_ops = []
@@ -869,7 +955,7 @@ class MoleculeRebuilder:
             "form_triple_bond": f"在位置 {position} 形成三键",
             "form_aromatic_bond": f"在位置 {position} 形成芳香键",
             "form_ring": f"在位置 {position} 形成环",
-            "form_aromatic_ring": f"在位置 {position} 形成芳香环（成苯环）",
+            "form_aromatic_ring": f"在位置 {position} 形成芳香环",
             "add_stereo": f"在位置 {position} 添加立体化学信息",
             "add_stereo_ccw": f"在位置 {position} 添加CCW手性",
             "add_stereo_cw": f"在位置 {position} 添加CW手性",
