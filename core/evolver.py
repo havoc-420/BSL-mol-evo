@@ -12,6 +12,10 @@ import json
 import sys
 import numpy as np
 from rdkit.Chem import rdDepictor, AllChem, rdchem
+from rdkit.Chem.rdmolfiles import MolToSmiles
+import matplotlib.pyplot as plt
+from rdkit.Chem import Draw
+import os
 
 try:
     from .utils.molecule import smile_to_graph_xyz
@@ -37,7 +41,7 @@ class MoleculeEvolverAnalysis: # MoleculeEvolver
         self.mol = Chem.MolFromSmiles(smiles)
         if not self.mol:
             raise ValueError(f"无效的SMILES: {smiles}")
-        # INFO 先处理为规范化 SMILES，便于和 Rebuild 同步。
+        # INFO 先处理为 rdkit规范化 SMILES，便于和 Rebuild 同步。
         self.smiles = Chem.MolToSmiles(self.mol)
         self.mol = Chem.MolFromSmiles(self.smiles)
         
@@ -84,7 +88,8 @@ class MoleculeEvolverAnalysis: # MoleculeEvolver
             if parent_idx is not None:
                 parent_map[current_idx] = parent_idx
             
-            neighbors = sorted(self.mol.GetAtomWithIdx(current_idx).GetNeighbors(), key=lambda n: self.ranks[n.GetIdx()])
+            # neighbors = sorted(self.mol.GetAtomWithIdx(current_idx).GetNeighbors(), key=lambda n: self.ranks[n.GetIdx()])
+            neighbors = self.mol.GetAtomWithIdx(current_idx).GetNeighbors()     # INFO 使用 rdkit 的解析顺序
             for neighbor in neighbors:
                 if neighbor.GetIdx() not in visited:
                     dfs(neighbor.GetIdx(), current_idx)
@@ -231,182 +236,20 @@ class MoleculeEvolverAnalysis: # MoleculeEvolver
         except Exception as e:
             return [f"路径生成错误: {str(e)}"]
 
-    def generate_path_dict(self) -> list:
-        """
-        生成格式化的进化路径，返回字典格式的操作列表。
-        每个操作都是一个字典，包含操作类型、位置和相关原子等信息。
-        > 直接输出最终格式，与qm9-evo-pairs-step-1.json中的格式一致。
-        """
-        try:
-            start_idx = self._find_canonical_start_atom()
-            self._build_canonical_backbone(start_idx)
-            
-            # 检查骨架是否为空
-            if not self.backbone_indices:
-                return [{"position": "", "atom": None, "operation": "error"}]
-
-            # --- 骨架路径 ---
-            start_atom = self.mol.GetAtomWithIdx(self.backbone_indices[0])
-            path = [{
-                "position": str(self.backbone_map[start_atom.GetIdx()]),
-                "atom": start_atom.GetSymbol(),
-                "operation": "init_atom"
-            }]
-            
-            for i in range(1, len(self.backbone_indices)):
-                current_old_idx = self.backbone_indices[i]
-                parent_old_idx = self.parent_map[current_old_idx]
-                parent_new_idx = self.backbone_map[parent_old_idx]
-                current_atom = self.mol.GetAtomWithIdx(current_old_idx)
-                path.append({
-                    "position": str(parent_new_idx),
-                    "atom": current_atom.GetSymbol(),
-                    "operation": "add_atom"
-                })
-
-            # --- 附件、额外键和立体化学 ---
-            non_backbone_atoms = [a.GetIdx() for a in self.mol.GetAtoms() if a.GetIdx() not in self.backbone_set]
-            # 构建骨架键集合，只包含DFS遍历过程中形成的键（父子连接）
-            # 这确保了即使是骨架上的环内键也会被正确识别为"额外键"
-            backbone_bonds = {tuple(sorted((atom_idx, self.parent_map[atom_idx]))) for atom_idx in self.parent_map}
-            
-            # --- 附件处理 ---
-            attachments = self._get_sorted_attachments(non_backbone_atoms)
-            for att in attachments:
-                # TODO 但是几乎没有这个能力？
-                conn_points = sorted(list(att.connection_points))
-                path.append({
-                    "position": str(conn_points[0]) if conn_points else "",
-                    "atom": att.mol_frag_smiles,
-                    "operation": "add_fragment"
-                })
-
-            # --- 额外键处理 (成环、多重键) ---
-            extra_bond_ops = []
-            # 检查分子是否有环结构，如果没有环，则不应该有任何成环操作
-            has_rings = self._has_rings()
-            
-            for bond in self.mol.GetBonds():
-                b, e = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
-                bond_tuple = tuple(sorted((b, e)))
-                
-                # 检查此键是否是骨架、附件内部或附件到骨架的连接键
-                is_backbone_bond = bond_tuple in backbone_bonds
-                both_in_backbone = self.mol.GetAtomWithIdx(b).GetIdx() in self.backbone_set and self.mol.GetAtomWithIdx(e).GetIdx() in self.backbone_set
-
-                if is_backbone_bond and bond.GetBondType() != Chem.BondType.SINGLE:
-                    positions = [self.backbone_map[b], self.backbone_map[e]]
-                    positions.sort()  # 确保顺序一致
-                    
-                    # 根据键类型确定操作类型，与数据集保持一致
-                    if bond.GetBondType() == Chem.BondType.DOUBLE:
-                        op_type = "form_double_bond"
-                    elif bond.GetBondType() == Chem.BondType.TRIPLE:
-                        op_type = "form_triple_bond"
-                    elif bond.GetBondType() == Chem.BondType.AROMATIC:
-                        op_type = "form_aromatic_bond"
-                    elif bond.GetBondType() == Chem.BondType.DATIVE:
-                        op_type = "form_dative_bond"
-                    else:
-                        op_type = "form_bond"
-                        
-                    extra_bond_ops.append({
-                        "position": f"{positions[0]}-{positions[1]}",
-                        "atom": None,
-                        "operation": op_type
-                    })
-                elif not is_backbone_bond and both_in_backbone and has_rings:
-                    # 成环操作同时考虑键的类型，与数据集保持一致
-                    positions = sorted([self.backbone_map[b], self.backbone_map[e]])
-                    
-                    if bond.GetBondType() == Chem.BondType.AROMATIC:
-                        op_type = "form_aromatic_ring"
-                    elif bond.GetBondType() == Chem.BondType.DOUBLE:
-                        op_type = "form_double_ring"
-                    elif bond.GetBondType() == Chem.BondType.TRIPLE:
-                        op_type = "form_triple_ring"
-                    else:
-                        op_type = "form_ring"  # 默认单键环
-                    
-                    extra_bond_ops.append({
-                        "position": f"{positions[0]}-{positions[1]}",
-                        "atom": None,
-                        "operation": op_type
-                    })
-            
-            # 按照位置对额外键操作进行排序
-            extra_bond_ops.sort(key=lambda x: x["position"])
-            path += extra_bond_ops
-
-            # --- 立体化学处理 ---
-            stereo_ops = []
-            for atom in self.mol.GetAtoms():
-                center_idx = atom.GetIdx()
-                chiral_tag = atom.GetChiralTag()
-                if chiral_tag in [Chem.CHI_TETRAHEDRAL_CCW, Chem.CHI_TETRAHEDRAL_CW]:
-                    if center_idx in self.backbone_map:
-                        # 根据手性标签设置不同的操作
-                        if chiral_tag == Chem.CHI_TETRAHEDRAL_CCW:
-                            operation = "add_stereo_ccw"
-                        else:  # CHI_TETRAHEDRAL_CW
-                            operation = "add_stereo_cw"
-                        stereo_ops.append({
-                            "position": str(self.backbone_map[center_idx]),
-                            "atom": None,
-                            "operation": operation,
-                        })
-            
-            for bond in self.mol.GetBonds():
-                if bond.GetStereo() > Chem.BondStereo.STEREOANY:
-                    b, e = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
-                    if b in self.backbone_map and e in self.backbone_map:
-                        positions = [self.backbone_map[b], self.backbone_map[e]]
-                        positions.sort()  # 确保顺序一致
-                        
-                        stereo_ops.append({
-                            "position": f"{positions[0]}-{positions[1]}",
-                            "atom": None,
-                            "operation": "add_stereo",
-                        })
-            
-            # 按照位置对立体化学操作进行排序
-            def sort_key(op_dict):
-                # 分解位置字符串以进行正确的排序
-                pos = op_dict["position"]
-                if "-" in pos:
-                    parts = pos.split("-")
-                    return [int(p) for p in parts]
-                else:
-                    return [int(pos)]
-                    
-            stereo_ops.sort(key=lambda x: sort_key(x))
-            path_result = path + stereo_ops
-            
-            # 移除起始原子操作，因为它不是"变化"操作
-            # 只保留除了第一个起始操作之外的所有操作
-            if len(path_result) > 1:
-                return path_result[1:]
-            else:
-                # 如果只有起始操作，返回空列表
-                return []
-            
-        except Exception as e:
-            return [{"position": "", "atom": None, "operation": "error"}]
-
     def get_full_path_dict(self) -> list:
         """
         获取完整的进化路径，包括起始操作。
         返回字典格式的操作列表，包含所有的分子构建步骤。
         """
         try:
-            start_idx = self._find_canonical_start_atom()
-            self._build_canonical_backbone(start_idx)
+            # start_idx = self._find_canonical_start_atom()
+            self._build_canonical_backbone(0)   # INFO v1.6 调整，直接从 rdkit 规范化 st-idx 作为起点。
             
             # 检查骨架是否为空
             if not self.backbone_indices:
                 return [{"position": "", "atom": None, "operation": "error"}]
 
-            # --- 骨架路径 ---
+            # --- STAGE 骨架路径 ---
             start_atom = self.mol.GetAtomWithIdx(self.backbone_indices[0])
             path = [{
                 "position": str(self.backbone_map[start_atom.GetIdx()]),
@@ -441,7 +284,7 @@ class MoleculeEvolverAnalysis: # MoleculeEvolver
                     "operation": "add_fragment"
                 })
 
-            # --- 额外键处理 (成环、多重键) ---
+            # --- STAGE 额外键处理 (成环、多重键) ---
             extra_bond_ops = []
             # 检查分子是否有环结构，如果没有环，则不应该有任何成环操作
             has_rings = self._has_rings()
@@ -496,9 +339,60 @@ class MoleculeEvolverAnalysis: # MoleculeEvolver
             
             # 按照位置对额外键操作进行排序
             extra_bond_ops.sort(key=lambda x: x["position"])
-            path += extra_bond_ops
+            
+            # 合并连续的芳香键和芳香环操作
+            merged_ops = []
+            i = 0
+            while i < len(extra_bond_ops):
+                current_op = extra_bond_ops[i]
+                
+                # 检查是否是芳香键或芳香环操作
+                if current_op["operation"] in ["form_aromatic_bond", "form_aromatic_ring"]:
+                    # 收集所有连续的芳香键和芳香环操作
+                    aromatic_ops = []
+                    j = i
+                    while j < len(extra_bond_ops):
+                        if extra_bond_ops[j]["operation"] in ["form_aromatic_bond", "form_aromatic_ring"]:
+                            aromatic_ops.append(extra_bond_ops[j])
+                            j += 1
+                        else:
+                            break
+                    
+                    # 如果有多个芳香操作，合并为一个成苯环操作
+                    if len(aromatic_ops) >= 2:
+                        # 提取所有涉及的原子位置
+                        positions = []
+                        for op in aromatic_ops:
+                            pos_parts = op["position"].split("-")
+                            positions.extend(pos_parts)
+                        
+                        # 去重并排序
+                        unique_positions = sorted(list(set(positions)), key=int)
+                        
+                        # 生成位置字符串，格式为"0-1-2-3-4-5"
+                        merged_position = "-".join(unique_positions)
+                        
+                        # 创建合并后的操作
+                        merged_op = {
+                            "position": merged_position,
+                            "atom": None,
+                            "operation": "form_aromatic_ring"
+                        }
+                        merged_ops.append(merged_op)
+                        i = j  # 跳过已合并的所有操作
+                    else:
+                        # 只有一个芳香操作，直接添加
+                        merged_ops.append(current_op)
+                        i += 1
+                else:
+                    # 其他类型操作直接添加
+                    merged_ops.append(current_op)
+                    i += 1
+            
+            # 将合并后的操作添加到路径
+            path += merged_ops
 
-            # --- 立体化学处理 ---
+            # --- STAGE 立体化学处理 ---
             stereo_ops = []
             for atom in self.mol.GetAtoms():
                 center_idx = atom.GetIdx()
@@ -515,6 +409,7 @@ class MoleculeEvolverAnalysis: # MoleculeEvolver
                             "atom": None,
                             "operation": operation,
                         })
+                        print('😀 [Analysis]', center_idx, chiral_tag, atom.GetSymbol(), str(self.backbone_map[center_idx]))
             
             for bond in self.mol.GetBonds():
                 if bond.GetStereo() > Chem.BondStereo.STEREOANY:
@@ -527,7 +422,7 @@ class MoleculeEvolverAnalysis: # MoleculeEvolver
                             "position": f"{positions[0]}-{positions[1]}",
                             "atom": None,
                             "operation": "add_stereo",
-                            "bond_stereo": bond.GetStereo()  # 包含原始键立体构型信息
+                            "bond_stereo": bond.GetStereo()  # 包含原始键立体构型信息   # UPDATE
                         })
             
             # 按照位置对立体化学操作进行排序
@@ -770,8 +665,6 @@ class MoleculeRebuilder:
             numpy.ndarray: 原子坐标数组
         """
         try:
-            import numpy as np
-            
             mol_copy = Chem.Mol(mol)
             
             try:
@@ -848,8 +741,19 @@ class MoleculeRebuilder:
             self._form_bond(position, Chem.BondType.SINGLE)
         elif op_type == "form_double_ring":
             self._form_bond(position, Chem.BondType.DOUBLE)
-        elif op_type == "form_aromatic_ring":
-            self._form_bond(position, Chem.BondType.AROMATIC)
+        elif op_type == "form_aromatic_ring" or op_type == "成苯环":
+            # 处理合并的芳香环操作，位置格式为 "0-1-2-3-4-5"
+            pos_parts = position.split("-")
+            if len(pos_parts) == 2:
+                # 如果只有两个位置，按照普通键处理
+                self._form_bond(position, Chem.BondType.AROMATIC)
+            else:
+                # 如果有多个位置，处理为环结构
+                # 首先形成相邻原子之间的键
+                for i in range(len(pos_parts) - 1):
+                    self._form_bond(f"{pos_parts[i]}-{pos_parts[i+1]}", Chem.BondType.AROMATIC)
+                # 最后形成首尾原子之间的键（闭环）
+                self._form_bond(f"{pos_parts[-1]}-{pos_parts[0]}", Chem.BondType.AROMATIC)
         elif op_type == "add_stereo_ccw" or op_type == "add_stereo_cw":
             self._add_stereo(operation, ccw_flag=(op_type == "add_stereo_ccw"))  # 传递整个操作对象，包含立体构型信息
         elif op_type == "add_fragment":
@@ -893,29 +797,29 @@ class MoleculeRebuilder:
                     self.current_mol.AddBond(idx1, idx2, bond_type)
     
     def _add_stereo(self, operation, ccw_flag):
-        """添加立体化学信息"""
+        # """添加立体化学信息"""
+        # tmp_map = { # TEST
+        #     5: 2,
+        #     8: 3,
+        #     2: 21,
+        #     4: 23
+        # }
+        # tmp_map = { # TEST
+        #     2: 21,
+        #     3: 23,
+        #     21: 2,
+        #     23: 3
+        # }
         position = operation.get("position")
-        if "-" in position:
-            # 处理键的立体化学
-            pos1, pos2 = position.split("-")
-            if pos1 in self.atom_map and pos2 in self.atom_map:
-                idx1 = self.atom_map[pos1]
-                idx2 = self.atom_map[pos2]
-                bond = self.current_mol.GetBondBetweenAtoms(idx1, idx2)
-                if bond:
-                    # 使用原始的键立体构型信息，如果没有则默认使用STEREOZ
-                    bond_stereo = operation.get("bond_stereo", Chem.BondStereo.STEREOZ)
-                    bond.SetStereo(bond_stereo)
-        else:
-            # 处理原子的手性
-            if position in self.atom_map:
-                idx = self.atom_map[position]
-                atom = self.current_mol.GetAtomWithIdx(idx)
-                # 使用操作类型确定手性：ccw_flag=True对应R构型，False对应S构型
-                target_tag = Chem.CHI_TETRAHEDRAL_CCW if ccw_flag else Chem.CHI_TETRAHEDRAL_CW
-                atom.SetChiralTag(target_tag)
-                print(f"  手性设置：位置 {position}，ccw_flag={ccw_flag}，设置标签={target_tag}，当前标签={atom.GetChiralTag()}")
-                # 可以添加更多立体构型类型的处理
+        idx = self.atom_map[position]
+        # tmp_current_smiles = Chem.MolToSmiles(self.current_mol) # TEST 调整分子顺序
+        # self.current_mol = rdchem.RWMol(Chem.MolFromSmiles(tmp_current_smiles))
+        atom = self.current_mol.GetAtomWithIdx(idx)  # INFO ori
+        # atom = self.current_mol.GetAtomWithIdx(tmp_map[idx])  # TEST
+        # 使用操作类型确定手性：ccw_flag=True
+        target_tag = Chem.CHI_TETRAHEDRAL_CCW if not ccw_flag else Chem.CHI_TETRAHEDRAL_CW
+        atom.SetChiralTag(target_tag)
+        print('😺 [rebuilder]', f"{position}->{idx}", target_tag, atom.GetSymbol(), Chem.MolToSmiles(self.current_mol))
     
     def _add_fragment(self, position, fragment_smiles):
         """添加片段"""
@@ -948,7 +852,7 @@ class MoleculeRebuilder:
         try:
             mol = self.current_mol.GetMol()
             Chem.SanitizeMol(mol)
-            return Chem.MolToSmiles(mol)
+            return Chem.MolToSmiles(mol, isomericSmiles=True)
         except:
             return "invalid"
     
@@ -965,7 +869,7 @@ class MoleculeRebuilder:
             "form_triple_bond": f"在位置 {position} 形成三键",
             "form_aromatic_bond": f"在位置 {position} 形成芳香键",
             "form_ring": f"在位置 {position} 形成环",
-            "form_aromatic_ring": f"在位置 {position} 形成芳香环",
+            "form_aromatic_ring": f"在位置 {position} 形成芳香环（成苯环）",
             "add_stereo": f"在位置 {position} 添加立体化学信息",
             "add_stereo_ccw": f"在位置 {position} 添加CCW手性",
             "add_stereo_cw": f"在位置 {position} 添加CW手性",
@@ -1049,11 +953,7 @@ class MoleculeRebuilder:
             output_file: 输出图像文件路径
             cols: 每行显示的分子数量
             figsize: 图像大小 (width, height)
-        """
-        import matplotlib.pyplot as plt
-        from rdkit.Chem import Draw
-        import os
-        
+        """        
         if not self.steps:
             self.rebuild_step_by_step()
         
@@ -1120,148 +1020,10 @@ class MoleculeRebuilder:
             # 确保目录存在
             os.makedirs(os.path.dirname(output_file) if os.path.dirname(output_file) else ".", exist_ok=True)
             plt.savefig(output_file, dpi=150, bbox_inches='tight')
-            print(f"分子可视化图像已保存到: {output_file}")
-        else:
-            plt.show()
+            print(f"分子可视化图像已保存到: {output_file}")            
         
         plt.close()
     
-    def visualize_progress(self, output_file: str = None, figsize: tuple = (15, 8)):
-        """
-        可视化重建进度，显示每一步的 SMILES 变化。
-        
-        Args:
-            output_file: 输出图像文件路径
-            figsize: 图像大小 (width, height)
-        """
-        import matplotlib.pyplot as plt
-        
-        if not self.steps:
-            self.rebuild_step_by_step()
-        
-        # 提取有效 SMILES
-        valid_steps = []
-        smiles_list = []
-        operation_types = []
-        
-        for step in self.steps:
-            if step['smiles_after'] != 'invalid':
-                valid_steps.append(step['step'])
-                smiles_list.append(step['smiles_after'])
-                operation_types.append(step['operation']['operation'])
-        
-        # 创建图形
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=figsize)
-        
-        # 绘制操作类型分布
-        from collections import Counter
-        op_counts = Counter(operation_types)
-        ax1.bar(op_counts.keys(), op_counts.values())
-        ax1.set_xlabel('操作类型')
-        ax1.set_ylabel('数量')
-        ax1.set_title('各操作类型数量统计')
-        ax1.tick_params(axis='x', rotation=45)
-        
-        # 绘制 SMILES 长度变化
-        smiles_lengths = [len(s) for s in smiles_list]
-        ax2.plot(valid_steps, smiles_lengths, marker='o', linewidth=2, markersize=6)
-        ax2.set_xlabel('步骤')
-        ax2.set_ylabel('SMILES 长度')
-        ax2.set_title('SMILES 长度随步骤变化')
-        ax2.grid(True, alpha=0.3)
-        
-        plt.tight_layout()
-        
-        if output_file:
-            import os
-            os.makedirs(os.path.dirname(output_file) if os.path.dirname(output_file) else ".", exist_ok=True)
-            plt.savefig(output_file, dpi=150, bbox_inches='tight')
-            print(f"进度可视化图像已保存到: {output_file}")
-        else:
-            plt.show()
-        
-        plt.close()
-    
-    def get_final_mol(self):
-        """获取最终重建的分子"""
-        if not self.steps:
-            self.rebuild_step_by_step()
-        
-        try:
-            mol = self.current_mol.GetMol()
-            Chem.SanitizeMol(mol)
-            
-            # 重建完成后，统一处理立体化学信息
-            print("\n=== 最终立体化学处理 ===")
-            
-            # 保存手动设置的手性标签
-            manual_chiral_tags = {}
-            for atom in mol.GetAtoms():
-                chiral_tag = atom.GetChiralTag()
-                if chiral_tag != Chem.CHI_UNSPECIFIED:
-                    manual_chiral_tags[atom.GetIdx()] = chiral_tag
-            
-            print(f"手动设置的手性标签: {[(k, v) for k, v in manual_chiral_tags.items()]}")
-            
-            # 先处理键的立体化学，但不覆盖原子的手性标签
-            Chem.AssignStereochemistry(mol, force=True, cleanIt=True, flagPossibleStereoCenters=False, assignAtomChiralTags=False)
-            
-            # 添加氢原子以生成更好的构象
-            mol_with_h = Chem.AddHs(mol)
-            
-            # 生成3D构象
-            conf_id = AllChem.EmbedMolecule(mol_with_h, useExpTorsionAnglePrefs=True, useBasicKnowledge=True)
-            
-            # 保存手动设置的标签在带氢分子中的对应值
-            manual_chiral_tags_with_h = {}
-            for atom_idx, chiral_tag in manual_chiral_tags.items():
-                manual_chiral_tags_with_h[atom_idx] = chiral_tag
-            
-            if conf_id != -1:
-                # 优化构象
-                AllChem.MMFFOptimizeMolecule(mol_with_h)
-                
-                # 在带氢的分子上分配原子手性标签，但保留手动设置的标签
-                # 先将手动标签应用到带氢分子上
-                for atom in mol_with_h.GetAtoms():
-                    idx = atom.GetIdx()
-                    if idx in manual_chiral_tags_with_h:
-                        atom.SetChiralTag(manual_chiral_tags_with_h[idx])
-                
-                # 只对未设置标签的原子分配手性标签
-                Chem.AssignAtomChiralTagsFromStructure(mol_with_h, confId=0, replaceExistingTags=False)
-                
-                # 将手性标签从带氢的分子复制到不带氢的分子
-                for atom in mol.GetAtoms():
-                    idx = atom.GetIdx()
-                    if idx in manual_chiral_tags:
-                        # 始终保留手动设置的手性标签
-                        atom.SetChiralTag(manual_chiral_tags[idx])
-            else:
-                # 如果无法生成3D构象，只处理键的立体化学
-                pass
-            
-            # 最后再次确认手动标签
-            for atom_idx, chiral_tag in manual_chiral_tags.items():
-                mol.GetAtomWithIdx(atom_idx).SetChiralTag(chiral_tag)
-            
-            # 打印最终的手性中心信息
-            from rdkit.Chem import FindMolChiralCenters
-            final_chiral_centers = FindMolChiralCenters(mol, includeUnassigned=True, useLegacyImplementation=False)
-            print(f"最终手性中心: {final_chiral_centers}")
-            
-            # 打印所有原子的手性标签
-            print("所有原子的手性标签:")
-            for atom in mol.GetAtoms():
-                chiral_tag = atom.GetChiralTag()
-                if chiral_tag != Chem.CHI_UNSPECIFIED:
-                    print(f"  原子{atom.GetIdx()}: {chiral_tag}")
-            
-            return mol
-        except Exception as e:
-            print(f"获取最终分子失败: {e}")
-            return None
-
 
 def main():
     """分子进化路径生成器的命令行接口"""
