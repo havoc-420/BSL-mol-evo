@@ -16,6 +16,10 @@ try:
     from .utils.molecule import smile_to_graph_xyz
 except ImportError:
     from mol_evo.core.utils.molecule import smile_to_graph_xyz
+    
+# 设置中文字体支持
+plt.rcParams['font.sans-serif'] = ['Noto Sans CJK JP', 'Noto Serif CJK JP', 'Noto Mono', 'DejaVu Sans']
+plt.rcParams['axes.unicode_minus'] = False
 
 class MoleculeRebuilder:
     """
@@ -560,4 +564,545 @@ class MoleculeRebuilder:
             # 确保目录存在
             os.makedirs(os.path.dirname(output_file) if os.path.dirname(output_file) else ".", exist_ok=True)
             plt.savefig(output_file, dpi=150, bbox_inches='tight')
-            print(f"分子可视化图像已保存到: {output_file}")            
+            print(f"分子可视化图像已保存到: {output_file}")
+
+
+class PairMoleculeRebuilder(MoleculeRebuilder):
+    """
+    分子对重建器，能够根据操作路径实现 mol1 -> mcs -> mol2 的转换过程。
+    支持撤销 mol1 的 non-mcs 操作得到 MCS，然后应用 mol2 的 non-mcs 操作得到 mol2。
+    """
+    
+    def __init__(self, analysis_result: dict, types: dict = None):
+        """
+        初始化分子对重建器
+        
+        Args:
+            analysis_result: 包含 mol1, mol2, MCS 信息的字典（从 analysis_result.json 读取）
+            types: 原子类型映射字典
+        """
+        self.analysis_result = analysis_result
+        self.types = types or self._get_default_types()
+        
+        # 提取各个部分的信息
+        self.mol1_section = None
+        self.mol2_section = None
+        self.mcs_info = None
+        
+        for section in analysis_result.get("combined_path", []):
+            if section.get("section") == "mol1":
+                self.mol1_section = section
+            elif section.get("section") == "mol2":
+                self.mol2_section = section
+            elif section.get("section") == "mcs_info":
+                self.mcs_info = section
+        
+        if not self.mol1_section or not self.mol2_section:
+            raise ValueError("分析结果中缺少 mol1 或 mol2 部分")
+        
+        # 初始化父类，使用 mol1 的完整路径
+        super().__init__(self.mol1_section["path"], types)
+    
+    def rebuild_mol1_to_mcs(self, analyze_xyz: bool = False):
+        """
+        从 mol1 开始，撤销 non-mcs 操作，得到 MCS
+        
+        Args:
+            analyze_xyz: 是否分析 xyz 数据
+            
+        Returns:
+            list: 撤销步骤列表
+        """
+        # 首先重建 mol1
+        mol1_steps = self.rebuild_step_by_step(analyze_xyz=analyze_xyz)
+        
+        # 获取 mol1 的 non-mcs 路径（需要撤销的操作）
+        non_mcs_path = self.mol1_section.get("path_non_mcs", [])
+        
+        # 按照相反的顺序撤销操作
+        undo_steps = []
+        for i, operation in enumerate(reversed(non_mcs_path)):
+            step_info = {
+                "step": len(mol1_steps) + i + 1,
+                "operation": operation,
+                "description": f"撤销操作: {operation['operation']} @ {operation['position']}",
+                "smiles_before": self._get_current_smiles(),
+                "type": "undo"
+            }
+            
+            # 执行撤销操作
+            self._undo_operation(operation)
+            
+            step_info["smiles_after"] = self._get_current_smiles()
+            
+            if analyze_xyz:
+                step_info["xyz_analysis"] = self._analyze_xyz()
+            
+            undo_steps.append(step_info)
+        
+        return mol1_steps + undo_steps
+    
+    def _undo_operation(self, operation):
+        """
+        撤销单个操作
+        
+        Args:
+            operation: 要撤销的操作字典
+        """
+        op_type = operation.get("operation")
+        rdkit_idx = operation.get("rdkit_idx")
+        
+        if op_type == "add_atom":
+            # 撤销添加原子：删除原子及其连接的键
+            try:
+                idx = int(rdkit_idx)
+                if idx < self.current_mol.GetNumAtoms():
+                    self.current_mol.RemoveAtom(idx)
+            except (ValueError, Exception):
+                pass
+        
+        elif op_type == "add_fragment":
+            # 撤销添加片段：删除片段中的所有原子
+            try:
+                conn_indices = [int(idx) for idx in rdkit_idx.split(",") if idx]
+                for idx in sorted(conn_indices, reverse=True):
+                    if idx < self.current_mol.GetNumAtoms():
+                        self.current_mol.RemoveAtom(idx)
+            except (ValueError, Exception):
+                pass
+        
+        elif op_type.startswith("form_") or op_type.startswith("add_stereo"):
+            # 撤销键形成或立体化学操作：将键改为单键或移除立体化学信息
+            try:
+                if "-" in rdkit_idx:
+                    idx1, idx2 = map(int, rdkit_idx.split("-"))
+                    bond = self.current_mol.GetBondBetweenAtoms(idx1, idx2)
+                    if bond:
+                        if op_type.startswith("form_"):
+                            bond.SetBondType(Chem.BondType.SINGLE)
+                        elif op_type.startswith("add_stereo"):
+                            atom = self.current_mol.GetAtomWithIdx(idx1)
+                            atom.SetChiralTag(Chem.CHI_UNSPECIFIED)
+            except (ValueError, Exception):
+                pass
+    
+    def rebuild_mcs_to_mol2(self, analyze_xyz: bool = False):
+        """
+        从 MCS 开始，应用 mol2 的 non-mcs 操作，得到 mol2
+        
+        Args:
+            analyze_xyz: 是否分析 xyz 数据
+            
+        Returns:
+            list: 应用步骤列表
+        """
+        # 获取 mol2 的 non-mcs 路径（position 已转换为 MCS position）
+        non_mcs_path = self.mol2_section.get("path_non_mcs", [])
+        
+        apply_steps = []
+        for i, operation in enumerate(non_mcs_path):
+            step_info = {
+                "step": i + 1,
+                "operation": operation,
+                "description": f"应用操作: {operation['operation']} @ {operation['position']}",
+                "smiles_before": self._get_current_smiles(),
+                "type": "apply"
+            }
+            
+            # 执行操作
+            self._execute_operation(operation)
+            
+            step_info["smiles_after"] = self._get_current_smiles()
+            
+            if analyze_xyz:
+                step_info["xyz_analysis"] = self._analyze_xyz()
+            
+            apply_steps.append(step_info)
+        
+        return apply_steps
+    
+    def rebuild_full_path(self, analyze_xyz: bool = False):
+        """
+        完整的重建过程：mol1 -> mcs -> mol2
+        
+        Args:
+            analyze_xyz: 是否分析 xyz 数据
+            
+        Returns:
+            dict: 包含三个阶段的步骤信息
+        """
+        # 阶段1: mol1 -> mcs
+        print("=" * 80)
+        print("阶段1: mol1 -> mcs (撤销 mol1 的 non-mcs 操作)")
+        print("=" * 80)
+        
+        # 重置状态
+        self.current_mol = rdchem.RWMol()
+        self.atom_map = {}
+        self.atom_counter = 0
+        
+        mol1_to_mcs_steps = self.rebuild_mol1_to_mcs(analyze_xyz=analyze_xyz)
+        
+        # 保存 MCS 状态
+        mcs_mol = self._get_current_smiles()
+        mcs_steps_count = len(mol1_to_mcs_steps)
+        
+        # 阶段2: mcs -> mol2
+        print("\n" + "=" * 80)
+        print("阶段2: mcs -> mol2 (应用 mol2 的 non-mcs 操作)")
+        print("=" * 80)
+        
+        mcs_to_mol2_steps = self.rebuild_mcs_to_mol2(analyze_xyz=analyze_xyz)
+        
+        return {
+            "mol1_to_mcs": {
+                "steps": mol1_to_mcs_steps,
+                "final_smiles": mcs_mol,
+                "num_steps": mcs_steps_count
+            },
+            "mcs_to_mol2": {
+                "steps": mcs_to_mol2_steps,
+                "final_smiles": self._get_current_smiles(),
+                "num_steps": len(mcs_to_mol2_steps)
+            }
+        }
+    
+    def visualize_full_path(self, output_file: str = None, analyze_xyz: bool = False):
+        """
+        可视化完整的重建路径：mol1 -> mcs -> mol2
+        
+        Args:
+            output_file: 输出文件路径
+            analyze_xyz: 是否分析 xyz 数据
+        """
+        result = self.rebuild_full_path(analyze_xyz=analyze_xyz)
+        
+        lines = []
+        lines.append("=" * 80)
+        lines.append("分子对完整重建路径可视化")
+        lines.append("=" * 80)
+        lines.append("")
+        
+        # 阶段1: mol1 -> mcs
+        lines.append("阶段1: mol1 -> mcs")
+        lines.append("-" * 80)
+        lines.append(f"mol1 SMILES: {self.mol1_section['smiles']}")
+        lines.append(f"MCS SMILES: {result['mol1_to_mcs']['final_smiles']}")
+        lines.append(f"操作数: {result['mol1_to_mcs']['num_steps']}")
+        lines.append("")
+        
+        for step in result['mol1_to_mcs']['steps']:
+            lines.append(f"步骤 {step['step']}: {step['description']}")
+            lines.append(f"  操作类型: {step['operation']['operation']}")
+            lines.append(f"  位置: {step['operation']['position']}")
+            lines.append(f"  SMILES: {step['smiles_after']}")
+            
+            if analyze_xyz and "xyz_analysis" in step:
+                xyz = step["xyz_analysis"]
+                if xyz["success"]:
+                    lines.append(f"  原子数: {xyz['num_atoms']}")
+                    lines.append(f"  z: {xyz['z']}")
+                    lines.append(f"  pos: {xyz['pos']}")
+            
+            lines.append("")
+        
+        # 阶段2: mcs -> mol2
+        lines.append("阶段2: mcs -> mol2")
+        lines.append("-" * 80)
+        lines.append(f"MCS SMILES: {result['mol1_to_mcs']['final_smiles']}")
+        lines.append(f"mol2 SMILES: {self.mol2_section['smiles']}")
+        lines.append(f"操作数: {result['mcs_to_mol2']['num_steps']}")
+        lines.append("")
+        
+        for step in result['mcs_to_mol2']['steps']:
+            lines.append(f"步骤 {step['step']}: {step['description']}")
+            lines.append(f"  操作类型: {step['operation']['operation']}")
+            lines.append(f"  位置: {step['operation']['position']}")
+            lines.append(f"  SMILES: {step['smiles_after']}")
+            
+            if analyze_xyz and "xyz_analysis" in step:
+                xyz = step["xyz_analysis"]
+                if xyz["success"]:
+                    lines.append(f"  原子数: {xyz['num_atoms']}")
+                    lines.append(f"  z: {xyz['z']}")
+                    lines.append(f"  pos: {xyz['pos']}")
+            
+            lines.append("")
+        
+        lines.append("=" * 80)
+        lines.append("重建完成")
+        lines.append("=" * 80)
+        
+        output = "\n".join(lines)
+        
+        if output_file:
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(output)
+            print(f"可视化结果已保存到: {output_file}")
+        
+        return output
+    
+    def visualize_with_mpl_full_path(self, output_file: str = None, cols: int = 4, figsize: tuple = (20, 15)):
+        """
+        使用 matplotlib 可视化完整的重建路径：mol1 -> mcs -> mol2
+        展示每一步的中间状态
+        
+        Args:
+            output_file: 输出图像文件路径
+            cols: 每行显示的分子数量
+            figsize: 图像大小 (width, height)
+        """
+        import matplotlib.pyplot as plt
+        
+        # 收集所有步骤的分子
+        all_mols = []
+        all_legends = []
+        all_steps = []
+        
+        # 阶段1: mol1 -> mcs
+        print("=" * 80)
+        print("阶段1: mol1 -> mcs (撤销 mol1 的 non-mcs 操作)")
+        print("=" * 80)
+        
+        # 重置状态
+        self.current_mol = rdchem.RWMol()
+        self.atom_map = {}
+        self.atom_counter = 0
+        
+        # 重建 mol1
+        mol1_path = self.mol1_section["path"]
+        for i, operation in enumerate(mol1_path):
+            self._execute_operation(operation)
+            try:
+                mol = self.current_mol.GetMol()
+                Chem.SanitizeMol(mol)
+                all_mols.append(mol)
+                all_legends.append(f"mol1 构建步骤 {i+1}")
+                all_steps.append(f"{operation['operation']} @ {operation.get('position', 'N/A')}")
+            except Exception as e:
+                all_mols.append(None)
+                all_legends.append(f"mol1 构建步骤 {i+1}")
+                all_steps.append(f"{operation['operation']} @ {operation.get('position', 'N/A')}")
+        
+        # 撤销 mol1 的 non-mcs 操作
+        non_mcs_path = self.mol1_section.get("path_non_mcs", [])
+        for i, operation in enumerate(reversed(non_mcs_path)):
+            step_num = len(mol1_path) + i + 1
+            self._undo_operation(operation)
+            try:
+                mol = self.current_mol.GetMol()
+                Chem.SanitizeMol(mol)
+                all_mols.append(mol)
+                all_legends.append(f"撤销步骤 {i+1}")
+                all_steps.append(f"撤销: {operation['operation']} @ {operation.get('position', 'N/A')}")
+            except Exception as e:
+                all_mols.append(None)
+                all_legends.append(f"撤销步骤 {i+1}")
+                all_steps.append(f"撤销: {operation['operation']} @ {operation.get('position', 'N/A')}")
+        
+        # 阶段2: mcs -> mol2
+        print("\n" + "=" * 80)
+        print("阶段2: mcs -> mol2 (应用 mol2 的 non-mcs 操作)")
+        print("=" * 80)
+        
+        non_mcs_path_mol2 = self.mol2_section.get("path_non_mcs", [])
+        for i, operation in enumerate(non_mcs_path_mol2):
+            self._execute_operation(operation)
+            try:
+                mol = self.current_mol.GetMol()
+                Chem.SanitizeMol(mol)
+                all_mols.append(mol)
+                all_legends.append(f"mol2 应用步骤 {i+1}")
+                all_steps.append(f"{operation['operation']} @ {operation.get('position', 'N/A')}")
+            except Exception as e:
+                all_mols.append(None)
+                all_legends.append(f"mol2 应用步骤 {i+1}")
+                all_steps.append(f"{operation['operation']} @ {operation.get('position', 'N/A')}")
+        
+        # 创建图像
+        num_mols = len(all_mols)
+        rows = (num_mols + cols - 1) // cols
+        
+        # 调整图像大小以适应更多步骤
+        figsize = (cols * 5, rows * 4)
+        
+        fig, axes = plt.subplots(rows, cols, figsize=figsize)
+        if rows == 1 and cols == 1:
+            axes = [[axes]]
+        elif rows == 1:
+            axes = [axes]
+        elif cols == 1:
+            axes = [[ax] for ax in axes]
+        
+        for i in range(num_mols):
+            row = i // cols
+            col = i % cols
+            ax = axes[row][col]
+            
+            mol = all_mols[i]
+            if mol is not None:
+                AllChem.Compute2DCoords(mol)
+                img = Draw.MolToImage(mol, size=(400, 400))
+                ax.imshow(np.array(img))
+                
+                # 添加步骤标记
+                ax.set_xlabel(all_steps[i], fontsize=7, wrap=True)
+            else:
+                ax.text(0.5, 0.5, "无效分子", ha='center', va='center', fontsize=12)
+                ax.set_xlabel(all_steps[i], fontsize=7, wrap=True)
+            
+            ax.set_title(f"步骤 {i+1}: {all_legends[i]}", fontsize=9, fontweight='bold')
+            ax.axis('off')
+        
+        # 隐藏多余的子图
+        for i in range(num_mols, rows * cols):
+            row = i // cols
+            col = i % cols
+            axes[row][col].axis('off')
+        
+        # 添加总标题
+        fig.suptitle(f"分子转换完整路径可视化 (共 {num_mols} 步)\n"
+                    f"mol1 -> MCS -> mol2", 
+                    fontsize=14, fontweight='bold', y=0.995)
+        
+        plt.tight_layout(rect=[0, 0, 1, 0.99])
+        
+        if output_file:
+            plt.savefig(output_file, dpi=300, bbox_inches='tight')
+            print(f"分子可视化图像已保存到: {output_file}")
+        
+        plt.close(fig)
+    
+    def visualize_mol1_to_mol2_path(self, output_file: str = None, cols: int = 4, figsize: tuple = (20, 15)):
+        """
+        可视化从 mol1 到 mol2 的转换路径（不包含 mol1 的构建步骤）
+        只包含：mol1 -> 撤销操作得到 MCS -> 应用操作得到 mol2
+        
+        Args:
+            output_file: 输出图像文件路径
+            cols: 每行显示的分子数量
+            figsize: 图像大小 (width, height)
+        """
+        # 收集关键步骤的分子
+        all_mols = []
+        all_legends = []
+        all_steps = []
+        
+        # 阶段1: 获取 mol1 的最终状态
+        print("=" * 80)
+        print("阶段1: 获取 mol1 最终状态")
+        print("=" * 80)
+        
+        # 重置状态并构建 mol1
+        self.current_mol = rdchem.RWMol()
+        self.atom_map = {}
+        self.atom_counter = 0
+        
+        mol1_path = self.mol1_section["path"]
+        for operation in mol1_path:
+            self._execute_operation(operation)
+        
+        # 保存 mol1 的最终状态
+        try:
+            mol1_final = self.current_mol.GetMol()
+            Chem.SanitizeMol(mol1_final)
+            all_mols.append(mol1_final)
+            all_legends.append("mol1 初始状态")
+            all_steps.append("完整 mol1 分子")
+        except Exception as e:
+            all_mols.append(None)
+            all_legends.append("mol1 初始状态")
+            all_steps.append("完整 mol1 分子")
+        
+        # 阶段2: 撤销 mol1 的 non-mcs 操作，逐步得到 MCS
+        print("\n" + "=" * 80)
+        print("阶段2: mol1 -> MCS (撤销 mol1 的 non-mcs 操作)")
+        print("=" * 80)
+        
+        non_mcs_path = self.mol1_section.get("path_non_mcs", [])
+        for i, operation in enumerate(reversed(non_mcs_path)):
+            self._undo_operation(operation)
+            try:
+                mol = self.current_mol.GetMol()
+                Chem.SanitizeMol(mol)
+                all_mols.append(mol)
+                all_legends.append(f"撤销步骤: {operation['operation']} @ {operation['atom']} @ {operation['position']}")
+                all_steps.append(f"撤销: {operation['operation']} @ {operation.get('position', 'N/A')}")
+            except Exception as e:
+                all_mols.append(None)
+                all_legends.append(f"撤销步骤: {operation['operation']} @ {operation['atom']} @ {operation['position']}")
+                all_steps.append(f"撤销: {operation['operation']} @ {operation.get('position', 'N/A')}")
+        
+        # 阶段3: 从 MCS 应用 mol2 的 non-mcs 操作，逐步得到 mol2
+        print("\n" + "=" * 80)
+        print("阶段3: MCS -> mol2 (应用 mol2 的 non-mcs 操作)")
+        print("=" * 80)
+        
+        non_mcs_path_mol2 = self.mol2_section.get("path_non_mcs", [])
+        for i, operation in enumerate(non_mcs_path_mol2):
+            self._execute_operation(operation)
+            try:
+                mol = self.current_mol.GetMol()
+                Chem.SanitizeMol(mol)
+                all_mols.append(mol)
+                all_legends.append(f"应用步骤: {operation['operation']} @ {operation['atom']} @ {operation['position']}")
+                all_steps.append(f"{operation['operation']} @ {operation.get('position', 'N/A')}")
+            except Exception as e:
+                all_mols.append(None)
+                all_legends.append(f"应用步骤: {operation['operation']} @ {operation['atom']} @ {operation['position']}")
+                all_steps.append(f"{operation['operation']} @ {operation.get('position', 'N/A')}")
+        
+        # 创建图像
+        num_mols = len(all_mols)
+        rows = (num_mols + cols - 1) // cols
+        
+        # 调整图像大小
+        figsize = (cols * 5, rows * 4)
+        
+        fig, axes = plt.subplots(rows, cols, figsize=figsize)
+        if rows == 1 and cols == 1:
+            axes = [[axes]]
+        elif rows == 1:
+            axes = [axes]
+        elif cols == 1:
+            axes = [[ax] for ax in axes]
+        
+        for i in range(num_mols):
+            row = i // cols
+            col = i % cols
+            ax = axes[row][col]
+            
+            mol = all_mols[i]
+            if mol is not None:
+                AllChem.Compute2DCoords(mol)
+                img = Draw.MolToImage(mol, size=(400, 400))
+                ax.imshow(np.array(img))
+                
+                # 添加步骤标记
+                ax.set_xlabel(all_steps[i], fontsize=7, wrap=True)
+            else:
+                ax.text(0.5, 0.5, "无效分子", ha='center', va='center', fontsize=12)
+                ax.set_xlabel(all_steps[i], fontsize=7, wrap=True)
+            
+            ax.set_title(f"步骤 {i+1}: {all_legends[i]}", fontsize=9, fontweight='bold')
+            ax.axis('off')
+        
+        # 隐藏多余的子图
+        for i in range(num_mols, rows * cols):
+            row = i // cols
+            col = i % cols
+            axes[row][col].axis('off')
+        
+        # 添加总标题
+        fig.suptitle(f"分子转换路径可视化 (mol1 -> MCS -> mol2)\n"
+                    f"共 {num_mols} 个关键状态", 
+                    fontsize=14, fontweight='bold', y=0.995)
+        
+        plt.tight_layout(rect=[0, 0, 1, 0.99])
+        
+        if output_file:
+            plt.savefig(output_file, dpi=300, bbox_inches='tight')
+            print(f"分子转换路径可视化已保存到: {output_file}")
+        
+        plt.close(fig)
+            

@@ -265,11 +265,12 @@ class MoleculeEvolverAnalysis: # MoleculeEvolver
                 parent_old_idx = self.parent_map[current_old_idx]
                 parent_new_idx = self.backbone_map[parent_old_idx]
                 current_atom = self.mol.GetAtomWithIdx(current_old_idx)
+                current_mol = self.mol.GetAtomWithIdx(current_old_idx)
                 path.append({
                     "position": str(parent_new_idx),
                     "atom": current_atom.GetSymbol(),
                     "operation": "add_atom",
-                    "rdkit_idx": str(current_old_idx)  # 补充 RDKit 原始 idx
+                    "rdkit_idx": str(current_mol.GetIdx())  # 补充 RDKit 原始 idx
                 })
 
             # --- 附件、额外键和立体化学 ---
@@ -589,16 +590,13 @@ class PairMoleculeEvolverAnalysis:
         self.smiles1 = smiles1
         self.smiles2 = smiles2
         
-        # 解析两个分子
-        self.mol1 = Chem.MolFromSmiles(smiles1)
-        self.mol2 = Chem.MolFromSmiles(smiles2)
+        # 使用 MoleculeEvolverAnalysis 来处理分子，复用其标准化逻辑
+        self.analyzer1 = MoleculeEvolverAnalysis(smiles1)
+        self.analyzer2 = MoleculeEvolverAnalysis(smiles2)
         
-        if not self.mol1 or not self.mol2:
-            raise ValueError("无效的SMILES字符串")
-        
-        # 标准化分子
-        self.mol1 = Chem.RemoveHs(self.mol1)
-        self.mol2 = Chem.RemoveHs(self.mol2)
+        # 获取处理后的分子对象
+        self.mol1 = self.analyzer1.mol
+        self.mol2 = self.analyzer2.mol
         
         # 计算MCS
         self.mcs_result = self._calculate_mcs()
@@ -639,27 +637,6 @@ class PairMoleculeEvolverAnalysis:
         if matches2:
             match2 = matches2[0]
             self.atom_map2 = {atom_idx: mcs_idx for mcs_idx, atom_idx in enumerate(match2)}
-    
-    def _get_remaining_part(self, mol, atom_map):
-        """获取分子中MCS之外的部分"""
-        if not atom_map:
-            return None
-        
-        # 创建一个新的分子，只包含不在MCS中的原子
-        mol_copy = Chem.Mol(mol)
-        atoms_to_remove = list(atom_map.keys())
-        atoms_to_remove.sort(reverse=True)
-        
-        for atom_idx in atoms_to_remove:
-            mol_copy.GetAtomWithIdx(atom_idx).SetAtomicNum(0)  # 标记为要删除
-        
-        # 删除标记的原子
-        mol_copy = Chem.DeleteSubstructs(mol_copy, Chem.MolFromSmiles("[#0]"))
-        
-        if mol_copy.GetNumAtoms() == 0:
-            return None
-        
-        return Chem.MolToSmiles(mol_copy)
     
     def get_mcs_based_positioning(self):
         """获取基于MCS的position定位信息"""
@@ -744,41 +721,151 @@ class PairMoleculeEvolverAnalysis:
         
         return filtered_path
     
+    def _convert_path_to_mcs_position(self, path, backbone_map, mol_to_mcs_map):
+        """将路径中的 position 从 backbone position 转换为 MCS position
+        
+        Args:
+            path: 需要转换的路径
+            backbone_map: backbone 映射 {rdkit_idx: backbone_position}
+            mol_to_mcs_map: MCS 映射 {rdkit_idx: mcs_position}
+            
+        Returns:
+            转换后的路径，新增 mcs_position 字段存储转换后的 MCS position
+        """
+        if not mol_to_mcs_map or not backbone_map:
+            return path
+        
+        converted_path = []
+        
+        for step in path:
+            converted_step = step.copy()
+            rdkit_idx = step.get("rdkit_idx")
+            operation = step.get("operation", "")
+            
+            # 处理不同类型的操作
+            if operation == "add_fragment" and rdkit_idx:
+                # 处理片段添加操作，可能有多个连接点
+                conn_indices = [int(idx) for idx in rdkit_idx.split(",") if idx]
+                mcs_positions = []
+                for idx in conn_indices:
+                    if str(idx) in mol_to_mcs_map:
+                        mcs_positions.append(str(mol_to_mcs_map[str(idx)]))
+                    else:
+                        # 如果不在 MCS 中，保持原样或标记为非MCS
+                        mcs_positions.append(f"non_mcs_{idx}")
+                
+                if mcs_positions:
+                    converted_step["mcs_position"] = ",".join(mcs_positions)
+            
+            elif rdkit_idx and "-" not in str(rdkit_idx):
+                # 处理单个原子操作
+                try:
+                    idx = int(rdkit_idx)
+                    if str(idx) in mol_to_mcs_map:
+                        converted_step["mcs_position"] = str(mol_to_mcs_map[str(idx)])
+                    else:
+                        # 如果不在 MCS 中，标记为非MCS
+                        converted_step["mcs_position"] = f"non_mcs_{idx}"
+                except ValueError:
+                    pass
+            
+            elif rdkit_idx and "-" in str(rdkit_idx):
+                # 处理键操作（如 "1-2"）
+                bond_indices = [int(idx) for idx in rdkit_idx.split("-")]
+                mcs_positions = []
+                for idx in bond_indices:
+                    if str(idx) in mol_to_mcs_map:
+                        mcs_positions.append(str(mol_to_mcs_map[str(idx)]))
+                    else:
+                        mcs_positions.append(f"non_mcs_{idx}")
+                
+                if mcs_positions:
+                    converted_step["mcs_position"] = "-".join(mcs_positions)
+            
+            elif not rdkit_idx and step.get("position"):
+                # 处理没有 rdkit_idx 但有 position 的情况（如合并后的芳香环操作）
+                position = step.get("position", "")
+                if "-" in position:
+                    # position 是基于 backbone 的，需要先转换为 rdkit_idx，再转换为 MCS position
+                    pos_indices = [int(idx) for idx in position.split("-") if idx]
+                    mcs_positions = []
+                    for pos_idx in pos_indices:
+                        # 找到对应的 rdkit_idx
+                        rdkit_idx = None
+                        for rdkit, backbone_pos in backbone_map.items():
+                            if backbone_pos == pos_idx:
+                                rdkit_idx = rdkit
+                                break
+                        
+                        if rdkit_idx is not None and str(rdkit_idx) in mol_to_mcs_map:
+                            mcs_positions.append(str(mol_to_mcs_map[str(rdkit_idx)]))
+                        else:
+                            mcs_positions.append(f"non_mcs_{pos_idx}")
+                    
+                    if mcs_positions:
+                        converted_step["mcs_position"] = "-".join(mcs_positions)
+                else:
+                    # 单个位置
+                    try:
+                        pos_idx = int(position)
+                        # 找到对应的 rdkit_idx
+                        rdkit_idx = None
+                        for rdkit, backbone_pos in backbone_map.items():
+                            if backbone_pos == pos_idx:
+                                rdkit_idx = rdkit
+                                break
+                        
+                        if rdkit_idx is not None and str(rdkit_idx) in mol_to_mcs_map:
+                            converted_step["mcs_position"] = str(mol_to_mcs_map[str(rdkit_idx)])
+                    except ValueError:
+                        pass
+            
+            converted_path.append(converted_step)
+        
+        return converted_path
+    
     def generate_combined_path(self):
         """CORE: 生成基于MCS的组合进化路径
         
         新的逻辑：
         1. 分别获取 mol1 和 mol2 的完整 evo-path
         2. 根据 MCS 的 atom_map 和 path 中的 rdkit_idx 进行过滤
-        3. 这样就能得到离散片段之间的变化关系，并保持与MCS的关系
+        3. 将 mol2_non_mcs_path 的 position 从 mol2 backbone position 转换为 MCS position
+        4. 这样就能得到离散片段之间的变化关系，并保持与MCS的关系
         """
         try:
-            # 分别获取 mol1 和 mol2 的完整 evo-path
-            mol1_evolver = MoleculeEvolverAnalysis(Chem.MolToSmiles(self.mol1))
-            mol1_full_path = mol1_evolver.get_full_path_dict()
-            
-            mol2_evolver = MoleculeEvolverAnalysis(Chem.MolToSmiles(self.mol2))
-            mol2_full_path = mol2_evolver.get_full_path_dict()
+            # 直接使用已有的 analyzer 获取完整 evo-path
+            mol1_full_path = self.analyzer1.get_full_path_dict()
+            mol2_full_path = self.analyzer2.get_full_path_dict()
             
             # 根据 MCS 的 atom_map 过滤路径，保留非 MCS 部分
             mol1_non_mcs_path = self._filter_non_mcs_path(mol1_full_path, self.atom_map1)
             mol2_non_mcs_path = self._filter_non_mcs_path(mol2_full_path, self.atom_map2)
+            
+            # 将 mol2_non_mcs_path 的 position 从 mol2 backbone position 转换为 MCS position
+            mol2_non_mcs_path_converted = self._convert_path_to_mcs_position(
+                mol2_non_mcs_path,
+                self.analyzer2.backbone_map,
+                self.atom_map2
+            )
             
             # 组合路径
             combined_path = []
 
             combined_path.append({
                 "section": "mol1",
+                "smiles": self.smiles1,
                 "path": mol1_full_path,
                 "path_non_mcs": mol1_non_mcs_path,
-                "atom_map": self.atom_map1
+                "mol_to_mcs_map": self.atom_map1
             })
 
             combined_path.append({
                 "section": "mol2",
+                "smiles": self.smiles2,
                 "path": mol2_full_path,
-                "path_non_mcs": mol2_non_mcs_path,
-                "atom_map": self.atom_map2
+                "path_non_mcs": mol2_non_mcs_path_converted,
+                "mol_to_mcs_map": self.atom_map2
             })
 
             # 添加 MCS 信息，便于理解片段与MCS的关系
