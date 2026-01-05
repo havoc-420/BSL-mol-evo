@@ -13,14 +13,16 @@ import numpy as np
 from collections import deque
 
 from rdkit import Chem
-from rdkit.Chem import rdDepictor, AllChem, rdchem
+from rdkit.Chem import rdFMCS
 import matplotlib.pyplot as plt
 from rdkit.Chem import Draw
 
 try:
     from .utils.molecule import smile_to_graph_xyz
+    from .molecule_rebuilder import MoleculeRebuilder
 except ImportError:
     from mol_evo.core.utils.molecule import smile_to_graph_xyz
+    from mol_evo.core.molecule_rebuilder import MoleculeRebuilder
 
 # 设置RDKit日志级别，减少警告输出
 from rdkit import RDLogger
@@ -254,7 +256,8 @@ class MoleculeEvolverAnalysis: # MoleculeEvolver
             path = [{
                 "position": str(self.backbone_map[start_atom.GetIdx()]),
                 "atom": start_atom.GetSymbol(),
-                "operation": "init_atom"
+                "operation": "init_atom",
+                "rdkit_idx": str(start_atom.GetIdx())  # 补充 RDKit 原始 idx
             }]
             
             for i in range(1, len(self.backbone_indices)):
@@ -265,7 +268,8 @@ class MoleculeEvolverAnalysis: # MoleculeEvolver
                 path.append({
                     "position": str(parent_new_idx),
                     "atom": current_atom.GetSymbol(),
-                    "operation": "add_atom"
+                    "operation": "add_atom",
+                    "rdkit_idx": str(current_old_idx)  # 补充 RDKit 原始 idx
                 })
 
             # --- 附件、额外键和立体化学 ---
@@ -278,10 +282,13 @@ class MoleculeEvolverAnalysis: # MoleculeEvolver
             attachments = self._get_sorted_attachments(non_backbone_atoms)
             for att in attachments:
                 conn_points = sorted(list(att.connection_points))
+                # 附件操作需要记录连接点的 RDKit idx
+                rdkit_conn_points = [str(idx) for idx in conn_points]
                 path.append({
                     "position": str(conn_points[0]) if conn_points else "",
                     "atom": att.mol_frag_smiles,
-                    "operation": "add_fragment"
+                    "operation": "add_fragment",
+                    "rdkit_idx": ",".join(rdkit_conn_points) if conn_points else ""  # 附件连接点的 RDKit idx
                 })
 
             # --- STAGE 额外键处理 (成环、多重键) ---
@@ -313,10 +320,14 @@ class MoleculeEvolverAnalysis: # MoleculeEvolver
                     else:
                         op_type = "form_bond"
                         
+                    # 记录原始 RDKit idx
+                    rdkit_positions = [str(b), str(e)]
+                    rdkit_positions.sort()
                     extra_bond_ops.append({
                         "position": f"{positions[0]}-{positions[1]}",
                         "atom": None,
-                        "operation": op_type
+                        "operation": op_type,
+                        "rdkit_idx": f"{rdkit_positions[0]}-{rdkit_positions[1]}"  # 额外键的 RDKit idx
                     })
                 elif not is_backbone_bond and both_in_backbone and has_rings:
                     # 成环操作同时考虑键的类型
@@ -331,10 +342,14 @@ class MoleculeEvolverAnalysis: # MoleculeEvolver
                     else:
                         op_type = "form_ring"  # 默认单键环
                     
+                    # 记录原始 RDKit idx
+                    rdkit_positions = [str(b), str(e)]
+                    rdkit_positions.sort()
                     extra_bond_ops.append({
                         "position": f"{positions[0]}-{positions[1]}",
                         "atom": None,
-                        "operation": op_type
+                        "operation": op_type,
+                        "rdkit_idx": f"{rdkit_positions[0]}-{rdkit_positions[1]}"  # 成环键的 RDKit idx
                     })
             
             # 按照位置对额外键操作进行排序 # TODO ？
@@ -494,8 +509,9 @@ class MoleculeEvolverAnalysis: # MoleculeEvolver
                             "position": str(self.backbone_map[center_idx]),
                             "atom": None,
                             "operation": operation,
+                            "rdkit_idx": str(center_idx)  # 手性中心的 RDKit idx
                         })
-                        print('😀 [Analysis]', center_idx, chiral_tag, atom.GetSymbol(), str(self.backbone_map[center_idx]))
+                        # print('😀 [Analysis]', center_idx, chiral_tag, atom.GetSymbol(), str(self.backbone_map[center_idx]))
             
             for bond in self.mol.GetBonds():
                 if bond.GetStereo() > Chem.BondStereo.STEREOANY:
@@ -504,11 +520,15 @@ class MoleculeEvolverAnalysis: # MoleculeEvolver
                         positions = [self.backbone_map[b], self.backbone_map[e]]
                         positions.sort()  # 确保顺序一致
                         
+                        # 记录立体键的原始 RDKit idx
+                        rdkit_positions = [str(b), str(e)]
+                        rdkit_positions.sort()
                         stereo_ops.append({
                             "position": f"{positions[0]}-{positions[1]}",
                             "atom": None,
                             "operation": "add_stereo",
-                            "bond_stereo": bond.GetStereo()  # 包含原始键立体构型信息   # UPDATE
+                            "bond_stereo": bond.GetStereo(),  # 包含原始键立体构型信息   # UPDATE
+                            "rdkit_idx": f"{rdkit_positions[0]}-{rdkit_positions[1]}"  # 立体键的 RDKit idx
                         })
             
             # 按照位置对立体化学操作进行排序
@@ -561,554 +581,218 @@ class MoleculeEvolverAnalysis: # MoleculeEvolver
         
         attachments.sort(key=lambda x: x.sort_key)
         return attachments
+        
 
-
-class MoleculeRebuilder:
-    """
-    分子重建器，能够根据操作路径逐步重建分子并可视化每一步的状态。
-    """
-    
-    def __init__(self, path: list, types: dict = None):
-        self.path = path
-        self.steps = []
-        self.current_mol = None
-        self.atom_map = {}
-        self.atom_counter = 0
-        self.types = types or self._get_default_types()
-    
-    def _get_default_types(self):
-        """获取默认的原子类型映射"""
-        return {
-            'H': 0, 'C': 1, 'N': 2, 'O': 3, 'F': 4, 'P': 5, 'S': 6, 'Cl': 7,
-            'Br': 8, 'I': 9, 'B': 10, 'Si': 11, 'Se': 12, 'As': 13, 'Te': 14
-        }
-    
-    def rebuild_step_by_step(self, analyze_xyz: bool = False):
-        """
-        逐步执行路径操作，记录每一步的分子状态。
-        返回步骤列表，每个步骤包含操作信息和分子SMILES。
+class PairMoleculeEvolverAnalysis:
+    """一个封装的分子对路径生成器，基于MCS进行处理。"""
+    def __init__(self, smiles1: str, smiles2: str):
+        self.smiles1 = smiles1
+        self.smiles2 = smiles2
         
-        Args:
-            analyze_xyz: 是否使用 smile_to_graph_xyz 分析 z 和 pos 参数
-        """        
-        # 初始化空分子
-        self.current_mol = rdchem.RWMol()
-        self.atom_map = {}
-        self.atom_counter = 0
-        self.steps = []
+        # 解析两个分子
+        self.mol1 = Chem.MolFromSmiles(smiles1)
+        self.mol2 = Chem.MolFromSmiles(smiles2)
         
-        for step_idx, operation in enumerate(self.path):
-            step_info = {
-                "step": step_idx + 1,
-                "operation": operation,
-                "smiles_before": self._get_current_smiles(),
-                "description": self._describe_operation(operation)
-            }
-            
-            # 执行操作
-            self._execute_operation(operation)
-            
-            # 记录操作后的状态
-            step_info["smiles_after"] = self._get_current_smiles()
-            
-            # 如果需要，分析 z 和 pos 参数
-            if analyze_xyz:
-                step_info["xyz_analysis"] = self._analyze_xyz()
-            
-            self.steps.append(step_info)
+        if not self.mol1 or not self.mol2:
+            raise ValueError("无效的SMILES字符串")
         
-        return self.steps
-    
-    def _analyze_xyz(self):
-        """
-        分析当前分子的 z 和 pos 参数。
-        优先尝试通过 SMILES 解析，如果失败则直接从 RWMol 对象提取原子信息。
+        # 标准化分子
+        self.mol1 = Chem.RemoveHs(self.mol1)
+        self.mol2 = Chem.RemoveHs(self.mol2)
         
-        Returns:
-            dict: 包含分析结果的字典
-        """
-        try:
-            smiles = self._get_current_smiles()
-            
-            if smiles != "invalid":
-                x, z, pos, edge_index, edge_attr = smile_to_graph_xyz(smiles, self.types)
-                
-                if z is not None and pos is not None:
-                    return {
-                        "success": True,
-                        "z": z.tolist() if hasattr(z, 'tolist') else z,
-                        "pos": pos.tolist() if hasattr(pos, 'tolist') else pos,
-                        "num_atoms": len(z),
-                        "edge_index": edge_index.tolist() if edge_index is not None else None,
-                        "edge_attr": edge_attr.tolist() if edge_attr is not None else None,
-                        "method": "smiles_based"
-                    }
-            
-            return self._analyze_from_rwmol()
-        except Exception as e:
-            return {
-                "success": False,
-                "error": str(e),
-                "z": None,
-                "pos": None
-            }
-    
-    def _analyze_from_rwmol(self):
-        """
-        直接从 RWMol 对象提取原子信息和键信息，不依赖 SMILES。
-        对于不完整的分子结构，可以提取基本的原子序数和连接关系。
+        # 计算MCS
+        self.mcs_result = self._calculate_mcs()
+        self.mcs_mol = Chem.MolFromSmarts(self.mcs_result.smartsString) if self.mcs_result.smartsString else None
         
-        Returns:
-            dict: 包含分析结果的字典
-        """
-        try:
-            mol = self.current_mol.GetMol()
-            num_atoms = mol.GetNumAtoms()
-            
-            if num_atoms == 0:
-                return {
-                    "success": False,
-                    "error": "No atoms in molecule",
-                    "z": None,
-                    "pos": None
-                }
-            
-            z = []
-            for atom in mol.GetAtoms():
-                z.append(atom.GetAtomicNum())
-            
-            z = np.array(z, dtype=np.int64)
-            
-            edge_index = []
-            edge_attr = []
-            
-            for bond in mol.GetBonds():
-                start_idx = bond.GetBeginAtomIdx()
-                end_idx = bond.GetEndAtomIdx()
-                
-                edge_index.append([start_idx, end_idx])
-                edge_index.append([end_idx, start_idx])
-                
-                bond_type = bond.GetBondType()
-                bond_type_map = {
-                    Chem.BondType.SINGLE: [1, 0, 0, 0],
-                    Chem.BondType.DOUBLE: [0, 1, 0, 0],
-                    Chem.BondType.TRIPLE: [0, 0, 1, 0],
-                    Chem.BondType.AROMATIC: [0, 0, 0, 1],
-                }
-                bond_attr = bond_type_map.get(bond_type, [0, 0, 0, 0])
-                edge_attr.append(bond_attr)
-                edge_attr.append(bond_attr)
-            
-            if edge_index:
-                edge_index = np.array(edge_index, dtype=np.int64).T
-                edge_attr = np.array(edge_attr, dtype=np.float32)
-            else:
-                edge_index = None
-                edge_attr = None
-            
-            try:
-                mol_with_h = Chem.AddHs(mol)
-                conf_id = AllChem.EmbedMolecule(mol_with_h, useExpTorsionAnglePrefs=True, useBasicKnowledge=True)
-                
-                if conf_id != -1:
-                    conf = mol_with_h.GetConformer()
-                    pos = conf.GetPositions()
-                    pos = pos[:num_atoms]
-                else:
-                    pos = self._generate_simple_coordinates(mol)
-            except:
-                pos = self._generate_simple_coordinates(mol)
-            
-            x = self._generate_node_features(z, edge_index, edge_attr)
-            
-            return {
-                "success": True,
-                "z": z.tolist() if hasattr(z, 'tolist') else z,
-                "pos": pos.tolist() if hasattr(pos, 'tolist') else pos,
-                "num_atoms": len(z),
-                "edge_index": edge_index.tolist() if edge_index is not None else None,
-                "edge_attr": edge_attr.tolist() if edge_attr is not None else None,
-                "method": "rwmol_based"
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"RWMol analysis failed: {str(e)}",
-                "z": None,
-                "pos": None
-            }
-    
-    def _generate_simple_coordinates(self, mol):
-        """
-        为分子生成简化的 2D 坐标。
-        使用 RDKit 的 2D 坐标生成方法，对不完整的分子更宽容。
+        # 原子映射
+        self.atom_map1 = {}  # mol1的原子idx -> mcs中的idx
+        self.atom_map2 = {}  # mol2的原子idx -> mcs中的idx
         
-        Args:
-            mol: RDKit 分子对象
-            
-        Returns:
-            numpy.ndarray: 原子坐标数组
-        """
-        try:
-            mol_copy = Chem.Mol(mol)
-            
-            try:
-                rdDepictor.Compute2DCoords(mol_copy)
-                conf = mol_copy.GetConformer()
-                pos = conf.GetPositions()
-                
-                return np.array(pos, dtype=np.float32)
-            except:
-                num_atoms = mol_copy.GetNumAtoms()
-                pos = np.zeros((num_atoms, 3), dtype=np.float32)
-                
-                for i in range(num_atoms):
-                    pos[i] = [float(i * 1.5), 0.0, 0.0]
-                
-                return pos
-        except:
-            import numpy as np
-            num_atoms = mol.GetNumAtoms()
-            return np.zeros((num_atoms, 3), dtype=np.float32)
+        if self.mcs_mol:
+            self._find_mcs_mapping()
+        else:
+            print("⚠️ 警告: 两个分子没有公共结构")
     
-    def _generate_node_features(self, z, edge_index, edge_attr):
-        """
-        生成节点特征矩阵。
+    def _calculate_mcs(self):
+        """计算两个分子之间的最大公共子结构(MCS)"""
+        mcs_params = rdFMCS.MCSParameters()
+        mcs_params.BondCompareParameters.BondCompare = rdFMCS.BondCompare.CompareOrder
+        mcs_params.AtomCompareParameters.AtomCompare = rdFMCS.AtomCompare.CompareElements
+        mcs_params.Timeout = 10
+        mcs_params.Threshold = 0.8
         
-        Args:
-            z: 原子序数数组
-            edge_index: 边索引
-            edge_attr: 边属性
-            
-        Returns:
-            numpy.ndarray: 节点特征矩阵
-        """
-        try:
-            import numpy as np
-            
-            num_atoms = len(z)
-            max_atomic_num = max(z) if len(z) > 0 else 0
-            num_types = len(self.types)
-            
-            x = np.zeros((num_atoms, num_types), dtype=np.float32)
-            
-            atomic_num_to_type = {}
-            for symbol, type_idx in self.types.items():
-                atomic_num = Chem.GetPeriodicTable().GetAtomicNumber(symbol)
-                atomic_num_to_type[atomic_num] = type_idx
-            
-            for i, atomic_num in enumerate(z):
-                type_idx = atomic_num_to_type.get(atomic_num, 0)
-                x[i, type_idx] = 1.0
-            
-            return x
-        except:
-            import numpy as np
-            return np.zeros((len(z), len(self.types)), dtype=np.float32)
+        return rdFMCS.FindMCS([self.mol1, self.mol2], mcs_params)
     
-    def _execute_operation(self, operation):
-        """执行单个操作"""
-        op_type = operation.get("operation")
-        position = operation.get("position")
-        atom = operation.get("atom")
+    def _find_mcs_mapping(self):
+        """找到MCS在两个分子中的原子映射"""
+        if not self.mcs_mol:
+            return
         
-        if op_type == "init_atom":
-            self._init_atom(position, atom)
-        elif op_type == "add_atom":
-            self._add_atom(position, atom)
-        elif op_type == "form_double_bond":
-            self._form_bond(position, Chem.BondType.DOUBLE)
-        elif op_type == "form_triple_bond":
-            self._form_bond(position, Chem.BondType.TRIPLE)
-        elif op_type == "form_aromatic_bond":
-            self._form_bond(position, Chem.BondType.AROMATIC)
-        elif op_type == "form_ring":
-            self._form_bond(position, Chem.BondType.SINGLE)
-        elif op_type == "form_double_ring":
-            self._form_bond(position, Chem.BondType.DOUBLE)
-        elif op_type == "form_aromatic_ring" or op_type == "成苯环":
-            # 处理合并的芳香环操作，位置格式为 "0-1-2-3-4-5"
-            pos_parts = position.split("-")
-            if len(pos_parts) == 2:
-                # 如果只有两个位置，按照普通键处理
-                self._form_bond(position, Chem.BondType.AROMATIC)
-            else:
-                # 如果有多个位置，处理为环结构
-                # 首先形成相邻原子之间的键
-                for i in range(len(pos_parts) - 1):
-                    self._form_bond(f"{pos_parts[i]}-{pos_parts[i+1]}", Chem.BondType.AROMATIC)
-                # 最后形成首尾原子之间的键（闭环）
-                self._form_bond(f"{pos_parts[-1]}-{pos_parts[0]}", Chem.BondType.AROMATIC)
-        elif op_type == "add_stereo_ccw" or op_type == "add_stereo_cw":
-            self._add_stereo(operation, ccw_flag=(op_type == "add_stereo_ccw"))  # 传递整个操作对象，包含立体构型信息
-        elif op_type == "add_fragment":
-            self._add_fragment(position, atom)
-    
-    def _init_atom(self, position, atom_symbol):
-        """初始化第一个原子"""
-        atom_idx = self.current_mol.AddAtom(Chem.Atom(atom_symbol))
-        self.atom_map[position] = atom_idx
-        self.atom_counter += 1
-    
-    def _add_atom(self, position, atom_symbol):
-        """添加原子到指定位置"""
-        parent_pos = position
-        if parent_pos not in self.atom_map:
-            parent_pos = str(self.atom_counter - 1)
+        # 找到mol1中匹配MCS的原子
+        matches1 = self.mol1.GetSubstructMatches(self.mcs_mol)
+        if matches1:
+            match1 = matches1[0]
+            self.atom_map1 = {atom_idx: mcs_idx for mcs_idx, atom_idx in enumerate(match1)}
         
-        atom_idx = self.current_mol.AddAtom(Chem.Atom(atom_symbol))
-        self.atom_map[str(self.atom_counter)] = atom_idx
+        # 找到mol2中匹配MCS的原子
+        matches2 = self.mol2.GetSubstructMatches(self.mcs_mol)
+        if matches2:
+            match2 = matches2[0]
+            self.atom_map2 = {atom_idx: mcs_idx for mcs_idx, atom_idx in enumerate(match2)}
+    
+    def _get_remaining_part(self, mol, atom_map):
+        """获取分子中MCS之外的部分"""
+        if not atom_map:
+            return None
         
-        # 添加单键连接到父原子
-        if parent_pos in self.atom_map:
-            parent_idx = self.atom_map[parent_pos]
-            self.current_mol.AddBond(parent_idx, atom_idx, Chem.BondType.SINGLE)
+        # 创建一个新的分子，只包含不在MCS中的原子
+        mol_copy = Chem.Mol(mol)
+        atoms_to_remove = list(atom_map.keys())
+        atoms_to_remove.sort(reverse=True)
         
-        self.atom_counter += 1
-    
-    def _form_bond(self, position, bond_type):
-        """形成键"""
-        if "-" in position:
-            pos1, pos2 = position.split("-")
-            if pos1 in self.atom_map and pos2 in self.atom_map:
-                idx1 = self.atom_map[pos1]
-                idx2 = self.atom_map[pos2]
-                
-                # 检查是否已存在键
-                existing_bond = self.current_mol.GetBondBetweenAtoms(idx1, idx2)
-                if existing_bond:
-                    existing_bond.SetBondType(bond_type)
-                else:
-                    self.current_mol.AddBond(idx1, idx2, bond_type)
-    
-    def _add_stereo(self, operation, ccw_flag):
-        # """添加立体化学信息"""
-        # tmp_map = { # TEST
-        #     5: 2,
-        #     8: 3,
-        #     2: 21,
-        #     4: 23
-        # }
-        # tmp_map = { # TEST
-        #     2: 21,
-        #     3: 23,
-        #     21: 2,
-        #     23: 3
-        # }
-        position = operation.get("position")
-        idx = self.atom_map[position]
-        # tmp_current_smiles = Chem.MolToSmiles(self.current_mol) # TEST 调整分子顺序
-        # self.current_mol = rdchem.RWMol(Chem.MolFromSmiles(tmp_current_smiles))
-        atom = self.current_mol.GetAtomWithIdx(idx)  # INFO ori
-        # atom = self.current_mol.GetAtomWithIdx(tmp_map[idx])  # TEST
-        # 使用操作类型确定手性：ccw_flag=True
-        target_tag = Chem.CHI_TETRAHEDRAL_CCW if not ccw_flag else Chem.CHI_TETRAHEDRAL_CW
-        atom.SetChiralTag(target_tag)
-        print('😺 [rebuilder]', f"{position}->{idx}", target_tag, atom.GetSymbol(), Chem.MolToSmiles(self.current_mol))
-    
-    def _add_fragment(self, position, fragment_smiles):
-        """添加片段"""
-        try:
-            frag_mol = Chem.MolFromSmiles(fragment_smiles)
-            if frag_mol:
-                parent_idx = self.atom_map.get(position)
-                if parent_idx is not None:
-                    offset = self.current_mol.GetNumAtoms()
-                    
-                    # 添加片段中的所有原子
-                    for atom in frag_mol.GetAtoms():
-                        new_atom = Chem.Atom(atom.GetAtomicNum())
-                        self.current_mol.AddAtom(new_atom)
-                    
-                    # 添加片段中的所有键
-                    for bond in frag_mol.GetBonds():
-                        b_idx = bond.GetBeginAtomIdx() + offset
-                        e_idx = bond.GetEndAtomIdx() + offset
-                        self.current_mol.AddBond(b_idx, e_idx, bond.GetBondType())
-                    
-                    # 连接片段到父原子
-                    if offset < self.current_mol.GetNumAtoms():
-                        self.current_mol.AddBond(parent_idx, offset, Chem.BondType.SINGLE)
-        except Exception as e:
-            pass
-    
-    def _get_current_smiles(self):
-        """获取当前分子的SMILES"""
-        try:
-            mol = self.current_mol.GetMol()
-            Chem.SanitizeMol(mol)
-            return Chem.MolToSmiles(mol, isomericSmiles=True)
-        except:
-            return "invalid"
-    
-    def _describe_operation(self, operation):
-        """生成操作的描述"""
-        op_type = operation.get("operation")
-        position = operation.get("position")
-        atom = operation.get("atom")
+        for atom_idx in atoms_to_remove:
+            mol_copy.GetAtomWithIdx(atom_idx).SetAtomicNum(0)  # 标记为要删除
         
-        descriptions = {
-            "init_atom": f"初始化原子 {atom} (位置 {position})",
-            "add_atom": f"添加原子 {atom} 连接到位置 {position}",
-            "form_double_bond": f"在位置 {position} 形成双键",
-            "form_triple_bond": f"在位置 {position} 形成三键",
-            "form_aromatic_bond": f"在位置 {position} 形成芳香键",
-            "form_ring": f"在位置 {position} 形成环",
-            "form_aromatic_ring": f"在位置 {position} 形成芳香环",
-            "add_stereo": f"在位置 {position} 添加立体化学信息",
-            "add_stereo_ccw": f"在位置 {position} 添加CCW手性",
-            "add_stereo_cw": f"在位置 {position} 添加CW手性",
-            "add_fragment": f"添加片段 {atom} 到位置 {position}"
+        # 删除标记的原子
+        mol_copy = Chem.DeleteSubstructs(mol_copy, Chem.MolFromSmiles("[#0]"))
+        
+        if mol_copy.GetNumAtoms() == 0:
+            return None
+        
+        return Chem.MolToSmiles(mol_copy)
+    
+    def get_mcs_based_positioning(self):
+        """获取基于MCS的position定位信息"""
+        positioning_info = {
+            "mcs_size": self.mcs_result.numAtoms if self.mcs_result else 0,
+            "mcs_bonds": self.mcs_result.numBonds if self.mcs_result else 0,
+            "atom_map1": self.atom_map1,
+            "atom_map2": self.atom_map2
         }
         
-        return descriptions.get(op_type, f"执行操作: {op_type}")
-    
-    def visualize_steps(self, output_file: str = None, analyze_xyz: bool = False):
-        """
-        可视化重建步骤，打印每一步的详细信息。
-        如果指定了 output_file，将结果保存到文件。
+        return positioning_info
+
+    def _filter_non_mcs_path(self, full_path, atom_map):
+        """过滤路径，只保留非MCS部分的路径
         
         Args:
-            output_file: 输出文件路径
-            analyze_xyz: 是否分析 xyz 数据
-        """
-        if not self.steps:
-            self.rebuild_step_by_step(analyze_xyz=analyze_xyz)
-        
-        lines = []
-        lines.append("=" * 80)
-        lines.append("分子逐步重建过程可视化")
-        lines.append("=" * 80)
-        lines.append("")
-        
-        for step in self.steps:
-            lines.append(f"步骤 {step['step']}: {step['description']}")
-            lines.append("-" * 80)
-            lines.append(f"操作类型: {step['operation']['operation']}")
-            lines.append(f"位置: {step['operation']['position']}")
-            lines.append(f"原子: {step['operation']['atom']}")
-            lines.append(f"操作前 SMILES: {step['smiles_before']}")
-            lines.append(f"操作后 SMILES: {step['smiles_after']}")
+            full_path: 完整的evo-path
+            atom_map: MCS的原子映射（mol_idx -> mcs_idx）
             
-            if analyze_xyz and "xyz_analysis" in step:
-                xyz = step["xyz_analysis"]
-                lines.append("")
-                lines.append("XYZ 分析结果:")
-                if xyz["success"]:
-                    lines.append(f"  状态: 成功")
-                    lines.append(f"  方法: {xyz.get('method', 'unknown')}")
-                    lines.append(f"  原子数: {xyz['num_atoms']}")
-                    lines.append(f"  z (原子序数): {xyz['z']}")
-                    lines.append(f"  pos (坐标数): {xyz['pos']}")
-                    if xyz['edge_index'] is not None:
-                        lines.append(f"  edge_index: {xyz['edge_index']}")
-                    if xyz['edge_attr'] is not None:
-                        lines.append(f"  edge_attr: {xyz['edge_attr']}")
+        Returns:
+            过滤后的路径，只包含非MCS部分的操作
+        """
+        if not atom_map:
+            return full_path
+        
+        # MCS中的原子idx集合
+        mcs_atom_indices = set(atom_map.keys())
+        
+        filtered_path = []
+        
+        for step in full_path:
+            operation = step.get("operation", "")
+            rdkit_idx = step.get("rdkit_idx")
+            position = step.get("position", "")
+            
+            # 处理 add_fragment 操作
+            if operation == "add_fragment" and rdkit_idx:
+                # rdkit_idx 可能是逗号分隔的多个连接点
+                conn_indices = [int(idx) for idx in rdkit_idx.split(",") if idx]
+                # 如果至少有一个连接点不在MCS中，则保留该操作
+                if not all(idx in mcs_atom_indices for idx in conn_indices):
+                    filtered_path.append(step)
+            # 处理其他操作（init_atom, add_atom等）
+            elif rdkit_idx is not None and rdkit_idx:
+                # 检查是否是单个原子idx
+                try:
+                    idx = int(rdkit_idx)
+                    # 如果该原子不在MCS中，则保留
+                    if idx not in mcs_atom_indices:
+                        filtered_path.append(step)
+                except ValueError:
+                    # 处理可能是键操作的格式（如 "1-2"）
+                    if "-" in rdkit_idx:
+                        bond_indices = [int(idx) for idx in rdkit_idx.split("-")]
+                        # 如果键的至少一个端点不在MCS中，则保留
+                        if not all(idx in mcs_atom_indices for idx in bond_indices):
+                            filtered_path.append(step)
+                    else:
+                        # 其他格式，暂时保留
+                        filtered_path.append(step)
+            # 处理 rdkit_idx 为空但 position 存在的情况（如合并后的芳香环操作）
+            elif position and not rdkit_idx:
+                # position 可能是 "0-1-2-3-4-5" 这样的格式
+                if "-" in position:
+                    pos_indices = [int(idx) for idx in position.split("-") if idx]
+                    # 如果至少有一个原子不在MCS中，则保留该操作
+                    if not all(idx in mcs_atom_indices for idx in pos_indices):
+                        filtered_path.append(step)
                 else:
-                    lines.append(f"  状态: 失败")
-                    lines.append(f"  错误: {xyz['error']}")
-            
-            lines.append("")
-        
-        lines.append("=" * 80)
-        lines.append(f"重建完成，共 {len(self.steps)} 步")
-        
-        if analyze_xyz:
-            xyz_success_count = sum(1 for s in self.steps if s.get("xyz_analysis", {}).get("success", False))
-            invalid_smiles_count = sum(1 for s in self.steps if s.get("smiles_after") == "invalid")
-            lines.append(f"XYZ 分析成功率: {xyz_success_count}/{len(self.steps)}")
-            lines.append(f"SMILES 为 'invalid' 的步骤数: {invalid_smiles_count}")
-        
-        lines.append("=" * 80)
-        
-        output = "\n".join(lines)
-        
-        if output_file:
-            with open(output_file, 'w', encoding='utf-8') as f:
-                f.write(output)
-            print(f"可视化结果已保存到: {output_file}")
-        
-        return output
-    
-    def visualize_with_mpl(self, output_file: str = None, cols: int = 4, figsize: tuple = (20, 15)):
-        """
-        使用 matplotlib 可视化每一步的分子结构。
-        
-        Args:
-            output_file: 输出图像文件路径
-            cols: 每行显示的分子数量
-            figsize: 图像大小 (width, height)
-        """        
-        if not self.steps:
-            self.rebuild_step_by_step()
-        
-        # 重新执行步骤以获取每一步的分子
-        self.current_mol = None
-        self.atom_map = {}
-        self.atom_counter = 0
-        
-        mols = []
-        legends = []
-        
-        self.current_mol = rdchem.RWMol()
-        
-        for step_idx, operation in enumerate(self.path):
-            # 执行操作
-            self._execute_operation(operation)
-            
-            # 获取当前分子
-            try:
-                mol = self.current_mol.GetMol()
-                Chem.SanitizeMol(mol)
-                mols.append(mol)
-                legends.append(f"Step {step_idx + 1}\n{operation['operation']}")
-            except:
-                # 如果分子无效，创建一个空白分子
-                mols.append(None)
-                legends.append(f"Step {step_idx + 1}\n{operation['operation']}\n(invalid)")
-        
-        # 计算网格布局
-        num_steps = len(mols)
-        rows = (num_steps + cols - 1) // cols
-        
-        # 创建图形
-        fig, axes = plt.subplots(rows, cols, figsize=figsize)
-        if rows == 1:
-            axes = axes.reshape(1, -1)
-        
-        # 绘制每个分子
-        for idx, mol in enumerate(mols):
-            row = idx // cols
-            col = idx % cols
-            ax = axes[row, col]
-            
-            if mol is not None:
-                # 使用 RDKit 绘制分子
-                img = Draw.MolToImage(mol, size=(300, 300))
-                ax.imshow(img)
+                    # 单个位置
+                    try:
+                        pos_idx = int(position)
+                        if pos_idx not in mcs_atom_indices:
+                            filtered_path.append(step)
+                    except ValueError:
+                        # 无法解析的位置，暂时保留
+                        filtered_path.append(step)
             else:
-                ax.text(0.5, 0.5, "Invalid\nMolecule", 
-                       ha='center', va='center', fontsize=12, color='red')
+                # 对于没有rdkit_idx和position的操作，暂时保留
+                # 可能需要根据具体操作类型做更精细的处理
+                filtered_path.append(step)
+        
+        return filtered_path
+    
+    def generate_combined_path(self):
+        """CORE: 生成基于MCS的组合进化路径
+        
+        新的逻辑：
+        1. 分别获取 mol1 和 mol2 的完整 evo-path
+        2. 根据 MCS 的 atom_map 和 path 中的 rdkit_idx 进行过滤
+        3. 这样就能得到离散片段之间的变化关系，并保持与MCS的关系
+        """
+        try:
+            # 分别获取 mol1 和 mol2 的完整 evo-path
+            mol1_evolver = MoleculeEvolverAnalysis(Chem.MolToSmiles(self.mol1))
+            mol1_full_path = mol1_evolver.get_full_path_dict()
             
-            ax.set_title(legends[idx], fontsize=10)
-            ax.axis('off')
-        
-        # 隐藏多余的子图
-        for idx in range(num_steps, rows * cols):
-            row = idx // cols
-            col = idx % cols
-            axes[row, col].axis('off')
-        
-        plt.tight_layout()
-        
-        if output_file:
-            # 确保目录存在
-            os.makedirs(os.path.dirname(output_file) if os.path.dirname(output_file) else ".", exist_ok=True)
-            plt.savefig(output_file, dpi=150, bbox_inches='tight')
-            print(f"分子可视化图像已保存到: {output_file}")            
-        
-        plt.close()
+            mol2_evolver = MoleculeEvolverAnalysis(Chem.MolToSmiles(self.mol2))
+            mol2_full_path = mol2_evolver.get_full_path_dict()
+            
+            # 根据 MCS 的 atom_map 过滤路径，保留非 MCS 部分
+            mol1_non_mcs_path = self._filter_non_mcs_path(mol1_full_path, self.atom_map1)
+            mol2_non_mcs_path = self._filter_non_mcs_path(mol2_full_path, self.atom_map2)
+            
+            # 组合路径
+            combined_path = []
+
+            combined_path.append({
+                "section": "mol1",
+                "path": mol1_full_path,
+                "path_non_mcs": mol1_non_mcs_path,
+                "atom_map": self.atom_map1
+            })
+
+            combined_path.append({
+                "section": "mol2",
+                "path": mol2_full_path,
+                "path_non_mcs": mol2_non_mcs_path,
+                "atom_map": self.atom_map2
+            })
+
+            # 添加 MCS 信息，便于理解片段与MCS的关系
+            combined_path.append({
+                "section": "mcs_info",
+                "mcs_smarts": self.mcs_result.smartsString,
+                "mcs_size": self.mcs_result.numAtoms,
+                "mcs_bonds": self.mcs_result.numBonds
+            })
+
+            return combined_path
+            
+        except Exception as e:
+            return [{"section": "error", "path": [f"路径生成错误: {str(e)}"]}]
     
 
 def main():
@@ -1121,6 +805,13 @@ def main():
     evolver_parser.add_argument('smiles', help='输入的SMILES字符串')
     evolver_parser.add_argument('--format', choices=['text', 'json', 'dict'], default='text', 
                               help='输出格式 (默认: text)')
+    
+    # PairMoleculeEvolverAnalysis 命令
+    pair_parser = subparsers.add_parser('analyze-pair', help='分析两个分子的进化路径，基于MCS')
+    pair_parser.add_argument('smiles1', help='第一个SMILES字符串')
+    pair_parser.add_argument('smiles2', help='第二个SMILES字符串')
+    pair_parser.add_argument('--format', choices=['text', 'json', 'dict'], default='json', 
+                           help='输出格式 (默认: json)')
     
     # Rebuild 命令
     rebuild_parser = subparsers.add_parser('rebuild', help='根据路径重建分子')
@@ -1168,6 +859,25 @@ def main():
             rebuilder.print_summary()
         except Exception as e:
             print(f"错误: {e}", file=sys.stderr)
+            sys.exit(1)
+    
+    elif args.command == 'analyze-pair':
+        try:
+            pair_evolver = PairMoleculeEvolverAnalysis(args.smiles1, args.smiles2)
+            combined_path = pair_evolver.generate_combined_path()
+            positioning_info = pair_evolver.get_mcs_based_positioning()
+            
+            result = {
+                "mcs_info": positioning_info,
+                "combined_path": combined_path
+            }
+            
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            
+        except Exception as e:
+            print(f"错误: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc()
             sys.exit(1)
     
     elif args.command == 'test':
