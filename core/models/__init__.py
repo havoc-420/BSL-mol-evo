@@ -24,7 +24,7 @@ from .v0_1 import *  # noqa: F403, F401
 from .v0_2 import *  # noqa: F403, F401
 
 # 注册v1版本模型
-from .v1 import *  # noqa: F403, F401
+# from .v1 import *  # noqa: F403, F401 # INFO
 
 
 def register_model(name=None, display_name=None, save_dir_name=None):

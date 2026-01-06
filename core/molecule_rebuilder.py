@@ -6,6 +6,7 @@
 
 import os
 import numpy as np
+import torch
 
 from rdkit import Chem
 from rdkit.Chem import rdDepictor, AllChem, rdchem
@@ -26,13 +27,14 @@ class MoleculeRebuilder:
     分子重建器，能够根据操作路径逐步重建分子并可视化每一步的状态。
     """
     
-    def __init__(self, path: list, types: dict = None):
+    def __init__(self, path: list, types: dict = None, obverse: bool = True):
         self.path = path
         self.steps = []
         self.current_mol = None
         self.atom_map = {}
         self.atom_counter = 0
         self.types = types or self._get_default_types()
+        self.obverse = obverse
     
     def _get_default_types(self):
         """获取默认的原子类型映射"""
@@ -363,7 +365,8 @@ class MoleculeRebuilder:
         # 使用操作类型确定手性：ccw_flag=True
         target_tag = Chem.CHI_TETRAHEDRAL_CCW if not ccw_flag else Chem.CHI_TETRAHEDRAL_CW
         atom.SetChiralTag(target_tag)
-        print('😺 [rebuilder]', f"{position}->{idx}", target_tag, atom.GetSymbol(), Chem.MolToSmiles(self.current_mol))
+        if self.obverse:
+            print('😺 [rebuilder]', f"{position}->{idx}", target_tag, atom.GetSymbol(), Chem.MolToSmiles(self.current_mol))
     
     def _add_fragment(self, position, fragment_smiles):
         """添加片段"""
@@ -485,7 +488,8 @@ class MoleculeRebuilder:
         if output_file:
             with open(output_file, 'w', encoding='utf-8') as f:
                 f.write(output)
-            print(f"可视化结果已保存到: {output_file}")
+            if self.obverse:
+                print(f"可视化结果已保存到: {output_file}")
         
         return output
     
@@ -564,7 +568,8 @@ class MoleculeRebuilder:
             # 确保目录存在
             os.makedirs(os.path.dirname(output_file) if os.path.dirname(output_file) else ".", exist_ok=True)
             plt.savefig(output_file, dpi=150, bbox_inches='tight')
-            print(f"分子可视化图像已保存到: {output_file}")
+            if self.obverse:
+                print(f"分子可视化图像已保存到: {output_file}")
 
 
 class PairMoleculeRebuilder(MoleculeRebuilder):
@@ -573,16 +578,18 @@ class PairMoleculeRebuilder(MoleculeRebuilder):
     支持撤销 mol1 的 non-mcs 操作得到 MCS，然后应用 mol2 的 non-mcs 操作得到 mol2。
     """
     
-    def __init__(self, analysis_result: dict, types: dict = None):
+    def __init__(self, analysis_result: dict, types: dict = None, obverse: bool = True):
         """
         初始化分子对重建器
         
         Args:
             analysis_result: 包含 mol1, mol2, MCS 信息的字典（从 analysis_result.json 读取）
             types: 原子类型映射字典
+            obverse: 是否输出 debug 信息，默认为 True
         """
         self.analysis_result = analysis_result
         self.types = types or self._get_default_types()
+        self.obverse = obverse
         
         # 提取各个部分的信息
         self.mol1_section = None
@@ -601,7 +608,7 @@ class PairMoleculeRebuilder(MoleculeRebuilder):
             raise ValueError("分析结果中缺少 mol1 或 mol2 部分")
         
         # 初始化父类，使用 mol1 的完整路径
-        super().__init__(self.mol1_section["path"], types)
+        super().__init__(self.mol1_section["path"], types, obverse)
     
     def rebuild_mol1_to_mcs(self, analyze_xyz: bool = False):
         """
@@ -732,9 +739,10 @@ class PairMoleculeRebuilder(MoleculeRebuilder):
             dict: 包含三个阶段的步骤信息
         """
         # 阶段1: mol1 -> mcs
-        print("=" * 80)
-        print("阶段1: mol1 -> mcs (撤销 mol1 的 non-mcs 操作)")
-        print("=" * 80)
+        if self.obverse:
+            print("=" * 80)
+            print("阶段1: mol1 -> mcs (撤销 mol1 的 non-mcs 操作)")
+            print("=" * 80)
         
         # 重置状态
         self.current_mol = rdchem.RWMol()
@@ -748,9 +756,10 @@ class PairMoleculeRebuilder(MoleculeRebuilder):
         mcs_steps_count = len(mol1_to_mcs_steps)
         
         # 阶段2: mcs -> mol2
-        print("\n" + "=" * 80)
-        print("阶段2: mcs -> mol2 (应用 mol2 的 non-mcs 操作)")
-        print("=" * 80)
+        if self.obverse:
+            print("\n" + "=" * 80)
+            print("阶段2: mcs -> mol2 (应用 mol2 的 non-mcs 操作)")
+            print("=" * 80)
         
         mcs_to_mol2_steps = self.rebuild_mcs_to_mol2(analyze_xyz=analyze_xyz)
         
@@ -838,7 +847,8 @@ class PairMoleculeRebuilder(MoleculeRebuilder):
         if output_file:
             with open(output_file, 'w', encoding='utf-8') as f:
                 f.write(output)
-            print(f"可视化结果已保存到: {output_file}")
+            if self.obverse:
+                print(f"可视化结果已保存到: {output_file}")
         
         return output
     
@@ -860,9 +870,10 @@ class PairMoleculeRebuilder(MoleculeRebuilder):
         all_steps = []
         
         # 阶段1: mol1 -> mcs
-        print("=" * 80)
-        print("阶段1: mol1 -> mcs (撤销 mol1 的 non-mcs 操作)")
-        print("=" * 80)
+        if self.obverse:
+            print("=" * 80)
+            print("阶段1: mol1 -> mcs (撤销 mol1 的 non-mcs 操作)")
+            print("=" * 80)
         
         # 重置状态
         self.current_mol = rdchem.RWMol()
@@ -901,9 +912,10 @@ class PairMoleculeRebuilder(MoleculeRebuilder):
                 all_steps.append(f"撤销: {operation['operation']} @ {operation.get('position', 'N/A')}")
         
         # 阶段2: mcs -> mol2
-        print("\n" + "=" * 80)
-        print("阶段2: mcs -> mol2 (应用 mol2 的 non-mcs 操作)")
-        print("=" * 80)
+        if self.obverse:
+            print("\n" + "=" * 80)
+            print("阶段2: mcs -> mol2 (应用 mol2 的 non-mcs 操作)")
+            print("=" * 80)
         
         non_mcs_path_mol2 = self.mol2_section.get("path_non_mcs", [])
         for i, operation in enumerate(non_mcs_path_mol2):
@@ -969,11 +981,12 @@ class PairMoleculeRebuilder(MoleculeRebuilder):
         
         if output_file:
             plt.savefig(output_file, dpi=300, bbox_inches='tight')
-            print(f"分子可视化图像已保存到: {output_file}")
+            if self.obverse:
+                print(f"分子可视化图像已保存到: {output_file}")
         
         plt.close(fig)
     
-    def visualize_mol1_to_mol2_path(self, output_file: str = None, cols: int = 4, figsize: tuple = (20, 15)):
+    def visualize_mol1_to_mol2_path(self, output_file: str = None, cols: int = 4, figsize: tuple = (20, 15), output_pt_file: str = None):
         """
         可视化从 mol1 到 mol2 的转换路径（不包含 mol1 的构建步骤）
         只包含：mol1 -> 撤销操作得到 MCS -> 应用操作得到 mol2
@@ -982,16 +995,21 @@ class PairMoleculeRebuilder(MoleculeRebuilder):
             output_file: 输出图像文件路径
             cols: 每行显示的分子数量
             figsize: 图像大小 (width, height)
+            output_pt_file: 输出 pt 文件路径，保存中间状态的 z/pos 信息
         """
         # 收集关键步骤的分子
         all_mols = []
         all_legends = []
         all_steps = []
         
+        # 收集 z/pos 信息
+        xyz_data = {}
+        
         # 阶段1: 获取 mol1 的最终状态
-        print("=" * 80)
-        print("阶段1: 获取 mol1 最终状态")
-        print("=" * 80)
+        if self.obverse:
+            print("=" * 80)
+            print("阶段1: 获取 mol1 最终状态")
+            print("=" * 80)
         
         # 重置状态并构建 mol1
         self.current_mol = rdchem.RWMol()
@@ -1009,15 +1027,25 @@ class PairMoleculeRebuilder(MoleculeRebuilder):
             all_mols.append(mol1_final)
             all_legends.append("mol1 初始状态")
             all_steps.append("完整 mol1 分子")
+            
+            # 收集 z/pos 信息
+            smiles = Chem.MolToSmiles(mol1_final)
+            if output_pt_file:
+                x, z, pos, edge_index, edge_attr = smile_to_graph_xyz(smiles, self.types)
+                xyz_data[smiles] = {
+                    'z': torch.tensor(z, dtype=torch.long),
+                    'pos': torch.tensor(pos, dtype=torch.float32)
+                }
         except Exception as e:
             all_mols.append(None)
             all_legends.append("mol1 初始状态")
             all_steps.append("完整 mol1 分子")
         
         # 阶段2: 撤销 mol1 的 non-mcs 操作，逐步得到 MCS
-        print("\n" + "=" * 80)
-        print("阶段2: mol1 -> MCS (撤销 mol1 的 non-mcs 操作)")
-        print("=" * 80)
+        if self.obverse:
+            print("\n" + "=" * 80)
+            print("阶段2: mol1 -> MCS (撤销 mol1 的 non-mcs 操作)")
+            print("=" * 80)
         
         non_mcs_path = self.mol1_section.get("path_non_mcs", [])
         for i, operation in enumerate(reversed(non_mcs_path)):
@@ -1028,15 +1056,25 @@ class PairMoleculeRebuilder(MoleculeRebuilder):
                 all_mols.append(mol)
                 all_legends.append(f"撤销步骤: {operation['operation']} @ {operation['atom']} @ {operation['position']}")
                 all_steps.append(f"撤销: {operation['operation']} @ {operation.get('position', 'N/A')}")
+                
+                # 收集 z/pos 信息
+                smiles = Chem.MolToSmiles(mol)
+                if output_pt_file:
+                    x, z, pos, edge_index, edge_attr = smile_to_graph_xyz(smiles, self.types)
+                    xyz_data[smiles] = {
+                        'z': torch.tensor(z, dtype=torch.long),
+                        'pos': torch.tensor(pos, dtype=torch.float32)
+                    }
             except Exception as e:
                 all_mols.append(None)
                 all_legends.append(f"撤销步骤: {operation['operation']} @ {operation['atom']} @ {operation['position']}")
                 all_steps.append(f"撤销: {operation['operation']} @ {operation.get('position', 'N/A')}")
         
         # 阶段3: 从 MCS 应用 mol2 的 non-mcs 操作，逐步得到 mol2
-        print("\n" + "=" * 80)
-        print("阶段3: MCS -> mol2 (应用 mol2 的 non-mcs 操作)")
-        print("=" * 80)
+        if self.obverse:
+            print("\n" + "=" * 80)
+            print("阶段3: MCS -> mol2 (应用 mol2 的 non-mcs 操作)")
+            print("=" * 80)
         
         non_mcs_path_mol2 = self.mol2_section.get("path_non_mcs", [])
         for i, operation in enumerate(non_mcs_path_mol2):
@@ -1047,10 +1085,26 @@ class PairMoleculeRebuilder(MoleculeRebuilder):
                 all_mols.append(mol)
                 all_legends.append(f"应用步骤: {operation['operation']} @ {operation['atom']} @ {operation['position']}")
                 all_steps.append(f"{operation['operation']} @ {operation.get('position', 'N/A')}")
+                
+                # 收集 z/pos 信息
+                smiles = Chem.MolToSmiles(mol)
+                if output_pt_file:
+                    x, z, pos, edge_index, edge_attr = smile_to_graph_xyz(smiles, self.types)
+                    xyz_data[smiles] = {
+                        'z': torch.tensor(z, dtype=torch.long),
+                        'pos': torch.tensor(pos, dtype=torch.float32)
+                    }
             except Exception as e:
                 all_mols.append(None)
                 all_legends.append(f"应用步骤: {operation['operation']} @ {operation['atom']} @ {operation['position']}")
                 all_steps.append(f"{operation['operation']} @ {operation.get('position', 'N/A')}")
+        
+        # 保存 z/pos 信息到 pt 文件
+        if output_pt_file and xyz_data:
+            torch.save(xyz_data, output_pt_file)
+            if self.obverse:
+                print(f"z/pos 信息已保存到: {output_pt_file}")
+                print(f"共保存 {len(xyz_data)} 个中间状态的 z/pos 信息")
         
         # 创建图像
         num_mols = len(all_mols)
@@ -1102,7 +1156,8 @@ class PairMoleculeRebuilder(MoleculeRebuilder):
         
         if output_file:
             plt.savefig(output_file, dpi=300, bbox_inches='tight')
-            print(f"分子转换路径可视化已保存到: {output_file}")
+            if self.obverse:
+                print(f"分子转换路径可视化已保存到: {output_file}")
         
         plt.close(fig)
             

@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-基于VisNet的分子进化预测器 (Linear-Linear版本) - 迭代式架构
+基于VisNet的分子进化预测器 (Linear-Linear版本) - 序列迭代式架构
 
-这是一个使用线性组件的VisNet模型的迭代式版本：
+这是一个使用线性组件的VisNet模型的序列迭代式版本：
 - molecule: VisNet特征提取器
 - edge: 线性边特征编码器
 - fusion: 线性特征融合预测器
 
 关键特性：
-- 支持edge数组的逐步迭代处理
-- 每次迭代使用一个edge_attr进行预测
-- 预测结果作为下一次迭代的输入
-- 最终输出是最后一次迭代的结果
+- 支持序列式的分子演化预测
+- 输入：from_data_list [s1, s2, s3, ...], to_data_list [s2, s3, s4, ...], edge_attrs [edge1, edge2, edge3, ...]
+- 逐步迭代：s1->s2使用edge1, s2->s3使用edge2, s3->s4使用edge3, ...
+- 每个步骤独立预测，输出完整的属性变化序列
 """
 
 import torch
@@ -25,21 +25,28 @@ from ..v0.fusion_predictors import MLPFusionPredictor
 from . import register_model
 
 
-@register_model(display_name="VisNet Linear-Linear 迭代式模型", save_dir_name="visnet_linear_linear_iterative")
+@register_model(display_name="VisNet Linear-Linear 序列迭代式模型", save_dir_name="visnet_linear_linear_iterative")
 class MoleculeEvolutionVisnetLinearIterativePredictor(nn.Module):
     """
-    基于VisNet的分子进化预测器 (Linear-Linear迭代式版本)
+    基于VisNet的分子进化预测器 (Linear-Linear序列迭代式版本)
     
-    使用线性组件组合，支持edge数组的逐步迭代处理：
+    使用线性组件组合，支持序列式的分子演化预测：
     - molecule: VisNetMoleculeFeatureExtractor (VisNet特征提取器)
     - edge: LinearEdgeFeatureExtractor (线性边特征编码器)
     - fusion: MLPFusionPredictor (线性特征融合预测器)
     
-    迭代机制：
-    - 输入edge_attr数组，逐步迭代处理
-    - 每次迭代使用一个edge_attr进行预测
-    - 预测结果作为下一次迭代的输入
-    - 最终输出是最后一次迭代的结果
+    序列迭代机制：
+    - 输入：from_data_list [s1, s2, s3, ...], to_data_list [s2, s3, s4, ...], edge_attrs [edge1, edge2, edge3, ...]
+    - 逐步迭代：s1->s2使用edge1, s2->s3使用edge2, s3->s4使用edge3, ...
+    - 每个步骤独立预测，输出完整的属性变化序列
+    - 适用于多步分子演化场景
+    
+    使用示例：
+        from_data_list = [s1, s2, s3]  # 起始分子序列
+        to_data_list = [s2, s3, s4]    # 目标分子序列
+        edge_attrs = torch.tensor([[...], [...], [...]])  # 3个操作的特征
+        predictions = model(from_data_list, to_data_list, edge_attrs)
+        # predictions.shape: [3, output_dim]
     """
     
     def __init__(self, node_feature_dim: int = 11, edge_feature_dim: int = 15,
@@ -75,109 +82,52 @@ class MoleculeEvolutionVisnetLinearIterativePredictor(nn.Module):
             output_dim=output_dim
         )
     
-    def forward(self, from_data: Data, to_data: Data, edge_attrs: torch.Tensor) -> torch.Tensor:
+    def forward(self, from_data_list: list, to_data_list: list, edge_attrs: torch.Tensor) -> torch.Tensor:
         """
-        前向传播 - 迭代式处理edge数组
+        前向传播 - 序列迭代式处理
+
+        支持序列式的分子演化预测：
+        - s1 -> s2 使用 edge1
+        - s2 -> s3 使用 edge2
+        - s3 -> s4 使用 edge3
+        - ...
 
         Args:
-            from_data: 起始分子图数据
-            to_data: 目标分子图数据
+            from_data_list: 起始分子图数据列表 [s1, s2, s3, ...]
+            to_data_list: 目标分子图数据列表 [s2, s3, s4, ...]
             edge_attrs: 边特征数组 (操作信息序列)
-                       形状: [num_edges, edge_feature_dim] 或 [num_edges, num_operations, edge_feature_dim]
+                       形状: [num_steps, edge_feature_dim]
 
         Returns:
             属性变化预测值序列
-            形状: [num_edges, output_dim] 或 [num_operations, output_dim]
+            形状: [num_steps, output_dim]
         """
-        # molecule组件: 提取起始和目标分子特征（只提取一次）
-        from_features = self.molecule_extractor_from(from_data)
-        to_features = self.molecule_extractor_to(to_data)
+        # 验证输入长度一致
+        num_steps = len(from_data_list)
+        assert len(to_data_list) == num_steps, f"to_data_list长度{len(to_data_list)}与from_data_list长度{num_steps}不一致"
+        assert edge_attrs.size(0) == num_steps, f"edge_attrs第一维{edge_attrs.size(0)}与步骤数{num_steps}不一致"
         
-        # 处理edge_attrs的形状
-        if edge_attrs.dim() == 2:
-            # 形状: [num_edges, edge_feature_dim]
-            num_edges = edge_attrs.size(0)
-            predictions = []
-            
-            for i in range(num_edges):
-                # edge组件: 编码当前边特征
-                edge_features = self.edge_encoder(edge_attrs[i:i+1])
-                
-                # fusion组件: 融合特征并预测属性变化
-                property_change = self.fusion_predictor(from_features, to_features, edge_features)
-                predictions.append(property_change)
-            
-            # 堆叠所有预测结果
-            predictions = torch.stack(predictions, dim=0)  # [num_edges, output_dim]
-            
-        elif edge_attrs.dim() == 3:
-            # 形状: [num_edges, num_operations, edge_feature_dim]
-            num_edges, num_operations, _ = edge_attrs.size()
-            predictions = []
-            
-            for edge_idx in range(num_edges):
-                edge_predictions = []
-                current_from_features = from_features
-                
-                for op_idx in range(num_operations):
-                    # edge组件: 编码当前操作特征
-                    edge_features = self.edge_encoder(edge_attrs[edge_idx:edge_idx+1, op_idx:op_idx+1])
-                    
-                    # fusion组件: 融合特征并预测属性变化
-                    property_change = self.fusion_predictor(current_from_features, to_features, edge_features)
-                    edge_predictions.append(property_change)
-                    
-                    # 更新from_features（可选：根据预测结果更新）
-                    # 这里可以添加更复杂的逻辑，例如使用预测结果更新from_features
-                
-                # 堆叠当前edge的所有操作预测结果
-                edge_predictions = torch.stack(edge_predictions, dim=0)  # [num_operations, output_dim]
-                predictions.append(edge_predictions)
-            
-            # 堆叠所有edge的预测结果
-            predictions = torch.stack(predictions, dim=0)  # [num_edges, num_operations, output_dim]
-        
-        else:
-            raise ValueError(f"edge_attrs的维度必须是2或3，但得到的是: {edge_attrs.dim()}")
-        
-        return predictions
-    
-    def forward_iterative(self, from_data: Data, to_data: Data, edge_attrs: torch.Tensor) -> torch.Tensor:
-        """
-        前向传播 - 真正的迭代式处理（每次迭代更新from_data）
-
-        Args:
-            from_data: 起始分子图数据
-            to_data: 目标分子图数据
-            edge_attrs: 边特征数组 (操作信息序列)
-                       形状: [num_operations, edge_feature_dim]
-
-        Returns:
-            属性变化预测值序列
-            形状: [num_operations, output_dim]
-        """
-        num_operations = edge_attrs.size(0)
         predictions = []
         
-        current_from_data = from_data
-        
-        for i in range(num_operations):
+        for step in range(num_steps):
+            # 获取当前步骤的from_data和to_data
+            current_from_data = from_data_list[step]
+            current_to_data = to_data_list[step]
+            current_edge_attr = edge_attrs[step:step+1]
+            
             # molecule组件: 提取当前起始和目标分子特征
-            current_from_features = self.molecule_extractor_from(current_from_data)
-            to_features = self.molecule_extractor_to(to_data)
+            from_features = self.molecule_extractor_from(current_from_data)
+            to_features = self.molecule_extractor_to(current_to_data)
             
             # edge组件: 编码当前边特征
-            edge_features = self.edge_encoder(edge_attrs[i:i+1])
+            edge_features = self.edge_encoder(current_edge_attr)
             
             # fusion组件: 融合特征并预测属性变化
-            property_change = self.fusion_predictor(current_from_features, to_features, edge_features)
+            property_change = self.fusion_predictor(from_features, to_features, edge_features)
             predictions.append(property_change)
-            
-            # 更新current_from_data（这里需要根据实际需求实现）
-            # 例如：可以根据预测结果修改from_data的某些属性
-            # 这是一个简化版本，实际实现可能需要更复杂的逻辑
         
         # 堆叠所有预测结果
-        predictions = torch.stack(predictions, dim=0)  # [num_operations, output_dim]
+        predictions = torch.stack(predictions, dim=0)  # [num_steps, output_dim]
         
         return predictions
+
