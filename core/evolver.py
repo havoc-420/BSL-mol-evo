@@ -648,6 +648,69 @@ class PairMoleculeEvolverAnalysis:
         }
         
         return positioning_info
+    
+    def get_mcs_ratio(self):
+        """计算MCS在两个分子中的原子占比
+        
+        Returns:
+            dict: 包含两个分子的MCS占比信息
+                - mol1_ratio: MCS在分子1中的占比
+                - mol2_ratio: MCS在分子2中的占比
+                - mol1_atoms: 分子1的原子数
+                - mol2_atoms: 分子2的原子数
+                - mcs_size: MCS的原子数
+        """
+        mol1_atoms = self.mol1.GetNumAtoms()
+        mol2_atoms = self.mol2.GetNumAtoms()
+        mcs_size = self.mcs_result.numAtoms if self.mcs_result else 0
+        
+        mol1_ratio = mcs_size / mol1_atoms if mol1_atoms > 0 else 0
+        mol2_ratio = mcs_size / mol2_atoms if mol2_atoms > 0 else 0
+        
+        return {
+            "mol1_ratio": mol1_ratio,
+            "mol2_ratio": mol2_ratio,
+            "mol1_atoms": mol1_atoms,
+            "mol2_atoms": mol2_atoms,
+            "mcs_size": mcs_size
+        }
+    
+    def check_mcs_threshold(self, threshold=0.5):
+        """检查MCS在两个分子中的占比是否都达到阈值
+        
+        Args:
+            threshold: 占比阈值，默认为0.5（50%）
+            
+        Returns:
+            bool: 如果两个分子的MCS占比都达到阈值则返回True，否则返回False
+        """
+        ratio_info = self.get_mcs_ratio()
+        
+        return (ratio_info["mol1_ratio"] >= threshold and ratio_info["mol2_ratio"] >= threshold)
+    
+    def get_mcs_summary(self):
+        """获取MCS的完整摘要信息
+        
+        Returns:
+            dict: 包含MCS的所有相关信息
+        """
+        ratio_info = self.get_mcs_ratio()
+        positioning_info = self.get_mcs_based_positioning()
+        
+        summary = {
+            "mcs_size": positioning_info["mcs_size"],
+            "mcs_bonds": positioning_info["mcs_bonds"],
+            "mcs_smarts": self.mcs_result.smartsString if self.mcs_result else None,
+            "mol1_atoms": ratio_info["mol1_atoms"],
+            "mol2_atoms": ratio_info["mol2_atoms"],
+            "mol1_ratio": ratio_info["mol1_ratio"],
+            "mol2_ratio": ratio_info["mol2_ratio"],
+            "atom_map1": positioning_info["atom_map1"],
+            "atom_map2": positioning_info["atom_map2"],
+            "has_mcs": self.mcs_mol is not None
+        }
+        
+        return summary
 
     def _filter_non_mcs_path(self, full_path, atom_map):
         """过滤路径，只保留非MCS部分的路径
