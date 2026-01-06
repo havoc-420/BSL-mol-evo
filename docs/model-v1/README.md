@@ -2,13 +2,13 @@
 
 ## 概述
 
-v1版本是对v0模型的重大升级，引入了**序列迭代式架构**，支持多步分子演化预测。与v0版本只能预测单步分子演化不同，v1版本可以处理完整的分子演化序列，适用于复杂的分子优化路径预测任务。
+v1 版本是对 v0 模型的重大升级，引入了**序列迭代式架构**，支持多步分子演化预测。与 v0 版本只能预测单步分子演化不同，v1 版本可以处理完整的分子演化序列，适用于复杂的分子优化路径预测任务。
 
 ## 核心创新
 
 ### 序列迭代式预测
 
-v1模型支持序列式的分子演化预测，可以处理多步演化过程：
+v1 模型支持序列式的分子演化预测，可以处理多步演化过程：
 
 ```
 s1 -> s2 使用 edge1 -> prediction1
@@ -21,13 +21,15 @@ s3 -> s4 使用 edge3 -> prediction3
 
 ### 主要改进
 
-相比v0版本，v1版本的关键改进：
+相比 v0 版本，v1 版本的关键改进：
 
 1. **输入格式升级**
+
    - v0: `from_data`, `to_data`, `edge_attr` (单个分子对)
    - v1: `from_data_list`, `to_data_list`, `edge_attrs` (分子序列)
 
 2. **预测能力增强**
+
    - v0: 单步预测，输出单个属性变化值
    - v1: 多步预测，输出完整的属性变化序列
 
@@ -39,7 +41,7 @@ s3 -> s4 使用 edge3 -> prediction3
 
 ### 整体架构
 
-v1模型保留了v0版本的核心组件架构，但在forward方法上进行了重大改进：
+v1 模型保留了 v0 版本的核心组件架构，但在 forward 方法上进行了重大改进：
 
 ```
 输入层:
@@ -61,11 +63,11 @@ v1模型保留了v0版本的核心组件架构，但在forward方法上进行了
 
 #### 1. Molecule Feature Extractor
 
-使用VisNet提取分子特征表示：
+使用 VisNet 提取分子特征表示：
 
-- **输入**: 单个分子图数据 (Data对象)
-- **输出**: 分子特征向量 (维度: hidden_dims[-1] * 2)
-- **架构**: VisNet网络，包含mean和max池化操作的拼接
+- **输入**: 单个分子图数据 (Data 对象)
+- **输出**: 分子特征向量 (维度: hidden_dims[-1] \* 2)
+- **架构**: VisNet 网络，包含 mean 和 max 池化操作的拼接
 
 #### 2. Edge Feature Encoder
 
@@ -81,7 +83,7 @@ v1模型保留了v0版本的核心组件架构，但在forward方法上进行了
 
 - **输入**: from_features, to_features, edge_features
 - **输出**: 属性变化预测值 (维度: output_dim)
-- **架构**: MLP网络，隐藏层维度 [512, 256, 128]
+- **架构**: MLP 网络，隐藏层维度 [512, 256, 128]
 
 ### 迭代处理流程
 
@@ -91,17 +93,17 @@ for step in range(num_steps):
     current_from_data = from_data_list[step]
     current_to_data = to_data_list[step]
     current_edge_attr = edge_attrs[step:step+1]
-    
+
     # 2. 提取分子特征
     from_features = molecule_extractor_from(current_from_data)
     to_features = molecule_extractor_to(current_to_data)
-    
+
     # 3. 编码边特征
     edge_features = edge_encoder(current_edge_attr)
-    
+
     # 4. 融合特征并预测
     property_change = fusion_predictor(from_features, to_features, edge_features)
-    
+
     # 5. 收集预测结果
     predictions.append(property_change)
 ```
@@ -115,7 +117,7 @@ for step in range(num_steps):
 - **类型**: `list[Data]`
 - **说明**: 起始分子图数据列表
 - **示例**: `[s1, s2, s3]`
-- **每个Data对象包含**:
+- **每个 Data 对象包含**:
   - `x`: 节点特征矩阵 [num_nodes, node_feature_dim]
   - `edge_index`: 边索引 [2, num_edges]
   - `pos`: 原子位置坐标 [num_nodes, 3]
@@ -126,7 +128,7 @@ for step in range(num_steps):
 - **类型**: `list[Data]`
 - **说明**: 目标分子图数据列表
 - **示例**: `[s2, s3, s4]`
-- **长度**: 必须与from_data_list相同
+- **长度**: 必须与 from_data_list 相同
 
 #### edge_attrs
 
@@ -134,7 +136,7 @@ for step in range(num_steps):
 - **形状**: `[num_steps, edge_feature_dim]`
 - **说明**: 操作信息序列
 - **示例**: `torch.tensor([[...], [...], [...]])`
-- **长度**: 必须与from_data_list长度相同
+- **长度**: 必须与 from_data_list 长度相同
 
 ### 输出格式
 
@@ -194,13 +196,13 @@ criterion = torch.nn.MSELoss()
 for epoch in range(num_epochs):
     for batch in dataloader:
         from_data_list, to_data_list, edge_attrs, targets = batch
-        
+
         # 前向传播
         predictions = model(from_data_list, to_data_list, edge_attrs)
-        
+
         # 计算损失
         loss = criterion(predictions, targets)
-        
+
         # 反向传播
         optimizer.zero_grad()
         loss.backward()
@@ -223,21 +225,21 @@ edge_attrs = torch.tensor([[...], [...], [...]])
 # 推理
 with torch.no_grad():
     predictions = model(from_data_list, to_data_list, edge_attrs)
-    
+
 print("属性变化预测序列:", predictions)
 ```
 
-## 与v0版本对比
+## 与 v0 版本对比
 
-| 特性 | v0版本 | v1版本 |
-|------|--------|--------|
+| 特性         | v0 版本                       | v1 版本                                  |
+| ------------ | ----------------------------- | ---------------------------------------- |
 | **输入格式** | from_data, to_data, edge_attr | from_data_list, to_data_list, edge_attrs |
-| **预测类型** | 单步预测 | 多步序列预测 |
-| **输出形状** | [output_dim] | [num_steps, output_dim] |
-| **应用场景** | 单步分子演化 | 多步分子演化路径 |
-| **模型架构** | molecule + edge + fusion | molecule + edge + fusion (迭代式) |
-| **数据处理** | 单次forward | 循环多次forward |
-| **训练方式** | 端到端训练 | 端到端训练 |
+| **预测类型** | 单步预测                      | 多步序列预测                             |
+| **输出形状** | [output_dim]                  | [num_steps, output_dim]                  |
+| **应用场景** | 单步分子演化                  | 多步分子演化路径                         |
+| **模型架构** | molecule + edge + fusion      | molecule + edge + fusion (迭代式)        |
+| **数据处理** | 单次 forward                  | 循环多次 forward                         |
+| **训练方式** | 端到端训练                    | 端到端训练                               |
 
 ## 模型参数
 
@@ -254,10 +256,10 @@ MoleculeEvolutionVisnetLinearIterativePredictor(
 
 ### 参数说明
 
-- **node_feature_dim**: 分子图中节点的特征维度，默认为11（原子类型、杂化状态等）
-- **edge_feature_dim**: 边特征维度，默认为15（操作信息）
-- **hidden_dims**: VisNet网络的隐藏层维度列表，影响分子特征提取能力
-- **output_dim**: 输出维度，通常为1（预测单个属性变化）
+- **node_feature_dim**: 分子图中节点的特征维度，默认为 11（原子类型、杂化状态等）
+- **edge_feature_dim**: 边特征维度，默认为 15（操作信息）
+- **hidden_dims**: VisNet 网络的隐藏层维度列表，影响分子特征提取能力
+- **output_dim**: 输出维度，通常为 1（预测单个属性变化）
 
 ## 应用场景
 
@@ -297,7 +299,7 @@ MoleculeEvolutionVisnetLinearIterativePredictor(
 
 ### 2. 灵活的架构设计
 
-- 保留v0的核心组件
+- 保留 v0 的核心组件
 - 模块化设计，易于扩展
 - 可以与其他模型组件组合
 
@@ -345,7 +347,7 @@ MoleculeEvolutionVisnetLinearIterativePredictor(
 
 ### 2. 序列到序列模型
 
-考虑使用Transformer等序列模型：
+考虑使用 Transformer 等序列模型：
 
 - 更好的序列建模能力
 - 全局上下文感知
@@ -377,8 +379,8 @@ MoleculeEvolutionVisnetLinearIterativePredictor(
 ## 相关文件
 
 - **模型实现**: [mol_evo/core/models/v1/visnet_linear_linear.py](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/models/v1/visnet_linear_linear.py)
-- **模块初始化**: [mol_evo/core/models/v1/__init__.py](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/models/v1/__init__.py)
-- **v0版本文档**: [mol_evo/docs/model-v0/README.md](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/docs/model-v0/README.md)
+- **模块初始化**: [mol_evo/core/models/v1/**init**.py](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/models/v1/__init__.py)
+- **v0 版本文档**: [mol_evo/docs/model-v0/README.md](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/docs/model-v0/README.md)
 
 ## 参考文献
 
@@ -390,6 +392,6 @@ MoleculeEvolutionVisnetLinearIterativePredictor(
 
 如有问题或建议，请通过以下方式联系：
 
-- 提交Issue
-- 发起Pull Request
+- 提交 Issue
+- 发起 Pull Request
 - 联系项目维护者

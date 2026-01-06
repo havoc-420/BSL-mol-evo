@@ -1040,21 +1040,10 @@ class MolecularEvolutionExpansion:
                     except Exception as e:
                         # 记录错误但继续处理其他操作
                         continue
-                
-                # 检查中断标志
-                if hasattr(self, 'interrupted') and self.interrupted:
-                    print("检测到中断信号，停止进化树生成")
-                    break
-                
                 # 进行批量预测
                 operations_with_predictions = []
                 if batch_from_smiles:
                     try:
-                        # 检查中断标志
-                        if hasattr(self, 'interrupted') and self.interrupted:
-                            print("检测到中断信号，停止进化树生成")
-                            break
-                        
                         # 调用批量预测方法
                         property_changes = predictor.predict_batch(batch_from_smiles, batch_to_smiles, batch_operations)
                         
@@ -1082,30 +1071,15 @@ class MolecularEvolutionExpansion:
                 else:
                     operations_with_predictions.sort(key=lambda x: x[2])
                 
-                # 检查中断标志
-                if hasattr(self, 'interrupted') and self.interrupted:
-                    print("检测到中断信号，停止进化树生成")
-                    break
-                
                 # 限制分支数量
                 branch_count = 0
                 for operation, new_smiles, property_change in operations_with_predictions:
                     if branch_count >= max_branching:
                         break
                     
-                    # 检查中断标志
-                    if hasattr(self, 'interrupted') and self.interrupted:
-                        print("检测到中断信号，停止进化树生成")
-                        break
-                    
                     # 避免重复分子
                     if new_smiles not in seen_molecules:
                         seen_molecules.add(new_smiles)
-                        
-                        # 检查中断标志
-                        if hasattr(self, 'interrupted') and self.interrupted:
-                            print("检测到中断信号，停止进化树生成")
-                            break
                         
                         # 计算累计变化和新属性值
                         current_accumulated = current_node.get("accumulated_change", 0)
