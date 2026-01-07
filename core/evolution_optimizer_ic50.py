@@ -98,15 +98,16 @@ class EvolutionTreeOptimizer:
         self.initial_properties = {}  # 存储起始分子的属性
         self.generation_time = 0  # 添加生成时间统计
         self.attempt_count = 0  # 添加尝试次数统计
+        
+        # 检查GPU是否可用
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        
         self._load_model()
         if self.initial_smiles_csv:
             self._load_initial_properties()
         
     def _load_model(self):
         """加载训练好的 PropertyChangePredictor 模型"""
-        # 检查GPU是否可用
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        
         # 使用新的 PropertyChangePredictor 模型加载函数
         self.model = load_property_change_model(self.model_path, device=self.device)
         
