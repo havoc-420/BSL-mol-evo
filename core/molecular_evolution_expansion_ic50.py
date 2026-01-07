@@ -1161,18 +1161,10 @@ class MolecularEvolutionExpansion:
             if predictor:
                 # 收集所有需要预测的操作
                 # TODO 这里是否需要 batch-size 的设定来限制呢？
-                batch_from_smiles = []
-                batch_to_smiles = []
-                batch_operations = []
                 valid_operations = []
                 
                 for operation in possible_operations:
                     try:
-                        # 检查中断标志
-                        if hasattr(self, 'interrupted') and self.interrupted:
-                            print("检测到中断信号，停止进化树生成")
-                            break
-                        
                         # 应用操作生成新分子
                         operation_type = operation["type"]
                         operation_params = operation.get("params", {})
@@ -1181,30 +1173,28 @@ class MolecularEvolutionExpansion:
                         # 检查新分子是否有效
                         if new_mol and self.validate_molecule(new_mol):
                             new_smiles = Chem.MolToSmiles(new_mol)
-                            
+
                             # 添加到批量预测列表
-                            batch_from_smiles.append(current_smiles)
-                            batch_to_smiles.append(new_smiles)
-                            batch_operations.append(operation)
                             valid_operations.append((operation, new_smiles))
                     except Exception as e:
                         # 记录错误但继续处理其他操作
                         continue
                 # 进行批量预测
                 operations_with_predictions = []
-                if batch_from_smiles:
-                    try:
-                        # 调用批量预测方法
-                        property_changes = predictor.predict_batch(batch_from_smiles, batch_to_smiles, batch_operations)
-                        
-                        # 过滤掉预测值为None的操作
-                        for i, (operation, new_smiles) in enumerate(valid_operations):
-                            if i < len(property_changes):
-                                property_change = property_changes[i]
-                                # 确保property_change是有效的数值类型
-                                if property_change is not None and not (isinstance(property_change, list) or isinstance(property_change, dict)):
-                                    operations_with_predictions.append((operation, new_smiles, property_change))
-                    except Exception as e:
+                try:
+                    # 调用批量预测方法
+                    property_changes = predictor.predict_batch(valid_operations, current_smiles)
+                    
+                    # 过滤掉预测值为None的操作
+                    for i, (operation, new_smiles) in enumerate(valid_operations):
+                        if i < len(property_changes):
+                            property_change = property_changes[i]
+                            # 确保property_change是有效的数值类型
+                            if property_change is not None and not (isinstance(property_change, list) or isinstance(property_change, dict)):
+                                operations_with_predictions.append((operation, new_smiles, property_change))
+                except Exception as e:
+                        import traceback
+                        traceback.print_exc()
                         print(f"批量预测出错: {e}")
                         # 如果批量预测失败，回退到逐个预测
                         for operation, new_smiles in valid_operations:

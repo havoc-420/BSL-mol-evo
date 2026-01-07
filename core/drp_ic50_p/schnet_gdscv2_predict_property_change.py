@@ -119,7 +119,10 @@ def smiles_to_pyg(smiles, max_tries=3):
     return x_pos, x_z
 
 # --- 3. 从 models_mol_v3_SchNet_4_gdscv2.py 复制并修改的模型定义 ---
-from .models_lib import SchNet
+try:
+    from .models_lib import SchNet
+except ImportError:
+    from models_lib import SchNet
 
 class GraphEditOp:
     def __init__(self, op_type: str, params):
@@ -188,7 +191,7 @@ class PropertyChangePredictor(nn.Module):
         Returns:
             torch.Tensor: 预测的总属性变化量，形状为 [Batch_Size, 1]。
         """
-        batch_size = 1
+        batch_size = ops.shape[0]
         path_len = ops.shape[1]
         ops = ops.to(torch.float32)
         device = initial_graph.pos.device
@@ -401,6 +404,110 @@ def predict_change(model, initial_molecule, ops_tensor, device='cuda:0'):
         predicted_change = model(initial_molecule, ops_tensor)
     return predicted_change
 
+def encode_operation_to_tensor(operation_details):
+    """
+    将操作详情编码为 one-hot 张量
+    
+    Args:
+        operation_details: 操作详情字典，包含操作类型和相关参数
+        
+    Returns:
+        one-hot 编码的操作张量，形状为 [1, 1, OP_DIM]
+    """
+    op_type = operation_details.get("type", "unknown")
+    op_params = operation_details.get("params", {})
+    
+    # 创建 one-hot 向量
+    op_vec = torch.zeros(OP_DIM, dtype=torch.float32)
+    
+    # 编码操作类型
+    if op_type in ALL_OPS:
+        op_idx = ALL_OPS.index(op_type)
+        op_vec[op_idx] = 1.0
+    
+    # 编码原子类型
+    atom_symbol = op_params.get("atom_symbol", "")
+    if atom_symbol in ATOM_TYPES:
+        atom_idx = ATOM_TYPES.index(atom_symbol)
+        op_vec[len(ALL_OPS) + atom_idx] = 1.0
+    
+    # 编码键类型
+    bond_type = op_params.get("bond_type", 1.0)
+    if bond_type in BOND_TYPES:
+        bond_idx = BOND_TYPES.index(bond_type)
+        op_vec[len(ALL_OPS) + len(ATOM_TYPES) + bond_idx] = 1.0
+    
+    # 编码原子索引
+    atom_idx = op_params.get("atom_idx", -1)
+    if atom_idx >= 0 and atom_idx < MAX_ATOM_IDX:
+        op_vec[len(ALL_OPS) + len(ATOM_TYPES) + len(BOND_TYPES) + atom_idx] = 1.0
+    
+    # 编码目标原子索引（用于 ADD_BOND, REMOVE_BOND, CHANGE_BOND）
+    target_atom_idx = op_params.get("atom2_idx", op_params.get("target_atom_idx", -1))
+    if target_atom_idx >= 0 and target_atom_idx < MAX_ATOM_IDX:
+        op_vec[len(ALL_OPS) + len(ATOM_TYPES) + len(BOND_TYPES) + MAX_ATOM_IDX + target_atom_idx] = 1.0
+    
+    # 返回形状为 [1, 1, OP_DIM] 的张量
+    return op_vec.unsqueeze(0).unsqueeze(0)
+
+def predict_batch(model, valid_operations, current_smiles, device='cuda:0'):
+    """
+    批量预测分子属性变化
+    
+    Args:
+        model: PropertyChangePredictor 模型
+        valid_operations: 有效操作列表，每个元素是 (operation, new_smiles) 元组
+                            operation: 操作详情字典，包含操作类型和相关参数
+                            new_smiles: 目标分子SMILES（当前版本未使用，保留以保持接口兼容）
+        current_smiles: 当前分子SMILES（用于准备初始分子图数据）
+        device: 设备
+        
+    Returns:
+        批量预测的属性变化值列表
+    """
+    if not valid_operations:
+        return []
+        
+    # 准备批量数据
+    ops_tensors = []
+    
+    for operation, new_smiles in valid_operations:
+        try:
+            # 将操作详情转换为操作张量
+            ops_tensor = encode_operation_to_tensor(operation)
+            ops_tensors.append(ops_tensor)
+            
+        except Exception as e:
+            print(f"处理操作时出错: operation={operation}, error={e}")
+            continue
+    
+    # 如果没有有效的数据，返回空列表
+    if not ops_tensors:
+        return []
+    
+    # 准备初始分子图数据（所有操作基于同一个初始分子）
+    initial_graph = prepare_molecule_from_smiles(current_smiles, device)
+    
+    # 批量处理操作张量
+    ops_batch = torch.cat(ops_tensors, dim=0).to(device)
+    
+    # 复制初始分子图以匹配操作批量大小
+    num_ops = len(ops_tensors)
+    z_batch = initial_graph.z.repeat(num_ops)
+    pos_batch = initial_graph.pos.repeat(num_ops, 1)
+    batch_indices = torch.arange(num_ops, device=device).repeat_interleave(len(initial_graph.z))
+    
+    # 创建批量图数据
+    batched_graph = Data(z=z_batch, pos=pos_batch, batch=batch_indices)
+    
+    # 执行批量预测
+    # 模型现在支持真正的批量处理，可以一次性预测所有操作
+    with torch.no_grad():
+        predicted_changes = model(batched_graph, ops_batch)
+        predictions = predicted_changes.squeeze().tolist()
+    
+    return predictions
+
 # --- 4. 主函数示例 ---
 def main():
     # --- 用户配置 ---
@@ -425,8 +532,41 @@ def main():
     predicted_change = predict_change_for_smiles(model, initial_smiles, ops_tensor, device=device)
 
     print(f"Predicted property change for '{initial_smiles}' with given ops: {predicted_change.item():.6f}")
+    
+    # --- 批量预测示例 ---
+    print("\n" + "="*50)
+    print("批量预测示例")
+    print("="*50)
+    
+    # 定义多个操作
+    valid_operations = [
+        (
+            {"type": "ADD_ATOM", "params": {"atom_symbol": "C", "atom_idx": 0}},
+            "CCCO"  # 添加碳原子后的SMILES（示例）
+        ),
+        (
+            {"type": "ADD_ATOM", "params": {"atom_symbol": "N", "atom_idx": 1}},
+            "CCN"  # 添加氮原子后的SMILES（示例）
+        ),
+        (
+            {"type": "ADD_ATOM", "params": {"atom_symbol": "O", "atom_idx": 2}},
+            "CCCO"  # 添加氧原子后的SMILES（示例）
+        ),
+    ]
+    
+    # 执行批量预测
+    batch_predictions = predict_batch(model, valid_operations, initial_smiles, device=device)
+    
+    # 打印批量预测结果
+    print(f"\n批量预测结果（共 {len(batch_predictions)} 个操作）:")
+    for i, (operation, new_smiles) in enumerate(valid_operations):
+        if i < len(batch_predictions):
+            print(f"  操作 {i+1}: {operation['type']}")
+            print(f"    参数: {operation['params']}")
+            print(f"    预测属性变化: {batch_predictions[i]:.6f}")
+            print(f"    目标SMILES: {new_smiles}")
+            print()
 
 
 if __name__ == "__main__":
-    set_seed()
     main()

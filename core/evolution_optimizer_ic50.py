@@ -141,59 +141,60 @@ class EvolutionTreeOptimizer:
         except Exception as e:
             print(f"加载初始属性时出错: {e}")
     
-    def predict_batch(self, from_smiles_list, to_smiles_list, operation_details_list):
+    def predict_batch(self, valid_operations, current_smiles):
         """
         批量预测分子属性变化（使用 PropertyChangePredictor 模型）
         
         Args:
-            from_smiles_list: 起始分子SMILES列表
-            to_smiles_list: 目标分子SMILES列表（当前版本未使用，保留以保持接口兼容）
-            operation_details_list: 操作详情字典列表，每个字典包含操作类型和相关参数
+            valid_operations: 有效操作列表，每个元素是 (operation, new_smiles) 元组
+                            operation: 操作详情字典，包含操作类型和相关参数
+                            new_smiles: 目标分子SMILES（当前版本未使用，保留以保持接口兼容）
+            current_smiles: 当前分子SMILES（用于准备初始分子图数据）
             
         Returns:
-            批量预测的属性变化值
+            批量预测的属性变化值列表
         """
-        if not from_smiles_list or not operation_details_list:
+        if not valid_operations:
             return []
             
-        # 确保列表长度相同
-        assert len(from_smiles_list) == len(operation_details_list), "输入列表长度必须相同"
-        
         # 准备批量数据
-        initial_graphs = []
         ops_tensors = []
         
-        for i in range(len(from_smiles_list)):
-            smiles_from = from_smiles_list[i]
-            operation_details = operation_details_list[i]
-            
+        for operation, new_smiles in valid_operations:
             try:
-                # 准备初始分子图数据
-                initial_graph = prepare_molecule_from_smiles(smiles_from, device=self.device)
-                initial_graphs.append(initial_graph)
-                
                 # 将操作详情转换为操作张量
-                ops_tensor = self._encode_operation_to_tensor(operation_details)
+                ops_tensor = self._encode_operation_to_tensor(operation)
                 ops_tensors.append(ops_tensor)
                 
             except Exception as e:
-                print(f"处理SMILES时出错: from={smiles_from}, error={e}")
+                print(f"处理操作时出错: operation={operation}, error={e}")
                 continue
         
         # 如果没有有效的数据，返回空列表
-        if not initial_graphs or not ops_tensors:
+        if not ops_tensors:
             return []
         
+        # 准备初始分子图数据（所有操作基于同一个初始分子）
+        initial_graph = prepare_molecule_from_smiles(current_smiles, device=self.device)
+        
         # 批量处理操作张量
-        ops_batch = torch.stack(ops_tensors).to(self.device)
+        ops_batch = torch.cat(ops_tensors, dim=0).to(self.device)
+        
+        # 复制初始分子图以匹配操作批量大小
+        num_ops = len(ops_tensors)
+        z_batch = initial_graph.z.repeat(num_ops)
+        pos_batch = initial_graph.pos.repeat(num_ops, 1)
+        batch_indices = torch.arange(num_ops, device=self.device).repeat_interleave(len(initial_graph.z))
+        
+        # 创建批量图数据
+        from torch_geometric.data import Data
+        batched_graph = Data(z=z_batch, pos=pos_batch, batch=batch_indices)
         
         # 执行批量预测
-        predictions = []
+        # 模型现在支持真正的批量处理，可以一次性预测所有操作
         with torch.no_grad():
-            for i, initial_graph in enumerate(initial_graphs):
-                # 每个分子单独预测（因为模型期望的输入格式）
-                predicted_change = self.model(initial_graph, ops_batch[i:i+1])
-                predictions.append(predicted_change.item())
+            predicted_changes = self.model(batched_graph, ops_batch)
+            predictions = predicted_changes.squeeze().tolist()
         
         return predictions
     
@@ -236,7 +237,7 @@ class EvolutionTreeOptimizer:
             op_vec[len(ALL_OPS) + len(ATOM_TYPES) + len(BOND_TYPES) + atom_idx] = 1.0
         
         # 编码目标原子索引（用于 ADD_BOND, REMOVE_BOND, CHANGE_BOND）
-        target_atom_idx = op_params.get("target_atom_idx", -1)
+        target_atom_idx = op_params.get("atom2_idx", op_params.get("target_atom_idx", -1))
         if target_atom_idx >= 0 and target_atom_idx < MAX_ATOM_IDX:
             op_vec[len(ALL_OPS) + len(ATOM_TYPES) + len(BOND_TYPES) + MAX_ATOM_IDX + target_atom_idx] = 1.0
         
