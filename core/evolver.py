@@ -147,7 +147,15 @@ class MoleculeEvolverAnalysis: # MoleculeEvolver
         match = re.search(r'@\((\d+)-(\d+)\)', bond_op_str)
         if match:
             return tuple(sorted(map(int, match.groups())))
-        return (0, 0)
+
+    def _sort_key(self, op_dict):
+        """为操作生成排序键，支持单个位置和范围位置"""
+        pos = op_dict["position"]
+        if "-" in pos:
+            parts = pos.split("-")
+            return [int(p) for p in parts]
+        else:
+            return [int(pos)]
 
     def generate_path(self) -> list:
         """生成最终的、完整的进化路径。"""
@@ -368,185 +376,56 @@ class MoleculeEvolverAnalysis: # MoleculeEvolver
                         atom_to_rings[atom_idx] = []
                     atom_to_rings[atom_idx].append(ring_idx)
             
-            # STAGE 合并连续的芳香键和芳香环操作
-            merged_ops = []
-            i = 0
-            while i < len(extra_bond_ops):
-                current_op = extra_bond_ops[i]
-                
-                # 检查是否是芳香键或芳香环操作
-                if current_op["operation"] in ["form_aromatic_bond", "form_aromatic_ring"]:
-                    # 收集所有连续的芳香键和芳香环操作
-                    aromatic_ops = []
-                    j = i
-                    while j < len(extra_bond_ops):
-                        if extra_bond_ops[j]["operation"] in ["form_aromatic_bond", "form_aromatic_ring"]:
-                            aromatic_ops.append(extra_bond_ops[j])
-                            j += 1
-                        else:
-                            break
-                    
-                    # 如果有多个芳香操作，检查是否满足合并条件
-                    if len(aromatic_ops) >= 2:
-                        # 提取所有涉及的原子位置（使用rdkit_idx）
-                        rdkit_positions = []
-                        for op in aromatic_ops:
-                            if "rdkit_idx" in op and op["rdkit_idx"]:
-                                pos_parts = op["rdkit_idx"].split("-")
-                                rdkit_positions.extend(pos_parts)
-                        
-                        # 去重并转换为整数
-                        unique_rdkit_positions = sorted(list(set(int(p) for p in rdkit_positions)))
-                        
-                        # 检查这些原子是否属于原分子中的同一个环
-                        if unique_rdkit_positions:
-                            # 获取第一个原子所属的所有环
-                            first_atom_rings = atom_to_rings.get(unique_rdkit_positions[0], [])
-                            
-                            # 检查所有原子是否都在同一个环中
-                            common_ring = None
-                            for ring_idx in first_atom_rings:
-                                ring_atoms = set(atom_rings[ring_idx])
-                                if all(atom_idx in ring_atoms for atom_idx in unique_rdkit_positions):
-                                    common_ring = ring_idx
-                                    break
-                            
-                            # 如果所有原子都在同一个环中，则合并操作
-                            if common_ring is not None:
-                                # 提取对应的backbone位置
-                                positions = []
-                                for op in aromatic_ops:
-                                    pos_parts = op["position"].split("-")
-                                    positions.extend(pos_parts)
-                                
-                                unique_positions = sorted(list(set(positions)), key=int)
-                                merged_position = "-".join(unique_positions)
-                                
-                                # 创建合并后的操作
-                                merged_op = {
-                                    "position": merged_position,
-                                    "atom": None,
-                                    "operation": "form_aromatic_ring"
-                                }
-                                merged_ops.append(merged_op)
-                                i = j  # 跳过已合并的所有操作
-                            else:
-                                # 不在同一个环中，不合并，逐个添加
-                                merged_ops.extend(aromatic_ops)
-                                i = j
-                        else:
-                            # 没有rdkit_idx信息，不合并，逐个添加
-                            merged_ops.extend(aromatic_ops)
-                            i = j
-                    else:
-                        # 只有一个芳香操作，直接添加
-                        merged_ops.append(current_op)
-                        i += 1
-                else:
-                    # 其他类型操作直接添加
-                    merged_ops.append(current_op)
-                    i += 1
-            
-            # 收集所有芳香操作和非芳香操作，用于判断是否需要第二次合并
-            aromatic_ops_all = []  # 所有芳香操作
-            non_aromatic_ops = []  # 所有非芳香操作
-            for op in merged_ops:
+            # 芳香键重排：按环分组排序
+            aromatic_ops = []
+            non_aromatic_ops = []
+            for op in extra_bond_ops:
                 if op["operation"] in ["form_aromatic_bond", "form_aromatic_ring"]:
-                    aromatic_ops_all.append(op)
+                    aromatic_ops.append(op)
                 else:
                     non_aromatic_ops.append(op)
             
-            # 只有在前面记录了多个芳香环时，才进行第二次合并处理
-            if len(aromatic_ops_all) > 1:
-                # 获取原分子中的环结构信息
-                ring_info = self.mol.GetRingInfo()
-                atom_rings = ring_info.AtomRings()  # 返回所有环，每个环是原子索引的元组
-                
-                # 构建原子到环的映射：每个原子属于哪些环
-                atom_to_rings = {}
-                for ring_idx, ring in enumerate(atom_rings):
-                    for atom_idx in ring:
-                        if atom_idx not in atom_to_rings:
-                            atom_to_rings[atom_idx] = []
-                        atom_to_rings[atom_idx].append(ring_idx)
-                
-                # 第二次合并处理：根据原分子中的环结构判断是否合并
-                second_merged_ops = []
-                
-                # 2. 如果没有芳香操作，直接返回
-                if not aromatic_ops_all:
-                    path += merged_ops
-                    return path_result
-                
-                # 3. 如果只有一个芳香操作，直接添加
-                if len(aromatic_ops_all) == 1:
-                    second_merged_ops = merged_ops
-                else:
-                    # 4. 尝试将所有芳香操作合并
-                    # 提取所有涉及的原子位置（使用rdkit_idx）
-                    rdkit_positions = []
-                    for op in aromatic_ops_all:
-                        if "rdkit_idx" in op and op["rdkit_idx"]:
-                            pos_parts = op["rdkit_idx"].split("-")
-                            rdkit_positions.extend(pos_parts)
+            # 按环对芳香操作进行分组
+            ring_to_ops = {}
+            ops_without_ring = []
+            
+            for op in aromatic_ops:
+                if "rdkit_idx" in op and op["rdkit_idx"]:
+                    pos_parts = op["rdkit_idx"].split("-")
+                    rdkit_positions = [int(p) for p in pos_parts]
                     
-                    # 去重并转换为整数
-                    unique_rdkit_positions = sorted(list(set(int(p) for p in rdkit_positions)))
+                    rings_for_op = set()
+                    for atom_idx in rdkit_positions:
+                        if atom_idx in atom_to_rings:
+                            rings_for_op.update(atom_to_rings[atom_idx])
                     
-                    # 检查这些原子是否属于原分子中的同一个环
-                    if unique_rdkit_positions:
-                        # 获取第一个原子所属的所有环
-                        first_atom_rings = atom_to_rings.get(unique_rdkit_positions[0], [])
-                        
-                        # 检查所有原子是否都在同一个环中
-                        common_ring = None
-                        for ring_idx in first_atom_rings:
-                            ring_atoms = set(atom_rings[ring_idx])
-                            if all(atom_idx in ring_atoms for atom_idx in unique_rdkit_positions):
-                                common_ring = ring_idx
-                                break
-                        
-                        # 如果所有原子都在同一个环中，则合并操作
-                        if common_ring is not None:
-                            # 提取对应的backbone位置
-                            positions = []
-                            for op in aromatic_ops_all:
-                                pos_parts = op["position"].split("-")
-                                positions.extend(pos_parts)
-                            
-                            unique_positions = sorted(list(set(positions)), key=int)
-                            merged_position = "-".join(unique_positions)
-                            
-                            # 创建合并后的操作
-                            merged_op = {
-                                "position": merged_position,
-                                "atom": None,
-                                "operation": "form_aromatic_ring"
-                            }
-                            
-                            # 添加合并后的操作和所有非芳香操作
-                            second_merged_ops = non_aromatic_ops + [merged_op]
-                            # 排序以保持一致性
-                            def sort_key(op_dict):
-                                pos = op_dict["position"]
-                                if "-" in pos:
-                                    parts = pos.split("-")
-                                    return [int(p) for p in parts]
-                                else:
-                                    return [int(pos)]
-                            second_merged_ops.sort(key=lambda x: sort_key(x))
-                        else:
-                            # 不在同一个环中，不合并
-                            second_merged_ops = merged_ops
+                    if len(rings_for_op) == 1:
+                        ring_idx = list(rings_for_op)[0]
+                        if ring_idx not in ring_to_ops:
+                            ring_to_ops[ring_idx] = []
+                        ring_to_ops[ring_idx].append(op)
                     else:
-                        # 没有rdkit_idx信息，不合并
-                        second_merged_ops = merged_ops
-                
-                # 将第二次合并后的操作添加到路径
-                path += second_merged_ops
-            else:
-                # 没有多个芳香环，直接使用合并后的操作
-                path += merged_ops
+                        ops_without_ring.append(op)
+                else:
+                    ops_without_ring.append(op)
+            
+            # 对每个环内的操作按 position 排序
+            for ring_idx in ring_to_ops:
+                ring_to_ops[ring_idx].sort(key=lambda x: self._sort_key(x))
+            
+            # 对环之间进行排序（按环中所有操作的最小位置）
+            sorted_ring_indices = sorted(ring_to_ops.keys(), key=lambda r: min(self._sort_key(op) for op in ring_to_ops[r]))
+            
+            # 重新构建 extra_bond_ops，按环分组排序
+            reordered_aromatic_ops = []
+            for ring_idx in sorted_ring_indices:
+                reordered_aromatic_ops.extend(ring_to_ops[ring_idx])
+            reordered_aromatic_ops.extend(ops_without_ring)
+            
+            # 合并重排后的芳香操作和非芳香操作
+            extra_bond_ops = reordered_aromatic_ops + non_aromatic_ops
+            
+            path += extra_bond_ops
 
             # --- STAGE 立体化学处理 ---
             stereo_ops = []
@@ -587,16 +466,7 @@ class MoleculeEvolverAnalysis: # MoleculeEvolver
                         })
             
             # 按照位置对立体化学操作进行排序
-            def sort_key(op_dict):
-                # 分解位置字符串以进行正确的排序
-                pos = op_dict["position"]
-                if "-" in pos:
-                    parts = pos.split("-")
-                    return [int(p) for p in parts]
-                else:
-                    return [int(pos)]
-                    
-            stereo_ops.sort(key=lambda x: sort_key(x))
+            stereo_ops.sort(key=lambda x: self._sort_key(x))
             path_result = path + stereo_ops
             
             # 返回完整路径，包括起始操作

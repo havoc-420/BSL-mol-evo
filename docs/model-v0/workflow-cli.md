@@ -132,6 +132,8 @@ python mol_evo/dataset/build_ab_pairs.py
 
 ### core predict
 
+#### 1. Task-1: lumo/homo operation
+
 base single cli example in [mo-cli.md](../mo/mo-cli.md).
 
 ```bash
@@ -141,7 +143,12 @@ conda activate mol-edit && CUDA_VISIBLE_DEVICES=0 python -m mol_evo.scripts.batc
 
 ## 2. homo
 conda activate mol-edit && CUDA_VISIBLE_DEVICES=1 python mol_evo/scripts/batch_optimizer.py --input-csv /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/eval-data/20251205_131636/qm9_test_molecules.csv --target-property homo --start-index 0 --end-index 50 --max-depth 3 --max-branching 8 --direction decrease
+```
 
+#### 2. Task-2: gap operation
+
+```bash
+conda activate mol-edit && CUDA_VISIBLE_DEVICES=0 python mol_evo/scripts/batch_optimizer_ic50.py --input-csv /home/rhj/projects/mol_opt/data/gdcsv2/cell/cell_687787.csv --target-property ic50 --start-index 0 --end-index 50 --max-depth  --max-branching 8 --direction decrease
 ```
 
 # Analyze MO Results

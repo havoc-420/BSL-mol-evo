@@ -166,12 +166,12 @@ def main():
     主函数
     """
     # 2. 多 MCS 结构拆分
-    # smiles_from = "CCN1CCN(CC1)CC2=C(C=C(C=C2)NC(=O)C3=CC(=C(C=C3)C)/C=C/C4=CN=C5C(=C4OC)C=CN5)C(F)(F)F"
-    # smiles_to = "CCN1CCN(CC1)CC2=C(C=C(C=C2)NC(=O)C3=CC(=C(C=C3)C)OC4=C5C=CNC5=NC=C4)C(F)(F)F"
+    smiles_from = "CCN1CCN(CC1)CC2=C(C=C(C=C2)NC(=O)C3=CC(=C(C=C3)C)/C=C/C4=CN=C5C(=C4OC)C=CN5)C(F)(F)F"
+    smiles_to = "CCN1CCN(CC1)CC2=C(C=C(C=C2)NC(=O)C3=CC(=C(C=C3)C)OC4=C5C=CNC5=NC=C4)C(F)(F)F"
     
     # 3. 虚线？
-    smiles_from = "C[C@@]12[C@@H]([C@@H](C[C@@H](O1)N3C4=CC=CC=C4C5=C6C(=C7C8=CC=CC=C8N2C7=C53)CNC6=O)N(C)C(=O)C9=CC=CC=C9)OC"
-    smiles_to = "C1=CC(=C(C(=C1)F)N(C2=NC(=C(C=C2)C(=O)N)C3=C(C=C(C=C3)F)F)C(=O)N)F"
+    # smiles_from = "C[C@@]12[C@@H]([C@@H](C[C@@H](O1)N3C4=CC=CC=C4C5=C6C(=C7C8=CC=CC=C8N2C7=C53)CNC6=O)N(C)C(=O)C9=CC=CC=C9)OC"
+    # smiles_to = "C1=CC(=C(C(=C1)F)N(C2=NC(=C(C=C2)C(=O)N)C3=C(C=C(C=C3)F)F)C(=O)N)F"
     
     # 转换为RDKit分子对象
     mol1 = Chem.MolFromSmiles(smiles_from)

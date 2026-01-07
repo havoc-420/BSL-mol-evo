@@ -335,12 +335,182 @@ class MoleculeRebuilder:
                 idx1 = self.atom_map[pos1]
                 idx2 = self.atom_map[pos2]
                 
+                if self.obverse:
+                    print(f'😺 [rebuilder] 形成键: 位置 {pos1}-{pos2} -> 原子索引 {idx1}-{idx2}')
+                
                 # 检查是否已存在键
                 existing_bond = self.current_mol.GetBondBetweenAtoms(idx1, idx2)
                 if existing_bond:
+                    if self.obverse:
+                        print(f'😺 [rebuilder] 键已存在: {idx1}-{idx2}，更新键类型')
                     existing_bond.SetBondType(bond_type)
                 else:
+                    # 在添加键之前检查是否形成闭环
+                    will_form_ring = False
+                    if bond_type == Chem.BondType.AROMATIC:
+                        will_form_ring = self._is_ring_closure(idx1, idx2)
+                    
+                    if self.obverse:
+                        print(f'😺 [rebuilder] 添加新键: {idx1}-{idx2}')
                     self.current_mol.AddBond(idx1, idx2, bond_type)
+                    
+                    # 如果形成的是芳香键，标记连接的原子为芳香性
+                    if bond_type == Chem.BondType.AROMATIC:
+                        # 标记连接的原子为芳香性
+                        self.current_mol.GetAtomWithIdx(idx1).SetIsAromatic(True)
+                        self.current_mol.GetAtomWithIdx(idx2).SetIsAromatic(True)
+                        
+                        # 如果形成了闭环，检查芳香环中的氮原子
+                        if will_form_ring:
+                            if self.obverse:
+                                print(f'😺 [rebuilder] 检测到闭环: {idx1}-{idx2}')
+                            self._adjust_aromatic_nitrogen_hydrogens()
+    
+    def _is_ring_closure(self, idx1, idx2):
+        """
+        检查在两个原子之间形成键是否会形成闭环。
+        
+        Args:
+            idx1: 第一个原子的索引
+            idx2: 第二个原子的索引
+            
+        Returns:
+            bool: 如果形成闭环则返回True，否则返回False
+        """
+        try:
+            mol = self.current_mol.GetMol()
+            
+            if self.obverse:
+                print(f'😺 [rebuilder] 检查是否闭环: {idx1}-{idx2}')
+            
+            # 检查是否已经存在直接的键
+            existing_bond = mol.GetBondBetweenAtoms(idx1, idx2)
+            if existing_bond:
+                if self.obverse:
+                    print(f'😺 [rebuilder]   已存在直接键，不形成闭环')
+                return False
+            
+            # 使用深度优先搜索检查两个原子之间是否已经存在路径
+            visited = set()
+            stack = [(idx1, [idx1])]
+            
+            while stack:
+                current, path = stack.pop()
+                
+                if current == idx2:
+                    # 如果路径长度大于1，说明已经存在路径，形成闭环
+                    if len(path) > 1:
+                        if self.obverse:
+                            print(f'😺 [rebuilder]   发现路径: {path}，形成闭环')
+                        return True
+                    continue
+                
+                if current in visited:
+                    continue
+                
+                visited.add(current)
+                
+                # 获取当前原子的所有邻居
+                atom = mol.GetAtomWithIdx(current)
+                for neighbor in atom.GetNeighbors():
+                    neighbor_idx = neighbor.GetIdx()
+                    if neighbor_idx not in path:
+                        stack.append((neighbor_idx, path + [neighbor_idx]))
+            
+            if self.obverse:
+                print(f'😺 [rebuilder]   未发现路径，不形成闭环')
+            return False
+        except Exception as e:
+            if self.obverse:
+                print(f'😺 [rebuilder]   检查闭环时出错: {e}')
+            return False
+    
+    def _adjust_aromatic_nitrogen_hydrogens(self):
+        """
+        在形成芳香键后，检查芳香环中的氮原子类型，为吡咯型氮原子添加氢原子。
+        
+        判断标准：
+        - 氮原子连接了两个芳香键（键类型为AROMATIC）
+        - 键价总和为3.0
+        - 氮原子属于5元芳香环（吡咯型）
+        """
+        try:
+            # 直接使用 self.current_mol，因为它是 RWMol 对象，可以添加原子
+            mol = self.current_mol
+            
+            # 清理分子以确保环信息正确
+            try:
+                Chem.SanitizeMol(mol)
+            except Exception as e:
+                if self.obverse:
+                    print(f"😺 [rebuilder] 清理分子时出错: {e}")
+                # 继续尝试获取环信息
+            
+            if self.obverse:
+                print(f"😺 [rebuilder] 开始检查芳香氮原子...")
+            
+            # 获取环信息
+            ring_info = mol.GetRingInfo()
+            
+            if self.obverse:
+                print(f"😺 [rebuilder] 环的数量: {ring_info.NumRings()}")
+                for i, ring in enumerate(ring_info.AtomRings()):
+                    print(f"😺 [rebuilder]   环 {i + 1}: {list(ring)}")
+            
+            # 遍历所有原子
+            for atom in mol.GetAtoms():
+                if atom.GetSymbol() != "N":
+                    continue
+                
+                # 计算芳香键数（直接检查键类型）
+                aromatic_bond_count = sum(1 for bond in atom.GetBonds() if bond.GetBondType() == Chem.BondType.AROMATIC)
+                
+                # 计算键价总和
+                current_valence = sum(bond.GetBondTypeAsDouble() for bond in atom.GetBonds())
+                
+                if self.obverse:
+                    print(f"😺 [rebuilder] 氮原子 {atom.GetIdx()}: 芳香键数={aromatic_bond_count}, 键价总和={current_valence}")
+                
+                # 检查是否符合吡咯型氮原子的条件
+                if aromatic_bond_count == 2 and current_valence == 3.0:
+                    # 检查该氮原子是否属于5元芳香环
+                    atom_idx = atom.GetIdx()
+                    is_in_5_ring = False
+                    
+                    for ring in ring_info.AtomRings():
+                        if atom_idx in ring and len(ring) == 5:
+                            is_in_5_ring = True
+                            if self.obverse:
+                                print(f"😺 [rebuilder]   氮原子 {atom_idx} 属于5元环: {list(ring)}")
+                            break
+                    
+                    # 判断类型：吡咯型氮原子（属于5元芳香环）
+                    if is_in_5_ring:
+                        # 获取当前氢原子数
+                        atom.UpdatePropertyCache()
+                        current_h = atom.GetTotalNumHs()
+                        
+                        # 如果没有氢原子，添加一个
+                        if current_h == 0:
+                            # 直接添加氢原子
+                            h_atom = Chem.Atom("H")
+                            h_idx = mol.AddAtom(h_atom)
+                            mol.AddBond(atom.GetIdx(), h_idx, Chem.BondType.SINGLE)
+                            
+                            if self.obverse:
+                                print(f"😺 [rebuilder] 为吡咯型氮原子 {atom.GetIdx()} 添加氢原子")
+                                print(f"😺 [rebuilder]   添加后的总氢数: {atom.GetTotalNumHs()}")
+                                print(f"😺 [rebuilder]   分子总原子数: {mol.GetNumAtoms()}")
+                                
+                                # 检查新添加的氢原子
+                                h_atom_obj = mol.GetAtomWithIdx(h_idx)
+                                print(f"😺 [rebuilder]   新添加的氢原子索引: {h_idx}, 符号: {h_atom_obj.GetSymbol()}")
+                            
+                            # 添加氢原子后立即返回，避免迭代器失效
+                            return
+        except Exception as e:
+            if self.obverse:
+                print(f"😺 [rebuilder] 调整芳香氮原子氢原子时出错: {e}")
     
     def _add_stereo(self, operation, ccw_flag):
         # """添加立体化学信息"""
@@ -349,12 +519,6 @@ class MoleculeRebuilder:
         #     8: 3,
         #     2: 21,
         #     4: 23
-        # }
-        # tmp_map = { # TEST
-        #     2: 21,
-        #     3: 23,
-        #     21: 2,
-        #     23: 3
         # }
         position = operation.get("position")
         idx = self.atom_map[position]
@@ -399,6 +563,8 @@ class MoleculeRebuilder:
         try:
             mol = self.current_mol.GetMol()
             Chem.SanitizeMol(mol)
+            
+            # 直接生成SMILES
             return Chem.MolToSmiles(mol, isomericSmiles=True)
         except:
             return "invalid"
