@@ -1067,22 +1067,12 @@ class MolecularEvolutionExpansion:
         seen_molecules = {self.initial_smiles}  # 存储已处理的分子
         
         while queue:
-            # 检查中断标志
-            if hasattr(self, 'interrupted') and self.interrupted:
-                print("检测到中断信号，停止进化树生成")
-                break
-                
             current_smiles, depth, parent_id = queue.popleft()
             
             # 获取当前节点
             current_node = expansion_tree["nodes"].get(parent_id)
             if not current_node:
                 continue
-            
-            # 检查中断标志
-            if hasattr(self, 'interrupted') and self.interrupted:
-                print("检测到中断信号，停止进化树生成")
-                break
             
             # 达到最大深度时停止扩展
             if depth >= max_depth:
@@ -1149,18 +1139,12 @@ class MolecularEvolutionExpansion:
             if not current_mol:
                 continue
             
-            # 检查中断标志
-            if hasattr(self, 'interrupted') and self.interrupted:
-                print("检测到中断信号，停止进化树生成")
-                break
-                
             # 获取可能的操作
             possible_operations = self._get_possible_operations(current_mol)
             
             # 如果有预测器，先对每个可能的操作进行预测，然后根据预测结果排序
             if predictor:
                 # 收集所有需要预测的操作
-                # TODO 这里是否需要 batch-size 的设定来限制呢？
                 valid_operations = []
                 
                 for operation in possible_operations:
@@ -1211,11 +1195,12 @@ class MolecularEvolutionExpansion:
                 else:
                     operations_with_predictions.sort(key=lambda x: x[2])
                 
-                # 限制分支数量
-                branch_count = 0
-                for operation, new_smiles, property_change in operations_with_predictions:
-                    if branch_count >= max_branching:
-                        break
+                # 计算前20%的操作数量，至少取1个
+                top_10_percent_count = max(1, int(len(operations_with_predictions) * 0.1))  
+                print(f"当前节点: {current_smiles}，总操作数: {len(operations_with_predictions)}，前10%操作数: {top_10_percent_count}")
+                
+                # 只处理前20%的操作作为下一轮的扩展起点
+                for operation, new_smiles, property_change in operations_with_predictions[:top_10_percent_count]:
                     
                     # 避免重复分子
                     if new_smiles not in seen_molecules:
@@ -1259,7 +1244,6 @@ class MolecularEvolutionExpansion:
                         # 添加到队列继续扩展
                         queue.append((new_smiles, depth + 1, node_id))
                         node_counter += 1
-                        branch_count += 1
             else:
                raise NotImplementedError("[Molecular Evolver] 预测器未定义")
                         

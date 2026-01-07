@@ -18,6 +18,7 @@ import traceback
 import time  # 添加时间统计功能
 from datetime import datetime  # 用于生成默认文件名
 import numpy as np  # 用于处理numpy数据类型
+from torch_geometric.data import Data
 
 # 禁用RDKit的警告信息
 RDLogger.DisableLog('rdApp.*')
@@ -74,7 +75,7 @@ class EvolutionTreeOptimizer:
     """
     
     def __init__(self, model_path, model_dir, config_file=None, initial_smiles_csv=None, 
-                 target_property=None, initial_property_value=None, optimization_mode='pct'):
+                 target_property=None, initial_property_value=None, optimization_mode='pct', batch_size=128):
         """
         初始化分子进化树优化器
         
@@ -86,6 +87,7 @@ class EvolutionTreeOptimizer:
             target_property: 目标属性名称
             initial_property_value: 初始分子的目标属性值
             optimization_mode: 优化模式 ('sub' 或 'pct')
+            batch_size: 批处理大小，用于控制预测时的批量大小
         """
         self.model_path = model_path
         self.model_dir = model_dir
@@ -94,6 +96,7 @@ class EvolutionTreeOptimizer:
         self.target_property = target_property
         self.initial_property_value = initial_property_value
         self.optimization_mode = optimization_mode  # 'sub' 或 'pct'
+        self.batch_size = batch_size  # 批处理大小
         self.model = None
         self.initial_properties = {}  # 存储起始分子的属性
         self.generation_time = 0  # 添加生成时间统计
@@ -178,26 +181,34 @@ class EvolutionTreeOptimizer:
         # 准备初始分子图数据（所有操作基于同一个初始分子）
         initial_graph = prepare_molecule_from_smiles(current_smiles, device=self.device)
         
-        # 批量处理操作张量
-        ops_batch = torch.cat(ops_tensors, dim=0).to(self.device)
-        
-        # 复制初始分子图以匹配操作批量大小
+        # 分批处理操作
+        all_predictions = []
         num_ops = len(ops_tensors)
-        z_batch = initial_graph.z.repeat(num_ops)
-        pos_batch = initial_graph.pos.repeat(num_ops, 1)
-        batch_indices = torch.arange(num_ops, device=self.device).repeat_interleave(len(initial_graph.z))
         
-        # 创建批量图数据
-        from torch_geometric.data import Data
-        batched_graph = Data(z=z_batch, pos=pos_batch, batch=batch_indices)
+        for i in range(0, num_ops, self.batch_size):
+            batch_end = min(i + self.batch_size, num_ops)
+            batch_ops_tensors = ops_tensors[i:batch_end]
+            batch_size = len(batch_ops_tensors)
+            
+            # 批量处理操作张量
+            ops_batch = torch.cat(batch_ops_tensors, dim=0).to(self.device)
+            
+            # 复制初始分子图以匹配操作批量大小
+            z_batch = initial_graph.z.repeat(batch_size)
+            pos_batch = initial_graph.pos.repeat(batch_size, 1)
+            batch_indices = torch.arange(batch_size, device=self.device).repeat_interleave(len(initial_graph.z))
+            
+            # 创建批量图数据
+            batched_graph = Data(z=z_batch, pos=pos_batch, batch=batch_indices)
+            
+            # 执行批量预测
+            # 模型现在支持真正的批量处理，可以一次性预测所有操作
+            with torch.no_grad():
+                predicted_changes = self.model(batched_graph, ops_batch)
+                predictions = predicted_changes.squeeze().tolist()
+                all_predictions.extend(predictions)
         
-        # 执行批量预测
-        # 模型现在支持真正的批量处理，可以一次性预测所有操作
-        with torch.no_grad():
-            predicted_changes = self.model(batched_graph, ops_batch)
-            predictions = predicted_changes.squeeze().tolist()
-        
-        return predictions
+        return all_predictions
     
     def _encode_operation_to_tensor(self, operation_details):
         """
