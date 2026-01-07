@@ -34,7 +34,6 @@ try:
         PropertyChangePredictor,
         load_model as load_property_change_model,
         prepare_molecule_from_smiles,
-        smiles_to_pyg,
         ALL_OPS,
         ATOM_TYPES,
         BOND_TYPES,
@@ -851,11 +850,13 @@ def run4debug():
     # 硬编码的参数
     model_path = "/home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/drp_ic50_p/SchNet_909729_checkpoints/0.9_N4_20260106_191804/best_model.pth"
     model_dir = "/home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/drp_ic50_p/SchNet_909729_checkpoints/0.9_N4_20260106_191804"
-    config_file = "/home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/gdcsv2/ic50.yaml"
-    initial_smiles = "C1=CN(C(=O)N=C1N)[C@H]2C([C@@H]([C@H](O2)CO)O)(F)F"
-    initial_property_value = None  # 将由模型计算
+    config_file = "/home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/drp_ic50_p/ic50.yaml"
+    initial_smiles = "C1=C(C(=O)NC(=O)N1)F"
+    initial_property_value = 0.6027509202620565  # 将由模型计算
     target_property = "ic50"
     optimization_mode = "sub"
+    # max_depth = 3
+    # max_branching = 8
     max_depth = 2
     max_branching = 4
     direction = "decrease"  # 对应于 optimization-mode=sub 的情况

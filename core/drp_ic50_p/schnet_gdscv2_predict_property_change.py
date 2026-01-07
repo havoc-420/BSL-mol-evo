@@ -8,9 +8,7 @@ from torch_scatter import scatter_mean
 import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem
-import os
-
-import pdb
+import random
 
 def set_seed(seed=42):
     random.seed(seed)
@@ -20,6 +18,9 @@ def set_seed(seed=42):
         torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+    print('ℹ️ schnet seed 初始化完成')
+    
+set_seed()
 
 # --- 1. 从 molecule_path_finder.py 复制的常量和解码逻辑 ---
 OP_ADD_ATOM = "ADD_ATOM"
@@ -187,8 +188,6 @@ class PropertyChangePredictor(nn.Module):
         Returns:
             torch.Tensor: 预测的总属性变化量，形状为 [Batch_Size, 1]。
         """
-        # pdb.set_trace()
-        # batch_size = initial_graph.batch.max().item() + 1 if hasattr(initial_graph, 'batch') else 1
         batch_size = 1
         path_len = ops.shape[1]
         ops = ops.to(torch.float32)

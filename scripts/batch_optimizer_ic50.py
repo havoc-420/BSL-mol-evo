@@ -65,7 +65,7 @@ def parse_args():
                         default='/home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200',
                         help='模型目录路径')
     parser.add_argument('--config-file', type=str,
-                        default='/home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/gdcsv2/ic50.yaml',
+                        default='/home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/drp_ic50_p/ic50.yaml',
                         help='配置文件路径')
     parser.add_argument('--target-property', type=str, default='ic50',
                         help='目标属性名称')

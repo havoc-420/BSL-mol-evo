@@ -157,14 +157,13 @@ class MolecularEvolutionExpansion:
         atoms = list(mol.GetAtoms())
         
         # 添加原子操作 - 对每个原子都尝试添加新原子
-        if "add_atom" in self.operation_type_keys:
+        if "ADD_ATOM" in self.operation_type_keys:
             for atom in mol.GetAtoms():
                 atom_idx = atom.GetIdx()
                 for element in self.common_atoms:
                     operations.append({
                         "type": "ADD_ATOM",
-                        "atom_symbol": element,
-                        "atom_idx": atom_idx
+                        "params": {"atom_symbol": element, "atom_idx": atom_idx}
                     })
         
         # 移除原子操作 - 对每个原子尝试移除
@@ -173,7 +172,7 @@ class MolecularEvolutionExpansion:
                 atom_idx = atom.GetIdx()
                 operations.append({
                     "type": "REMOVE_ATOM",
-                    "atom_idx": atom_idx
+                    "params": {"atom_idx": atom_idx}
                 })
         
         # 替换原子操作 - 对每个原子尝试替换为其他元素
@@ -185,27 +184,24 @@ class MolecularEvolutionExpansion:
                     if element != current_symbol:
                         operations.append({
                             "type": "REPLACE_ATOM",
-                            "atom_symbol": element,
-                            "atom_idx": atom_idx,
+                            "params": {"atom_idx": atom_idx, "atom_symbol": element}
                         })
         
         # 添加单键操作 - 尝试在合适的原子间形成单键
-        # if "ADD_BOND" in self.operation_type_keys:
-        #     for i in range(len(atoms)):
-        #         for j in range(i+1, len(atoms)):
-        #             atom_idx = atoms[i].GetIdx()
-        #             atom2_idx = atoms[j].GetIdx()
+        if "ADD_BOND" in self.operation_type_keys:
+            for i in range(len(atoms)):
+                for j in range(i+1, len(atoms)):
+                    atom_idx = atoms[i].GetIdx()
+                    atom2_idx = atoms[j].GetIdx()
                     
-        #             # 检查是否已经存在键
-        #             bond = mol.GetBondBetweenAtoms(atom_idx, atom2_idx)
-        #             if bond is None:
-        #                 # 可以形成单键
-        #                 operations.append({
-        #                     "type": "ADD_BOND",
-        #                     "atom_idx": atom_idx,
-        #                     "atom2_idx": atom2_idx,
-        #                     "bond_order": 1.0
-        #                 })
+                    # 检查是否已经存在键
+                    bond = mol.GetBondBetweenAtoms(atom_idx, atom2_idx)
+                    if bond is None:
+                        # 可以形成单键
+                        operations.append({
+                            "type": "ADD_BOND",
+                            "params": {"atom_idx": atom_idx, "atom2_idx": atom2_idx, "bond_order": 1.0}
+                        })
         
         # 移除键操作 - 尝试移除已有的键
         if "REMOVE_BOND" in self.operation_type_keys:
@@ -214,8 +210,7 @@ class MolecularEvolutionExpansion:
                 atom2_idx = bond.GetEndAtomIdx()
                 operations.append({
                     "type": "REMOVE_BOND",
-                    "atom_idx": atom_idx,
-                    "atom2_idx": atom2_idx
+                    "params": {"atom_idx": atom_idx, "atom2_idx": atom2_idx}
                 })
         
         # 改变键操作 - 尝试改变键的类型（细粒度操作）
@@ -230,9 +225,7 @@ class MolecularEvolutionExpansion:
                 if current_bond_type in [Chem.BondType.DOUBLE, Chem.BondType.TRIPLE, Chem.BondType.AROMATIC]:
                     operations.append({
                         "type": "CHANGE_BOND_1",
-                        "atom_idx": atom_idx,
-                        "atom2_idx": atom2_idx,
-                        "bond_order": 1.0
+                        "params": {"atom_idx": atom_idx, "atom2_idx": atom2_idx, "bond_order": 1.0}
                     })
         
         # CHANGE_BOND_2: 改为双键
@@ -246,9 +239,7 @@ class MolecularEvolutionExpansion:
                 if current_bond_type in [Chem.BondType.SINGLE, Chem.BondType.TRIPLE, Chem.BondType.AROMATIC]:
                     operations.append({
                         "type": "CHANGE_BOND_2",
-                        "atom_idx": atom_idx,
-                        "atom2_idx": atom2_idx,
-                        "bond_order": 2.0
+                        "params": {"atom_idx": atom_idx, "atom2_idx": atom2_idx, "bond_order": 2.0}
                     })
         
         # CHANGE_BOND_3: 改为三键
@@ -262,9 +253,7 @@ class MolecularEvolutionExpansion:
                 if current_bond_type in [Chem.BondType.SINGLE, Chem.BondType.DOUBLE, Chem.BondType.AROMATIC]:
                     operations.append({
                         "type": "CHANGE_BOND_3",
-                        "atom_idx": atom_idx,
-                        "atom2_idx": atom2_idx,
-                        "bond_order": 3.0
+                        "params": {"atom_idx": atom_idx, "atom2_idx": atom2_idx, "bond_order": 3.0}
                     })
         
         # CHANGE_BOND_1.5: 改为芳香键
@@ -278,75 +267,8 @@ class MolecularEvolutionExpansion:
                 if current_bond_type in [Chem.BondType.SINGLE, Chem.BondType.DOUBLE, Chem.BondType.TRIPLE]:
                     operations.append({
                         "type": "CHANGE_BOND_1.5",
-                        "atom_idx": atom_idx,
-                        "atom2_idx": atom2_idx,
-                        "bond_order": 1.5
+                        "params": {"atom_idx": atom_idx, "atom2_idx": atom2_idx, "bond_order": 1.5}
                     })
-        
-        # 成双键操作 - 尝试在合适的原子间形成双键
-        if "form_double_bond" in self.operation_type_keys:
-            for i in range(len(atoms)):
-                for j in range(i+1, len(atoms)):
-                    atom_idx = atoms[i].GetIdx()
-                    atom2_idx = atoms[j].GetIdx()
-                    
-                    # 检查是否已经存在键
-                    bond = mol.GetBondBetweenAtoms(atom_idx, atom2_idx)
-                    if bond is None:
-                        # 可以形成双键
-                        operations.append({
-                            "type": "form_double_bond",
-                            "atom_idx": atom_idx,
-                            "atom2_idx": atom2_idx
-                        })
-                    elif bond.GetBondType() == Chem.BondType.SINGLE:
-                        # 单键可以升级为双键
-                        operations.append({
-                            "type": "form_double_bond",
-                            "atom_idx": atom_idx,
-                            "atom2_idx": atom2_idx
-                        })
-        
-        # 成三键操作 - 尝试在合适的原子间形成三键
-        if "form_triple_bond" in self.operation_type_keys:
-            for i in range(len(atoms)):
-                for j in range(i+1, len(atoms)):
-                    atom_idx = atoms[i].GetIdx()
-                    atom2_idx = atoms[j].GetIdx()
-                    
-                    # 检查是否已经存在键
-                    bond = mol.GetBondBetweenAtoms(atom_idx, atom2_idx)
-                    if bond is None:
-                        # 可以形成三键
-                        operations.append({
-                            "type": "form_triple_bond",
-                            "atom_idx": atom_idx,
-                            "atom2_idx": atom2_idx
-                        })
-                    elif bond.GetBondType() == Chem.BondType.SINGLE:
-                        # 单键可以升级为三键
-                        operations.append({
-                            "type": "form_triple_bond",
-                            "atom_idx": atom_idx,
-                            "atom2_idx": atom2_idx
-                        })
-                    elif bond.GetBondType() == Chem.BondType.DOUBLE:
-                        # 双键可以升级为三键
-                        operations.append({
-                            "type": "form_triple_bond",
-                            "atom_idx": atom_idx,
-                            "atom2_idx": atom2_idx
-                        })
-        
-        # 成环操作 - 尝试在合适的原子间形成环
-        # 这里简化处理，只考虑形成5元环和6元环的可能性
-        if "form_ring" in self.operation_type_keys:
-            for atom in mol.GetAtoms():
-                # 简化处理，只添加示例操作
-                operations.append({
-                    "type": "form_ring",
-                    "atom_idx": atom.GetIdx()
-                })
         
         return operations
 
@@ -521,26 +443,26 @@ class MolecularEvolutionExpansion:
             self._update_error_stats(e)
             return None
     
-    def _add_stereo_operation(self, mol: Chem.Mol, atom_idx: int = None, stereo: str = None) -> Optional[Chem.Mol]:
-        """添加立体化学操作"""
-        try:
-            if atom_idx is None:
-                atom_idx = random.randint(0, mol.GetNumAtoms() - 1)
+    # def _add_stereo_operation(self, mol: Chem.Mol, atom_idx: int = None, stereo: str = None) -> Optional[Chem.Mol]:
+    #     """添加立体化学操作"""
+    #     try:
+    #         if atom_idx is None:
+    #             atom_idx = random.randint(0, mol.GetNumAtoms() - 1)
             
-            if stereo is None:
-                stereo = random.choice(['R', 'S'])
+    #         if stereo is None:
+    #             stereo = random.choice(['R', 'S'])
             
-            mol_copy = Chem.Mol(mol)
-            atom = mol_copy.GetAtomWithIdx(atom_idx)
-            atom.SetChiralTag(Chem.ChiralType.CHI_TETRAHEDRAL_CCW if stereo == 'R' else Chem.ChiralType.CHI_TETRAHEDRAL_CW)
+    #         mol_copy = Chem.Mol(mol)
+    #         atom = mol_copy.GetAtomWithIdx(atom_idx)
+    #         atom.SetChiralTag(Chem.ChiralType.CHI_TETRAHEDRAL_CCW if stereo == 'R' else Chem.ChiralType.CHI_TETRAHEDRAL_CW)
             
-            if self.validate_molecule(mol_copy):
-                return mol_copy
-            else:
-                return None
-        except Exception as e:
-            self._update_error_stats(e)
-            return None
+    #         if self.validate_molecule(mol_copy):
+    #             return mol_copy
+    #         else:
+    #             return None
+    #     except Exception as e:
+    #         self._update_error_stats(e)
+    #         return None
     
     def _form_double_bond_operation(self, mol: Chem.Mol, atom_idx: int = None, atom2_idx: int = None) -> Optional[Chem.Mol]:
         """形成双键操作"""
