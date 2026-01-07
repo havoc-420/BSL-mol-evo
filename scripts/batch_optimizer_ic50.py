@@ -53,9 +53,12 @@ except ImportError as e:
 def parse_args():
     """解析命令行参数"""
     parser = argparse.ArgumentParser(description='批量优化分子属性')
-    parser.add_argument('--input-csv', type=str,
-                        default='/home/rhj/projects/mol_opt/data/gdcsv2/cell/cell_687787.csv',
-                        help='输入的CSV文件路径')
+    parser.add_argument('--input-json', type=str,
+                        default='/home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/gdcsv2/ic50_result_dict_20_30.json',
+                        help='输入的JSON文件路径')
+    parser.add_argument('--cell-name', type=str,
+                        required=True,
+                        help='细胞名称，用于从JSON文件中获取待测试的目标')
     parser.add_argument('--output-json', type=str,
                         help='输出的JSON文件路径')
     parser.add_argument('--model-path', type=str,
@@ -89,10 +92,6 @@ def parse_args():
                         help='保留效果最好的K个结果')
     parser.add_argument('--batch-size', type=int, default=10,
                         help='批处理大小')
-    parser.add_argument('--start-index', type=int, default=0,
-                        help='起始索引')
-    parser.add_argument('--end-index', type=int, default=-1,
-                        help='结束索引，-1表示处理到文件末尾')
     return parser.parse_args()
 
 def create_output_dir():
@@ -103,33 +102,27 @@ def create_output_dir():
     os.makedirs(base_dir, exist_ok=True)
     return base_dir
 
-def read_csv_data(csv_path, start_idx=0, end_idx=-1, target_property='ic50'):
-    """读取CSV数据"""
-    df = pd.read_csv(csv_path)
-    if end_idx > 0:
-        df = df.iloc[start_idx:end_idx]
-    else:
-        df = df.iloc[start_idx:]
+def read_json_data(json_path, cell_name, target_property='ic50'):
+    """从JSON文件读取数据"""
+    with open(json_path, 'r') as f:
+        data_dict = json.load(f)
     
-    data_list = []
-    for _, row in df.iterrows():
-        # 从smiles列获取分子结构
-        smiles = row['smiles']
-        # 根据目标属性动态获取属性值
-        # 处理列名可能带空格的情况（如' ic50'）
-        if target_property in row:
-            property_value = row[target_property]
-        elif f' {target_property}' in row:
-            property_value = row[f' {target_property}']
-        else:
-            raise ValueError(f"未找到目标属性列: {target_property}")
+    if cell_name not in data_dict:
+        raise ValueError(f"未找到细胞名称: {cell_name}")
+    
+    data_list = data_dict[cell_name]
+    
+    result_list = []
+    for item in data_list:
+        smiles = item['smiles']
+        property_value = item[target_property]
         
-        data_list.append({
+        result_list.append({
             'smiles': smiles,
             'property_value': property_value,
-            'original_row': row.to_dict()
+            'original_row': item
         })
-    return data_list
+    return result_list
 
 def run_evolution_optimizer(optimizer, smiles, property_value, args, output_dir):
     """运行分子优化"""
@@ -296,14 +289,16 @@ def main():
     print(f"=== 批量分子优化脚本 ===")
     print(f"输出目录: {output_dir}")
     print(f"主日志文件: {main_log_file}")
-    print(f"读取CSV文件: {args.input_csv}")
+    print(f"读取JSON文件: {args.input_json}")
+    print(f"细胞名称: {args.cell_name}")
     
     # 记录配置信息到主日志
     with open(main_log_file, 'w') as f:
         f.write(f"=== 批量分子优化配置 ===\n")
         f.write(f"启动时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"输出目录: {output_dir}\n")
-        f.write(f"输入CSV文件: {args.input_csv}\n")
+        f.write(f"输入JSON文件: {args.input_json}\n")
+        f.write(f"细胞名称: {args.cell_name}\n")
         f.write(f"模型路径: {args.model_path}\n")
         f.write(f"模型目录: {args.model_dir}\n")
         f.write(f"配置文件: {args.config_file}\n")
@@ -314,12 +309,10 @@ def main():
         f.write(f"优化方向: {args.direction}\n")
         f.write(f"剪枝耐心值: {args.pruning_patience}\n")
         f.write(f"topK值: {args.topK}\n")
-        f.write(f"起始索引: {args.start_index}\n")
-        f.write(f"结束索引: {args.end_index}\n")
         f.write("\n")
     
     # 读取数据
-    data_list = read_csv_data(args.input_csv, args.start_index, args.end_index, args.target_property)
+    data_list = read_json_data(args.input_json, args.cell_name, args.target_property)
     print(f"读取到 {len(data_list)} 个分子数据")
     
     # 更新主日志
