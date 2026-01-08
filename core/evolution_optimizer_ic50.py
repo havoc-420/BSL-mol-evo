@@ -870,7 +870,7 @@ def run4debug():
     optimization_mode = "sub"
     # max_depth = 3
     # max_branching = 8
-    max_depth = 2
+    max_depth = 2   # TEST
     max_branching = 4
     direction = "decrease"  # 对应于 optimization-mode=sub 的情况
     pruning_patience = 3

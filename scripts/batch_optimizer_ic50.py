@@ -107,7 +107,7 @@ def parse_args():
                         help='logP的最大值')
     parser.add_argument('--logp-patience', type=int, default=3,
                         help='logP剪枝耐心值，连续多少代logP超出范围就剪枝')
-    parser.add_argument('--topK', type=int, default=20,
+    parser.add_argument('--topK', type=int, default=100,
                         help='保留效果最好的K个结果')
     parser.add_argument('--batch-size', type=int, default=10,
                         help='批处理大小')
