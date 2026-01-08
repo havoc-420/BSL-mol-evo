@@ -16,20 +16,39 @@ import uuid
 import traceback
 from rdkit import RDLogger
 import signal
+import multiprocessing
 
-# 全局中断标志
+# 全局中断标志和当前进程跟踪
 interrupted = False
+current_process = None
 
 # 信号处理函数
 def signal_handler(sig, frame):
     """处理中断信号"""
-    global interrupted
+    global interrupted, current_process
     if interrupted:
         # 如果已经中断过，直接退出
         print("再次收到中断信号，立即退出！")
         sys.exit(0)
-    print("正在中断处理过程，请稍候...")
+    
+    print("\n收到中断信号，正在终止处理过程...")
     interrupted = True
+    
+    # 终止当前正在运行的子进程
+    if current_process is not None and current_process.is_alive():
+        print(f"正在终止子进程 (PID: {current_process.pid})...")
+        current_process.terminate()
+        try:
+            current_process.join(timeout=5)
+            if current_process.is_alive():
+                print("子进程未响应，强制终止...")
+                current_process.kill()
+                current_process.join()
+        except Exception as e:
+            print(f"终止子进程时出错: {e}")
+    
+    print("处理已终止。")
+    sys.exit(0)
 
 # 注册信号处理器
 signal.signal(signal.SIGINT, signal_handler)
@@ -92,6 +111,8 @@ def parse_args():
                         help='保留效果最好的K个结果')
     parser.add_argument('--batch-size', type=int, default=10,
                         help='批处理大小')
+    parser.add_argument('--resume-from', type=str, default=None,
+                        help='从指定的输出目录恢复之前的运行，继续处理未完成的分子')
     return parser.parse_args()
 
 def create_output_dir():
@@ -123,6 +144,121 @@ def read_json_data(json_path, cell_name, target_property='ic50'):
             'original_row': item
         })
     return result_list
+
+def load_processed_results(resume_dir):
+    """从恢复目录加载已处理的结果"""
+    processed_smiles = set()
+    results_dict = {}
+    
+    if not os.path.exists(resume_dir):
+        return processed_smiles, results_dict
+    
+    # 查找所有JSON结果文件
+    json_files = [f for f in os.listdir(resume_dir) if f.endswith('.json') and not f.endswith('_topK.csv')]
+    
+    for json_file in json_files:
+        json_path = os.path.join(resume_dir, json_file)
+        try:
+            with open(json_path, 'r') as f:
+                data = json.load(f)
+            
+            # 提取SMILES（从initial_smiles字段）
+            if 'initial_smiles' in data:
+                smiles = data['initial_smiles']
+                processed_smiles.add(smiles)
+                
+                # 尝试从batch_results.json加载完整结果
+                batch_results_path = os.path.join(resume_dir, 'batch_results.json')
+                if os.path.exists(batch_results_path):
+                    with open(batch_results_path, 'r') as f:
+                        batch_results = json.load(f)
+                    if smiles in batch_results:
+                        results_dict[smiles] = batch_results[smiles]
+        except Exception as e:
+            print(f"警告: 无法加载结果文件 {json_file}: {e}")
+    
+    return processed_smiles, results_dict
+
+def _run_optimizer_in_process(args_tuple, result_queue):
+    """在子进程中运行优化器（重新创建optimizer实例）"""
+    try:
+        args, smiles, property_value, output_dir = args_tuple
+        
+        from mol_evo.core.evolution_optimizer_ic50 import EvolutionTreeOptimizer
+        
+        optimizer = EvolutionTreeOptimizer(
+            args.model_path,
+            args.model_dir,
+            args.config_file,
+            None,
+            args.target_property,
+            None,
+            args.optimization_mode
+        )
+        optimizer.optimization_direction = args.direction
+        
+        result = run_evolution_optimizer(optimizer, smiles, property_value, args, output_dir)
+        result_queue.put(result)
+    except Exception as e:
+        result_queue.put({
+            'status': 'error',
+            'smiles': smiles,
+            'initial_property': property_value,
+            'error': f"Process error: {str(e)}"
+        })
+
+def run_evolution_optimizer_with_timeout(smiles, property_value, args, output_dir, timeout_seconds=2400):
+    """运行分子优化，带超时控制（默认40分钟）"""
+    global current_process
+    
+    print(f"\n=== 开始处理分子: {smiles} (超时限制: {timeout_seconds/60:.1f}分钟) ===")
+    
+    manager = multiprocessing.Manager()
+    result_queue = manager.Queue()
+    ctx = multiprocessing.get_context('spawn')
+    process = ctx.Process(
+        target=_run_optimizer_in_process,
+        args=((args, smiles, property_value, output_dir), result_queue)
+    )
+    
+    # 设置全局当前进程引用，以便信号处理器可以访问
+    current_process = process
+    
+    process.start()
+    process.join(timeout=timeout_seconds)
+    
+    # 清除全局进程引用
+    current_process = None
+    
+    if process.is_alive():
+        print(f"处理超时 ({timeout_seconds/60:.1f}分钟)，终止进程: {smiles}")
+        process.terminate()
+        process.join(timeout=5)
+        if process.is_alive():
+            process.kill()
+            process.join()
+        
+        manager.shutdown()
+        
+        return {
+            'status': 'timeout',
+            'smiles': smiles,
+            'initial_property': property_value,
+            'error': f'Optimization timeout after {timeout_seconds/60:.1f} minutes'
+        }
+    
+    if result_queue.empty():
+        manager.shutdown()
+        return {
+            'status': 'error',
+            'smiles': smiles,
+            'initial_property': property_value,
+            'error': 'Process completed but no result returned'
+        }
+    
+    result = result_queue.get()
+    manager.shutdown()
+    return result
 
 def run_evolution_optimizer(optimizer, smiles, property_value, args, output_dir):
     """运行分子优化"""
@@ -188,7 +324,7 @@ def run_evolution_optimizer(optimizer, smiles, property_value, args, output_dir)
             'error': error_msg
         }
 
-def batch_process(data_list, args, output_dir):
+def batch_process(data_list, args, output_dir, resume_mode=False):
     """批量处理数据"""
     results_dict = {}    
     total_count = len(data_list)
@@ -214,9 +350,26 @@ def batch_process(data_list, args, output_dir):
     )
     optimizer.optimization_direction = args.direction
     
+    # 如果是恢复模式，加载已处理的结果
+    processed_smiles = set()
+    if resume_mode:
+        processed_smiles, results_dict = load_processed_results(output_dir)
+        print(f"恢复模式: 已加载 {len(processed_smiles)} 个已处理的分子")
+        
+        # 记录到总日志
+        with open(total_log_file, 'a') as f:
+            f.write(f"\n=== 恢复模式: 从 {output_dir} 恢复 ===\n")
+            f.write(f"已处理分子数: {len(processed_smiles)}\n")
+            f.write(f"剩余待处理分子数: {total_count - len(processed_smiles)}\n")
+    
     for i, data in enumerate(data_list):
         smiles = data['smiles']
         property_value = data['property_value']
+        
+        # 跳过已处理的分子
+        if smiles in processed_smiles:
+            print(f"\n=== 跳过已处理的分子 ({i+1}/{total_count}): {smiles} ===")
+            continue
         
         # 计算进度百分比
         progress = (i+1) / total_count * 100
@@ -228,13 +381,14 @@ def batch_process(data_list, args, output_dir):
             f.write(f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"初始属性值: {property_value}\n")
         
-        # 运行优化，传递中断标志
-        result = run_evolution_optimizer(
-            optimizer,
+        # 运行优化，带超时控制（40分钟）
+        result = run_evolution_optimizer_with_timeout(
             smiles, 
             property_value, 
             args, 
-            output_dir
+            output_dir,
+            timeout_seconds=2400
+            # timeout_seconds=100
         )
         
         # 更新结果字典
@@ -250,6 +404,8 @@ def batch_process(data_list, args, output_dir):
                 f.write(f"耗时: {result['runtime']:.2f} 秒\n")
                 f.write(f"优化结果数量: {len(result['optimized_result'].get('results', [])) if 'optimized_result' in result else 0}\n")
                 f.write(f"topK结果数量: {len(result['topk_results']) if 'topk_results' in result else 0}\n")
+            elif result['status'] == 'timeout':
+                f.write(f"超时信息: {result['error']}\n")
             else:
                 f.write(f"错误信息: {result['error']}\n")
         
@@ -281,7 +437,20 @@ def save_results(results_dict, output_json, output_dir):
 def main():
     """主函数"""
     args = parse_args()
-    output_dir = create_output_dir()
+    
+    # 检查是否为恢复模式
+    resume_mode = args.resume_from is not None
+    
+    if resume_mode:
+        # 恢复模式：使用指定的输出目录
+        output_dir = args.resume_from
+        if not os.path.exists(output_dir):
+            print(f"错误: 恢复目录不存在: {output_dir}")
+            sys.exit(1)
+        print(f"恢复模式: 从 {output_dir} 恢复之前的运行")
+    else:
+        # 正常模式：创建新的输出目录
+        output_dir = create_output_dir()
     
     # 创建主日志文件
     main_log_file = os.path.join(output_dir, "batch_optimization_main.log")
@@ -291,11 +460,19 @@ def main():
     print(f"主日志文件: {main_log_file}")
     print(f"读取JSON文件: {args.input_json}")
     print(f"细胞名称: {args.cell_name}")
+    if resume_mode:
+        print(f"模式: 恢复模式")
+    else:
+        print(f"模式: 正常模式")
     
     # 记录配置信息到主日志
-    with open(main_log_file, 'w') as f:
-        f.write(f"=== 批量分子优化配置 ===\n")
-        f.write(f"启动时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+    with open(main_log_file, 'a' if resume_mode else 'w') as f:
+        if not resume_mode:
+            f.write(f"=== 批量分子优化配置 ===\n")
+            f.write(f"启动时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        else:
+            f.write(f"\n=== 恢复批量分子优化 ===\n")
+            f.write(f"恢复时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"输出目录: {output_dir}\n")
         f.write(f"输入JSON文件: {args.input_json}\n")
         f.write(f"细胞名称: {args.cell_name}\n")
@@ -322,7 +499,7 @@ def main():
     # 执行批量处理
     start_time = time.time()
     # TAG core
-    results_dict = batch_process(data_list, args, output_dir)
+    results_dict = batch_process(data_list, args, output_dir, resume_mode=resume_mode)
     end_time = time.time()
     
     # 保存最终结果

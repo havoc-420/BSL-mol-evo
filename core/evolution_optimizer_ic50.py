@@ -205,7 +205,7 @@ class EvolutionTreeOptimizer:
             # 模型现在支持真正的批量处理，可以一次性预测所有操作
             with torch.no_grad():
                 predicted_changes = self.model(batched_graph, ops_batch)
-                predictions = predicted_changes.squeeze().tolist()
+                predictions = predicted_changes.cpu().numpy().flatten().tolist()
                 all_predictions.extend(predictions)
         
         return all_predictions
@@ -283,7 +283,7 @@ class EvolutionTreeOptimizer:
             
         except Exception as e:
             print(f"预测属性变化时出错: from={smiles_from}, error={e}")
-            traceback.print_exc()
+            # traceback.print_exc()
             return None
             
     def _should_prune_node(self, parent_node, child_node, optimization_direction, patience):

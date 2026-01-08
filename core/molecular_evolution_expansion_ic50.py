@@ -1195,12 +1195,12 @@ class MolecularEvolutionExpansion:
                 else:
                     operations_with_predictions.sort(key=lambda x: x[2])
                 
-                # 计算前20%的操作数量，至少取1个
-                top_10_percent_count = max(1, int(len(operations_with_predictions) * 0.1))  
-                print(f"当前节点: {current_smiles}，总操作数: {len(operations_with_predictions)}，前10%操作数: {top_10_percent_count}")
+                # 计算前5%的操作数量，至少取1个
+                top_5_percent_count = max(1, int(len(operations_with_predictions) * 0.05))  
+                print(f"当前节点: {current_smiles}，总操作数: {len(operations_with_predictions)}，前5%操作数: {top_5_percent_count}")
                 
-                # 只处理前20%的操作作为下一轮的扩展起点
-                for operation, new_smiles, property_change in operations_with_predictions[:top_10_percent_count]:
+                # 只处理前5%的操作作为下一轮的扩展起点
+                for operation, new_smiles, property_change in operations_with_predictions[:top_5_percent_count]:
                     
                     # 避免重复分子
                     if new_smiles not in seen_molecules:
