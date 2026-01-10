@@ -387,8 +387,8 @@ def batch_process(data_list, args, output_dir, resume_mode=False):
             property_value, 
             args, 
             output_dir,
-            timeout_seconds=2400
-            # timeout_seconds=100
+            timeout_seconds=600 * 4         # 40 min
+            # timeout_seconds=600 * 6 * 2   # 2 h
         )
         
         # 更新结果字典

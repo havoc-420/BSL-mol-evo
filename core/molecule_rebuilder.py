@@ -335,14 +335,9 @@ class MoleculeRebuilder:
                 idx1 = self.atom_map[pos1]
                 idx2 = self.atom_map[pos2]
                 
-                if self.obverse:
-                    print(f'😺 [rebuilder] 形成键: 位置 {pos1}-{pos2} -> 原子索引 {idx1}-{idx2}')
-                
                 # 检查是否已存在键
                 existing_bond = self.current_mol.GetBondBetweenAtoms(idx1, idx2)
                 if existing_bond:
-                    if self.obverse:
-                        print(f'😺 [rebuilder] 键已存在: {idx1}-{idx2}，更新键类型')
                     existing_bond.SetBondType(bond_type)
                 else:
                     # 在添加键之前检查是否形成闭环
@@ -350,8 +345,6 @@ class MoleculeRebuilder:
                     if bond_type == Chem.BondType.AROMATIC:
                         will_form_ring = self._is_ring_closure(idx1, idx2)
                     
-                    if self.obverse:
-                        print(f'😺 [rebuilder] 添加新键: {idx1}-{idx2}')
                     self.current_mol.AddBond(idx1, idx2, bond_type)
                     
                     # 如果形成的是芳香键，标记连接的原子为芳香性
@@ -362,8 +355,6 @@ class MoleculeRebuilder:
                         
                         # 如果形成了闭环，检查芳香环中的氮原子
                         if will_form_ring:
-                            if self.obverse:
-                                print(f'😺 [rebuilder] 检测到闭环: {idx1}-{idx2}')
                             self._adjust_aromatic_nitrogen_hydrogens()
     
     def _is_ring_closure(self, idx1, idx2):
@@ -380,14 +371,9 @@ class MoleculeRebuilder:
         try:
             mol = self.current_mol.GetMol()
             
-            if self.obverse:
-                print(f'😺 [rebuilder] 检查是否闭环: {idx1}-{idx2}')
-            
             # 检查是否已经存在直接的键
             existing_bond = mol.GetBondBetweenAtoms(idx1, idx2)
             if existing_bond:
-                if self.obverse:
-                    print(f'😺 [rebuilder]   已存在直接键，不形成闭环')
                 return False
             
             # 使用深度优先搜索检查两个原子之间是否已经存在路径
@@ -400,8 +386,6 @@ class MoleculeRebuilder:
                 if current == idx2:
                     # 如果路径长度大于1，说明已经存在路径，形成闭环
                     if len(path) > 1:
-                        if self.obverse:
-                            print(f'😺 [rebuilder]   发现路径: {path}，形成闭环')
                         return True
                     continue
                 
@@ -417,12 +401,8 @@ class MoleculeRebuilder:
                     if neighbor_idx not in path:
                         stack.append((neighbor_idx, path + [neighbor_idx]))
             
-            if self.obverse:
-                print(f'😺 [rebuilder]   未发现路径，不形成闭环')
             return False
         except Exception as e:
-            if self.obverse:
-                print(f'😺 [rebuilder]   检查闭环时出错: {e}')
             return False
     
     def _adjust_aromatic_nitrogen_hydrogens(self):
@@ -442,20 +422,11 @@ class MoleculeRebuilder:
             try:
                 Chem.SanitizeMol(mol)
             except Exception as e:
-                if self.obverse:
-                    print(f"😺 [rebuilder] 清理分子时出错: {e}")
                 # 继续尝试获取环信息
-            
-            if self.obverse:
-                print(f"😺 [rebuilder] 开始检查芳香氮原子...")
+                pass
             
             # 获取环信息
             ring_info = mol.GetRingInfo()
-            
-            if self.obverse:
-                print(f"😺 [rebuilder] 环的数量: {ring_info.NumRings()}")
-                for i, ring in enumerate(ring_info.AtomRings()):
-                    print(f"😺 [rebuilder]   环 {i + 1}: {list(ring)}")
             
             # 遍历所有原子
             for atom in mol.GetAtoms():
@@ -468,9 +439,6 @@ class MoleculeRebuilder:
                 # 计算键价总和
                 current_valence = sum(bond.GetBondTypeAsDouble() for bond in atom.GetBonds())
                 
-                if self.obverse:
-                    print(f"😺 [rebuilder] 氮原子 {atom.GetIdx()}: 芳香键数={aromatic_bond_count}, 键价总和={current_valence}")
-                
                 # 检查是否符合吡咯型氮原子的条件
                 if aromatic_bond_count == 2 and current_valence == 3.0:
                     # 检查该氮原子是否属于5元芳香环
@@ -480,8 +448,6 @@ class MoleculeRebuilder:
                     for ring in ring_info.AtomRings():
                         if atom_idx in ring and len(ring) == 5:
                             is_in_5_ring = True
-                            if self.obverse:
-                                print(f"😺 [rebuilder]   氮原子 {atom_idx} 属于5元环: {list(ring)}")
                             break
                     
                     # 判断类型：吡咯型氮原子（属于5元芳香环）
@@ -497,20 +463,10 @@ class MoleculeRebuilder:
                             h_idx = mol.AddAtom(h_atom)
                             mol.AddBond(atom.GetIdx(), h_idx, Chem.BondType.SINGLE)
                             
-                            if self.obverse:
-                                print(f"😺 [rebuilder] 为吡咯型氮原子 {atom.GetIdx()} 添加氢原子")
-                                print(f"😺 [rebuilder]   添加后的总氢数: {atom.GetTotalNumHs()}")
-                                print(f"😺 [rebuilder]   分子总原子数: {mol.GetNumAtoms()}")
-                                
-                                # 检查新添加的氢原子
-                                h_atom_obj = mol.GetAtomWithIdx(h_idx)
-                                print(f"😺 [rebuilder]   新添加的氢原子索引: {h_idx}, 符号: {h_atom_obj.GetSymbol()}")
-                            
                             # 添加氢原子后立即返回，避免迭代器失效
                             return
         except Exception as e:
-            if self.obverse:
-                print(f"😺 [rebuilder] 调整芳香氮原子氢原子时出错: {e}")
+            pass
     
     def _add_stereo(self, operation, ccw_flag):
         # """添加立体化学信息"""
@@ -529,8 +485,6 @@ class MoleculeRebuilder:
         # 使用操作类型确定手性：ccw_flag=True
         target_tag = Chem.CHI_TETRAHEDRAL_CCW if not ccw_flag else Chem.CHI_TETRAHEDRAL_CW
         atom.SetChiralTag(target_tag)
-        if self.obverse:
-            print('😺 [rebuilder]', f"{position}->{idx}", target_tag, atom.GetSymbol(), Chem.MolToSmiles(self.current_mol))
     
     def _add_fragment(self, position, fragment_smiles):
         """添加片段"""
@@ -654,8 +608,6 @@ class MoleculeRebuilder:
         if output_file:
             with open(output_file, 'w', encoding='utf-8') as f:
                 f.write(output)
-            if self.obverse:
-                print(f"可视化结果已保存到: {output_file}")
         
         return output
     
@@ -734,8 +686,6 @@ class MoleculeRebuilder:
             # 确保目录存在
             os.makedirs(os.path.dirname(output_file) if os.path.dirname(output_file) else ".", exist_ok=True)
             plt.savefig(output_file, dpi=150, bbox_inches='tight')
-            if self.obverse:
-                print(f"分子可视化图像已保存到: {output_file}")
 
 
 class PairMoleculeRebuilder(MoleculeRebuilder):
@@ -905,10 +855,6 @@ class PairMoleculeRebuilder(MoleculeRebuilder):
             dict: 包含三个阶段的步骤信息
         """
         # 阶段1: mol1 -> mcs
-        if self.obverse:
-            print("=" * 80)
-            print("阶段1: mol1 -> mcs (撤销 mol1 的 non-mcs 操作)")
-            print("=" * 80)
         
         # 重置状态
         self.current_mol = rdchem.RWMol()
@@ -922,10 +868,6 @@ class PairMoleculeRebuilder(MoleculeRebuilder):
         mcs_steps_count = len(mol1_to_mcs_steps)
         
         # 阶段2: mcs -> mol2
-        if self.obverse:
-            print("\n" + "=" * 80)
-            print("阶段2: mcs -> mol2 (应用 mol2 的 non-mcs 操作)")
-            print("=" * 80)
         
         mcs_to_mol2_steps = self.rebuild_mcs_to_mol2(analyze_xyz=analyze_xyz)
         
@@ -1013,8 +955,6 @@ class PairMoleculeRebuilder(MoleculeRebuilder):
         if output_file:
             with open(output_file, 'w', encoding='utf-8') as f:
                 f.write(output)
-            if self.obverse:
-                print(f"可视化结果已保存到: {output_file}")
         
         return output
     
@@ -1036,10 +976,6 @@ class PairMoleculeRebuilder(MoleculeRebuilder):
         all_steps = []
         
         # 阶段1: mol1 -> mcs
-        if self.obverse:
-            print("=" * 80)
-            print("阶段1: mol1 -> mcs (撤销 mol1 的 non-mcs 操作)")
-            print("=" * 80)
         
         # 重置状态
         self.current_mol = rdchem.RWMol()
@@ -1078,10 +1014,6 @@ class PairMoleculeRebuilder(MoleculeRebuilder):
                 all_steps.append(f"撤销: {operation['operation']} @ {operation.get('position', 'N/A')}")
         
         # 阶段2: mcs -> mol2
-        if self.obverse:
-            print("\n" + "=" * 80)
-            print("阶段2: mcs -> mol2 (应用 mol2 的 non-mcs 操作)")
-            print("=" * 80)
         
         non_mcs_path_mol2 = self.mol2_section.get("path_non_mcs", [])
         for i, operation in enumerate(non_mcs_path_mol2):
@@ -1147,8 +1079,6 @@ class PairMoleculeRebuilder(MoleculeRebuilder):
         
         if output_file:
             plt.savefig(output_file, dpi=300, bbox_inches='tight')
-            if self.obverse:
-                print(f"分子可视化图像已保存到: {output_file}")
         
         plt.close(fig)
     
@@ -1172,10 +1102,6 @@ class PairMoleculeRebuilder(MoleculeRebuilder):
         xyz_data = {}
         
         # 阶段1: 获取 mol1 的最终状态
-        if self.obverse:
-            print("=" * 80)
-            print("阶段1: 获取 mol1 最终状态")
-            print("=" * 80)
         
         # 重置状态并构建 mol1
         self.current_mol = rdchem.RWMol()
@@ -1208,11 +1134,6 @@ class PairMoleculeRebuilder(MoleculeRebuilder):
             all_steps.append("完整 mol1 分子")
         
         # 阶段2: 撤销 mol1 的 non-mcs 操作，逐步得到 MCS
-        if self.obverse:
-            print("\n" + "=" * 80)
-            print("阶段2: mol1 -> MCS (撤销 mol1 的 non-mcs 操作)")
-            print("=" * 80)
-        
         non_mcs_path = self.mol1_section.get("path_non_mcs", [])
         for i, operation in enumerate(reversed(non_mcs_path)):
             self._undo_operation(operation)
@@ -1237,10 +1158,6 @@ class PairMoleculeRebuilder(MoleculeRebuilder):
                 all_steps.append(f"撤销: {operation['operation']} @ {operation.get('position', 'N/A')}")
         
         # 阶段3: 从 MCS 应用 mol2 的 non-mcs 操作，逐步得到 mol2
-        if self.obverse:
-            print("\n" + "=" * 80)
-            print("阶段3: MCS -> mol2 (应用 mol2 的 non-mcs 操作)")
-            print("=" * 80)
         
         non_mcs_path_mol2 = self.mol2_section.get("path_non_mcs", [])
         for i, operation in enumerate(non_mcs_path_mol2):
@@ -1268,9 +1185,6 @@ class PairMoleculeRebuilder(MoleculeRebuilder):
         # 保存 z/pos 信息到 pt 文件
         if output_pt_file and xyz_data:
             torch.save(xyz_data, output_pt_file)
-            if self.obverse:
-                print(f"z/pos 信息已保存到: {output_pt_file}")
-                print(f"共保存 {len(xyz_data)} 个中间状态的 z/pos 信息")
         
         # 创建图像
         num_mols = len(all_mols)
@@ -1322,8 +1236,6 @@ class PairMoleculeRebuilder(MoleculeRebuilder):
         
         if output_file:
             plt.savefig(output_file, dpi=300, bbox_inches='tight')
-            if self.obverse:
-                print(f"分子转换路径可视化已保存到: {output_file}")
         
         plt.close(fig)
             
