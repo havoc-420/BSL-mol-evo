@@ -119,7 +119,7 @@ def create_output_dir():
     """创建输出目录"""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     # INFO 这里默认的运行根路径的上一层。
-    base_dir = os.path.join(os.getcwd(), "mol_evo", "output", "evo-mo", f"batch_optimization_{timestamp}")
+    base_dir = os.path.join(os.getcwd(), "mol_evo", "output", "evo-mo", "ic50", f"batch_optimization_{timestamp}")
     os.makedirs(base_dir, exist_ok=True)
     return base_dir
 
@@ -387,8 +387,9 @@ def batch_process(data_list, args, output_dir, resume_mode=False):
             property_value, 
             args, 
             output_dir,
-            timeout_seconds=600 * 4         # 40 min
-            # timeout_seconds=600 * 6 * 2   # 2 h
+            # MARK 时间设定
+            # timeout_seconds=600 * 4         # 40 min
+            timeout_seconds=600 * 6 * 3   # 3 h
         )
         
         # 更新结果字典

@@ -181,6 +181,9 @@ def run_evolution_optimizer(optimizer, smiles, property_value, args, output_dir)
         # 处理错误
         error_msg = str(e)
         print(f"处理失败: {smiles}, 错误: {error_msg}")
+        import traceback
+        traceback.print_exc()
+        raise e
         
         return {
             'status': 'error',

@@ -138,11 +138,10 @@ base single cli example in [mo-cli.md](../mo/mo-cli.md).
 
 ```bash
 ## 1. lumo
-conda activate mol-edit && CUDA_VISIBLE_DEVICES=0 python -m mol_evo.scripts.batch_optimizer --input-csv /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/eval-data/20251205_131636/qm9_test_molecules.csv --output-json /home/rhj/projects/mol_opt/mol-ofo/test_output.json --target-property lumo --start-index 0 --end-index 50 --max-depth 3 --max-branching 8 \
---direction increase
+conda activate mol-edit && CUDA_VISIBLE_DEVICES=0 python mol_evo/scripts/batch_optimizer.py --input-csv /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/eval-data/20251205_131636/qm9_test_molecules.csv --output-json /home/rhj/projects/mol_opt/mol-ofo/test_output.json --target-property lumo --start-index 0 --end-index 50 --max-depth 4 --direction decrease
 
 ## 2. homo
-conda activate mol-edit && CUDA_VISIBLE_DEVICES=1 python mol_evo/scripts/batch_optimizer.py --input-csv /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/eval-data/20251205_131636/qm9_test_molecules.csv --target-property homo --start-index 0 --end-index 50 --max-depth 3 --max-branching 8 --direction decrease
+conda activate mol-edit && CUDA_VISIBLE_DEVICES=0 python mol_evo/scripts/batch_optimizer.py --input-csv /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/eval-data/20251205_131636/qm9_test_molecules.csv --target-property homo --start-index 0 --end-index 50 --max-depth 4 --direction decrease
 ```
 
 #### 2. Task-2: ic50 optimize
@@ -158,15 +157,15 @@ conda activate mol-edit && CUDA_VISIBLE_DEVICES=0 python mol_evo/scripts/batch_o
 
 conda activate mol-edit && CUDA_VISIBLE_DEVICES=0 python mol_evo/scripts/batch_optimizer_ic50.py --model-path /home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/drp_ic50_p/SchNet_687787_checkpoints/0.9_N4_20260106_134954/best_model.pth --target-property ic50 --max-depth 3 --direction decrease --cell-name 687787
 
-conda activate mol-edit && CUDA_VISIBLE_DEVICES=1 python mol_evo/scripts/batch_optimizer_ic50.py --model-path /home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/drp_ic50_p/SchNet_687800_checkpoints/0.9_N4_20260107_085835/best_model.pth --target-property ic50 --max-depth 4 --direction decrease --cell-name 687800
+conda activate mol-edit && CUDA_VISIBLE_DEVICES=1 python mol_evo/scripts/batch_optimizer_ic50.py --model-path /home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/drp_ic50_p/SchNet_687800_checkpoints/0.9_N4_20260107_085835/best_model.pth --target-property ic50 --max-depth 6 --direction decrease --cell-name 687800
 
 # PART-2: Cell: 687800 Cell: 906792 Cell: 684055 Cell: 908149
 
-conda activate mol-edit && CUDA_VISIBLE_DEVICES=0 python mol_evo/scripts/batch_optimizer_ic50.py --model-path /home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/drp_ic50_p/SchNet_906792_checkpoints/0.9_N4_20260109_212701/best_model.pth --target-property ic50 --max-depth 3 --direction decrease --cell-name 906792
+conda activate mol-edit && CUDA_VISIBLE_DEVICES=1 python mol_evo/scripts/batch_optimizer_ic50.py --model-path /home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/drp_ic50_p/SchNet_906792_checkpoints/0.9_N4_20260109_212701/best_model.pth --target-property ic50 --max-depth 6 --direction decrease --cell-name 906792
 
-conda activate mol-edit && CUDA_VISIBLE_DEVICES=1 python mol_evo/scripts/batch_optimizer_ic50.py --model-path /home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/drp_ic50_p/SchNet_684055_checkpoints/0.9_N4_20260110_000235/best_model.pth --target-property ic50 --max-depth 3 --direction decrease --cell-name 684055
+conda activate mol-edit && CUDA_VISIBLE_DEVICES=1 python mol_evo/scripts/batch_optimizer_ic50.py --model-path /home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/drp_ic50_p/SchNet_684055_checkpoints/0.9_N4_20260110_000235/best_model.pth --target-property ic50 --max-depth 6 --direction decrease --cell-name 684055
 
-conda activate mol-edit && CUDA_VISIBLE_DEVICES=1 python mol_evo/scripts/batch_optimizer_ic50.py --model-path /home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/drp_ic50_p/SchNet_908149_checkpoints/0.9_N4_20260110_093217/best_model.pth --target-property ic50 --max-depth 3 --direction decrease --cell-name 908149
+conda activate mol-edit && CUDA_VISIBLE_DEVICES=0 python mol_evo/scripts/batch_optimizer_ic50.py --model-path /home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/drp_ic50_p/SchNet_908149_checkpoints/0.9_N4_20260110_093217/best_model.pth --target-property ic50 --max-depth 4 --direction decrease --cell-name 908149
 
 ```
 
