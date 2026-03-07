@@ -34,7 +34,6 @@ try:
     from mol_evo.core.molecular_evolution_expansion import MolecularEvolutionExpansion
     from mol_evo.core.data.processing import load_operation_config, get_atom_types, get_operation_types
     from mol_evo.utils.predict.model_utils import load_property_stats, load_training_params
-    from mol_evo.utils.predict.data_utils import prepare_single_prediction_data
     from mol_evo.core.data.data_v0 import smiles_to_graph_data
     from mol_evo.core.utils.molecule import MoleculeCache
     from mol_evo.core.data.processing import prepare_edge_features
@@ -187,7 +186,7 @@ class EvolutionTreeOptimizer:
         except Exception as e:
             print(f"加载初始属性时出错: {e}")
             
-    def predict_batch(self, from_smiles_list, to_smiles_list, operation_details_list):
+    def predict_batch(self, from_smiles_list, to_smiles_list, operation_details_list, batch_size=64):
         """
         批量预测分子属性变化
         
@@ -195,9 +194,10 @@ class EvolutionTreeOptimizer:
             from_smiles_list: 起始分子SMILES列表
             to_smiles_list: 目标分子SMILES列表
             operation_details_list: 操作详情字典列表，每个字典包含操作类型和相关参数
+            batch_size: 批处理大小，默认为64
             
         Returns:
-            批量预测的属性变化值
+            批量预测的属性变化值，与输入列表长度相同，无法处理的返回 None
         """
         if not from_smiles_list or not to_smiles_list or not operation_details_list:
             return []
@@ -210,18 +210,32 @@ class EvolutionTreeOptimizer:
         to_data_list = []
         edge_attr_list = []
         
+        # 记录每个索引是否有效
+        valid_indices = []
+        
+        # 记录失败的 SMILES，避免重复处理
+        failed_smiles = set()
+        
         for i in range(len(from_smiles_list)):
             smiles_from = from_smiles_list[i]
             smiles_to = to_smiles_list[i]
             operation_details = operation_details_list[i]
             
             try:
+                # 检查 SMILES 是否之前已经失败过
+                if smiles_from in failed_smiles or smiles_to in failed_smiles:
+                    valid_indices.append(False)
+                    continue
+                
                 # 验证输入分子
                 mol_from = Chem.MolFromSmiles(smiles_from)
                 mol_to = Chem.MolFromSmiles(smiles_to)
                 
                 if not mol_from or not mol_to:
                     print(f"无效的SMILES: from={smiles_from}, to={smiles_to}")
+                    failed_smiles.add(smiles_from)
+                    failed_smiles.add(smiles_to)
+                    valid_indices.append(False)
                     continue
                     
                 # 从操作详情中提取必要信息
@@ -232,10 +246,17 @@ class EvolutionTreeOptimizer:
                 
                 # 准备分子图数据
                 from_data = smiles_to_graph_data(smiles_from, self.molecule_cache)
-                to_data = smiles_to_graph_data(smiles_to, self.molecule_cache)
+                if from_data is None:
+                    print(f"无法将分子转换为图数据: from={smiles_from}")
+                    failed_smiles.add(smiles_from)
+                    valid_indices.append(False)
+                    continue
                 
-                if from_data is None or to_data is None:
-                    print(f"无法将分子转换为图数据: from={smiles_from}, to={smiles_to}")
+                to_data = smiles_to_graph_data(smiles_to, self.molecule_cache)
+                if to_data is None:
+                    print(f"无法将分子转换为图数据: to={smiles_to}")
+                    failed_smiles.add(smiles_to)
+                    valid_indices.append(False)
                     continue
                     
                 # 添加batch信息
@@ -264,36 +285,70 @@ class EvolutionTreeOptimizer:
                 from_data_list.append(from_data)
                 to_data_list.append(to_data)
                 edge_attr_list.append(edge_attr)
+                valid_indices.append(True)
                 
             except Exception as e:
                 print(f"处理SMILES对时出错: from={smiles_from}, to={smiles_to}, error={e}")
+                failed_smiles.add(smiles_from)
+                failed_smiles.add(smiles_to)
+                valid_indices.append(False)
                 continue
         
-        # 如果没有有效的数据，返回空列表
+        # 如果没有有效的数据，返回全0列表
         if not from_data_list or not to_data_list or not edge_attr_list:
-            return []
+            return [None] * len(from_smiles_list)
         
-        # 批量处理图数据
-        from_batch = Batch.from_data_list(from_data_list).to(self.device)
-        to_batch = Batch.from_data_list(to_data_list).to(self.device)
+        # 分批处理数据
+        all_predictions = []
+        num_samples = len(from_data_list)
         
-        # 批量处理边特征
-        edge_attr_batch = torch.stack(edge_attr_list).to(self.device)
-        
-        # 执行批量预测
-        with torch.no_grad():
-            predictions = self.model(from_batch, to_batch, edge_attr_batch)
-        
-        # 反标准化处理
-        if self.property_stats and self.target_property in self.property_stats:
-            mean, std = self.property_stats[self.target_property]
-            predictions = predictions * std + mean
-        
-        # 确保返回的是一维浮点数列表，即使模型返回的是二维张量
-        if len(predictions.shape) > 1:
-            predictions = predictions.squeeze()
+        for start_idx in range(0, num_samples, batch_size):
+            end_idx = min(start_idx + batch_size, num_samples)
             
-        return predictions.cpu().numpy().tolist()
+            # 获取当前批次的数据
+            batch_from_data = from_data_list[start_idx:end_idx]
+            batch_to_data = to_data_list[start_idx:end_idx]
+            batch_edge_attr = edge_attr_list[start_idx:end_idx]
+            
+            # 批量处理图数据
+            from_batch = Batch.from_data_list(batch_from_data).to(self.device)
+            to_batch = Batch.from_data_list(batch_to_data).to(self.device)
+            
+            # 批量处理边特征
+            edge_attr_batch = torch.stack(batch_edge_attr).to(self.device)
+            
+            # 执行批量预测
+            try:
+                with torch.no_grad():
+                    predictions = self.model(from_batch, to_batch, edge_attr_batch)
+                
+                # 反标准化处理
+                if self.property_stats and self.target_property in self.property_stats:
+                    mean, std = self.property_stats[self.target_property]
+                    predictions = predictions * std + mean
+                
+                # 确保返回的是一维浮点数列表，即使模型返回的是二维张量
+                if len(predictions.shape) > 1:
+                    predictions = predictions.squeeze()
+                    
+                batch_predictions = predictions.cpu().numpy().tolist()
+                all_predictions.extend(batch_predictions)
+            except Exception as e:
+                print(f"批量预测时出错: start_idx={start_idx}, end_idx={end_idx}, error={e}")
+                # 为该批次的所有预测返回 None
+                all_predictions.extend([None] * (end_idx - start_idx))
+        
+        # 构建与输入长度相同的预测结果列表，无效索引返回 None
+        result = []
+        valid_idx = 0
+        for is_valid in valid_indices:
+            if is_valid and valid_idx < len(all_predictions):
+                result.append(all_predictions[valid_idx])
+                valid_idx += 1
+            else:
+                result.append(None)
+        
+        return result
             
     def _add_batch_info(self, data):
         """
@@ -308,8 +363,15 @@ class EvolutionTreeOptimizer:
         if data is None:
             return None
             
-        # 获取节点数量
-        num_nodes = data.x.size(0) if hasattr(data, 'x') and data.x is not None else 0
+        # 获取节点数量 - 优先使用z，其次使用pos
+        if hasattr(data, 'z') and data.z is not None:
+            num_nodes = data.z.size(0)
+        elif hasattr(data, 'pos') and data.pos is not None:
+            num_nodes = data.pos.size(0)
+        elif hasattr(data, 'x') and data.x is not None:
+            num_nodes = data.x.size(0)
+        else:
+            num_nodes = 0
         
         # 创建batch属性，所有节点都属于同一个图（批次）
         data.batch = torch.zeros(num_nodes, dtype=torch.long)
@@ -401,6 +463,11 @@ class EvolutionTreeOptimizer:
             if to_data.pos is not None and len(to_data.pos.shape) < 2:
                 print(f"图数据pos属性维度不正确: to={smiles_to}")
                 return None
+            
+            # 将数据移动到与模型相同的设备
+            from_data = from_data.to(self.device)
+            to_data = to_data.to(self.device)
+            edge_attr = edge_attr.to(self.device)
             
             # INFO 进行预测
             with torch.no_grad():
@@ -634,18 +701,7 @@ class EvolutionTreeOptimizer:
         print(f"剪枝耐心值: {pruning_patience}")
         print(f"logP有效范围: {logp_range}")
         print(f"logP剪枝耐心值: {logp_patience}")
-        
-        # 检查中断标志
-        if hasattr(self, 'interrupted') and self.interrupted:
-            print("检测到中断信号，停止进化树优化")
-            return {
-                "initial_smiles": initial_smiles,
-                "max_depth": max_depth,
-                "max_branching": max_branching,
-                "nodes": {},
-                "edges": []
-            }
-        
+
         # 获取初始分子的属性值
         initial_property_value = self.initial_property_value
         if initial_property_value is None and self.initial_smiles_csv:  # UPDATE 根据默认文件中的属性值

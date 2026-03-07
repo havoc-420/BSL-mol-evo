@@ -63,7 +63,6 @@ class GraphDropPath(nn.Module):
     def extra_repr(self):
         return 'drop_prob={}'.format(self.drop_prob)
     
-    
 
 class EquivariantDropout(nn.Module):
     def __init__(self, irreps, drop_prob):

@@ -881,8 +881,8 @@ class MolecularEvolutionExpansion:
             "edges": []
         }
         
-        # 使用队列进行广度优先搜索
-        queue = deque[tuple[str, int, str]]([(self.initial_smiles, 0, "0")])  # (smiles, depth, parent_id) 根节点的parent_id设为"0"
+        # 使用队列进行广度优先搜索，按层处理
+        current_level = [(self.initial_smiles, 0, "0")]  # (smiles, depth, parent_id) 根节点的parent_id设为"0"
         node_counter = 0
         
         # 初始化根节点
@@ -912,150 +912,166 @@ class MolecularEvolutionExpansion:
         
         seen_molecules = {self.initial_smiles}  # 存储已处理的分子
         
-        while queue:
-            current_smiles, depth, parent_id = queue.popleft()
+        # 按层进行扩展
+        for depth in range(max_depth):
+            print(f"\n=== 开始处理第 {depth} 层，当前层节点数: {len(current_level)} ===")
             
-            # 获取当前节点
-            current_node = expansion_tree["nodes"].get(parent_id)
-            if not current_node:
-                continue
+            # 收集当前层的所有候选节点
+            all_candidates = []
             
-            # 达到最大深度时停止扩展
-            if depth >= max_depth:
-                continue
+            # 处理当前层的所有节点
+            for current_smiles, _, parent_id in current_level:
+                # 获取当前节点
+                current_node = expansion_tree["nodes"].get(parent_id)
+                if not current_node:
+                    continue
                 
-            # INFO 检查是否需要剪枝该分支
-            if predictor and pruning_patience > 0:
-                # 从当前节点回溯到最近的属性改善点
-                should_prune = False
-                stagnation_count = 0
-                last_improvement_depth = depth
-                
-                # 计算该路径的连续未改善次数
-                current_backtrack_id = parent_id
-                while current_backtrack_id:
-                    backtrack_node = expansion_tree["nodes"].get(current_backtrack_id)
-                    if not backtrack_node:
-                        break
+                # INFO 检查是否需要剪枝该分支
+                if predictor and pruning_patience > 0:
+                    # 从当前节点回溯到最近的属性改善点
+                    should_prune = False
+                    stagnation_count = 0
+                    last_improvement_depth = depth
                     
-                    # 如果该节点的属性变化是改善的，重置停滞计数
-                    if "property_change" in backtrack_node:
-                        change = backtrack_node["property_change"]
-                        if (optimization_direction == 'increase' and change > 0) or \
-                           (optimization_direction == 'decrease' and change < 0):
-                            last_improvement_depth = backtrack_node["depth"]
+                    # 计算该路径的连续未改善次数
+                    current_backtrack_id = parent_id
+                    while current_backtrack_id:
+                        backtrack_node = expansion_tree["nodes"].get(current_backtrack_id)
+                        if not backtrack_node:
                             break
-                    
-                    # 向前回溯
-                    current_backtrack_id = backtrack_node.get("parent_id")
-                
-                stagnation_count = depth - last_improvement_depth
-                if stagnation_count >= pruning_patience:
-                    print(f"剪枝分支，起始节点: {current_smiles}，连续未改善次数: {stagnation_count}")
-                    continue
-            
-            # INFO 检查是否需要根据logP剪枝该分支
-            if logp_patience > 0:
-                # 从当前节点回溯到最近的logP在范围内的节点
-                logp_out_range_count = 0
-                last_valid_logp_depth = depth
-                
-                # 计算该路径的连续logP超出范围次数
-                current_backtrack_id = parent_id
-                while current_backtrack_id:
-                    backtrack_node = expansion_tree["nodes"].get(current_backtrack_id)
-                    if not backtrack_node:
-                        break
-                    
-                    # 检查该节点的logP是否在范围内
-                    if backtrack_node.get("logP_in_range", True):
-                        last_valid_logp_depth = backtrack_node["depth"]
-                        break
-                    
-                    # 向前回溯
-                    current_backtrack_id = backtrack_node.get("parent_id")
-                
-                logp_out_range_count = depth - last_valid_logp_depth
-                if logp_out_range_count >= logp_patience:
-                    print(f"根据logP剪枝分支，起始节点: {current_smiles}，连续超出范围次数: {logp_out_range_count}")
-                    continue
-            
-            # 解析当前分子
-            current_mol = Chem.MolFromSmiles(current_smiles)
-            if not current_mol:
-                continue
-            
-            # 获取可能的操作
-            possible_operations = self._get_possible_operations(current_mol)
-            
-            # 如果有预测器，先对每个可能的操作进行预测，然后根据预测结果排序
-            if predictor:
-                # 收集所有需要预测的操作
-                # TODO 这里是否需要 batch-size 的设定来限制呢？
-                batch_from_smiles = []
-                batch_to_smiles = []
-                batch_operations = []
-                valid_operations = []
-                
-                for operation in possible_operations:
-                    try:
-                        # 应用操作生成新分子
-                        operation_type = operation["type"]
-                        operation_params = operation.get("params", {})
-                        new_mol = self._apply_operation(current_mol, operation_type, **operation_params)
                         
-                        # 检查新分子是否有效
-                        if new_mol and self.validate_molecule(new_mol):
-                            new_smiles = Chem.MolToSmiles(new_mol)
-                            
-                            # 添加到批量预测列表
-                            batch_from_smiles.append(current_smiles)
-                            batch_to_smiles.append(new_smiles)
-                            batch_operations.append(operation)
-                            valid_operations.append((operation, new_smiles))
-                    except Exception as e:
-                        # 记录错误但继续处理其他操作
+                        # 如果该节点的属性变化是改善的，重置停滞计数
+                        if "property_change" in backtrack_node:
+                            change = backtrack_node["property_change"]
+                            if (optimization_direction == 'increase' and change > 0) or \
+                               (optimization_direction == 'decrease' and change < 0):
+                                last_improvement_depth = backtrack_node["depth"]
+                                break
+                        
+                        # 向前回溯
+                        current_backtrack_id = backtrack_node.get("parent_id")
+                    
+                    stagnation_count = depth - last_improvement_depth
+                    if stagnation_count >= pruning_patience:
+                        print(f"剪枝分支，起始节点: {current_smiles}，连续未改善次数: {stagnation_count}")
                         continue
-                # 进行批量预测
-                operations_with_predictions = []
-                if batch_from_smiles:
-                    try:
-                        # 调用批量预测方法
-                        property_changes = predictor.predict_batch(batch_from_smiles, batch_to_smiles, batch_operations)
-                        
-                        # 过滤掉预测值为None的操作
-                        for i, (operation, new_smiles) in enumerate(valid_operations):
-                            if i < len(property_changes):
-                                property_change = property_changes[i]
-                                # 确保property_change是有效的数值类型
-                                if property_change is not None and not (isinstance(property_change, list) or isinstance(property_change, dict)):
-                                    operations_with_predictions.append((operation, new_smiles, property_change))
-                    except Exception as e:
-                        print(f"批量预测出错: {e}")
-                        # 如果批量预测失败，回退到逐个预测
-                        for operation, new_smiles in valid_operations:
-                            try:
-                                property_change = predictor.predict_property_change(current_smiles, new_smiles, operation)
-                                if property_change is not None:
-                                    operations_with_predictions.append((operation, new_smiles, property_change))
-                            except Exception as e:
-                                continue
                 
-                # 根据优化方向排序操作
-                if optimization_direction == 'increase':
-                    operations_with_predictions.sort(key=lambda x: x[2], reverse=True)
-                else:
-                    operations_with_predictions.sort(key=lambda x: x[2])
-                
-                # 限制分支数量
-                branch_count = 0
-                for operation, new_smiles, property_change in operations_with_predictions:
-                    if branch_count >= max_branching:
-                        break
+                # INFO 检查是否需要根据logP剪枝该分支
+                if logp_patience > 0:
+                    # 从当前节点回溯到最近的logP在范围内的节点
+                    logp_out_range_count = 0
+                    last_valid_logp_depth = depth
                     
+                    # 计算该路径的连续logP超出范围次数
+                    current_backtrack_id = parent_id
+                    while current_backtrack_id:
+                        backtrack_node = expansion_tree["nodes"].get(current_backtrack_id)
+                        if not backtrack_node:
+                            break
+                        
+                        # 检查该节点的logP是否在范围内
+                        if backtrack_node.get("logP_in_range", True):
+                            last_valid_logp_depth = backtrack_node["depth"]
+                            break
+                        
+                        # 向前回溯
+                        current_backtrack_id = backtrack_node.get("parent_id")
+                    
+                    logp_out_range_count = depth - last_valid_logp_depth
+                    if logp_out_range_count >= logp_patience:
+                        print(f"根据logP剪枝分支，起始节点: {current_smiles}，连续超出范围次数: {logp_out_range_count}")
+                        continue
+                
+                # 解析当前分子
+                current_mol = Chem.MolFromSmiles(current_smiles)
+                if not current_mol:
+                    continue
+                
+                # 获取可能的操作
+                possible_operations = self._get_possible_operations(current_mol)
+                
+                # 如果有预测器，先对每个可能的操作进行预测，然后根据预测结果排序
+                if predictor:
+                    # 收集所有需要预测的操作
+                    # THINK 这里是否需要 batch-size 的设定来限制呢？ # 已放到 batch——predict 中分批 64 处理。
+                    batch_from_smiles = []
+                    batch_to_smiles = []
+                    batch_operations = []
+                    valid_operations = []
+                    
+                    for operation in possible_operations:
+                        try:
+                            # 应用操作生成新分子
+                            operation_type = operation["type"]
+                            operation_params = operation.get("params", {})
+                            new_mol = self._apply_operation(current_mol, operation_type, **operation_params)
+                            
+                            # 检查新分子是否有效
+                            if new_mol and self.validate_molecule(new_mol):
+                                new_smiles = Chem.MolToSmiles(new_mol)
+                                
+                                # 添加到批量预测列表
+                                batch_from_smiles.append(current_smiles)
+                                batch_to_smiles.append(new_smiles)
+                                batch_operations.append(operation)
+                                valid_operations.append((operation, new_smiles))
+                        except Exception as e:
+                            # 记录错误但继续处理其他操作
+                            continue
+                    # 进行批量预测
+                    operations_with_predictions = []
+                    if batch_from_smiles:
+                        try:
+                            # 调用批量预测方法
+                            property_changes = predictor.predict_batch(batch_from_smiles, batch_to_smiles, batch_operations)
+                            
+                            # 过滤掉预测值为None的操作
+                            for i, (operation, new_smiles) in enumerate(valid_operations):
+                                if i < len(property_changes):
+                                    property_change = property_changes[i]
+                                    # 确保property_change是有效的数值类型
+                                    if property_change is not None and not (isinstance(property_change, list) or isinstance(property_change, dict)):
+                                        operations_with_predictions.append((operation, new_smiles, property_change, parent_id))
+                        except Exception as e:
+                            raise e
+                            # print(f"批量预测出错: {e}")
+                            # # 如果批量预测失败，回退到逐个预测
+                            # for operation, new_smiles in valid_operations:
+                            #     try:
+                            #         property_change = predictor.predict_property_change(current_smiles, new_smiles, operation)
+                            #         if property_change is not None:
+                            #             operations_with_predictions.append((operation, new_smiles, property_change))
+                            #     except Exception as e:
+                            #         continue
+                    
+                    # 将所有候选添加到当前层的候选列表
+                    all_candidates.extend(operations_with_predictions)
+                else:
+                   raise NotImplementedError("[Molecular Evolver] 预测器未定义")
+            
+            # 对当前层的所有候选进行统一的 top 5% 过滤
+            if all_candidates:
+                # 根据优化方向排序所有候选
+                if optimization_direction == 'increase':
+                    all_candidates.sort(key=lambda x: x[2], reverse=True)
+                else:
+                    all_candidates.sort(key=lambda x: x[2])
+                
+                # 计算前50%的候选数量，至少取1个，最多500个
+                top_50_percent_count = max(1, min(500, int(len(all_candidates) * 0.5)))
+                print(f"第 {depth} 层总候选数: {len(all_candidates)}，前50%候选数: {top_50_percent_count}")
+                
+                # 处理前50%的候选
+                next_level = []
+                for operation, new_smiles, property_change, parent_id in all_candidates[:top_50_percent_count]:
                     # 避免重复分子
                     if new_smiles not in seen_molecules:
                         seen_molecules.add(new_smiles)
+                        
+                        # 获取父节点
+                        current_node = expansion_tree["nodes"].get(parent_id)
+                        if not current_node:
+                            continue
                         
                         # 计算累计变化和新属性值
                         current_accumulated = current_node.get("accumulated_change", 0)
@@ -1092,12 +1108,16 @@ class MolecularEvolutionExpansion:
                             "details": operation.get("params", {})
                         })
                         
-                        # 添加到队列继续扩展
-                        queue.append((new_smiles, depth + 1, node_id))
+                        # 添加到下一层
+                        next_level.append((new_smiles, depth + 1, node_id))
                         node_counter += 1
-                        branch_count += 1
+                
+                # 更新当前层为下一层
+                current_level = next_level
+                print(f"第 {depth} 层扩展完成，下一层节点数: {len(current_level)}")
             else:
-               raise NotImplementedError("[Molecular Evolver] 预测器未定义")
+                print(f"第 {depth} 层没有有效候选，停止扩展")
+                break
                         
         return expansion_tree
     

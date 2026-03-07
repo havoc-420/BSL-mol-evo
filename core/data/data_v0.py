@@ -25,12 +25,13 @@ def smiles_to_graph_data(smiles, cache):
     x, z, pos, edge_index, edge_attr = cache.process_smiles(smiles, types)  # UPDATE 存在无法处理的 SMILES
     
     # 检查转换是否成功
-    if x is None:
+    if z is None:
         # print(f"无法处理SMILES: {smiles}")
         return None
     
     # 创建图数据对象
-    data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr, z=z, pos=pos)
+    data = Data(z=z, pos=pos)
+    # data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr, z=z, pos=pos)
     return data
 
 

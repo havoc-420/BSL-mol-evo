@@ -156,30 +156,40 @@ class EvolutionTreeOptimizer:
             current_smiles: 当前分子SMILES（用于准备初始分子图数据）
             
         Returns:
-            批量预测的属性变化值列表
+            批量预测的属性变化值列表（遇到错误时对应位置为 None）
         """
         if not valid_operations:
             return []
             
         # 准备批量数据
         ops_tensors = []
+        valid_indices = []
         
-        for operation, new_smiles in valid_operations:
+        for idx, (operation, new_smiles) in enumerate(valid_operations):
             try:
                 # 将操作详情转换为操作张量
                 ops_tensor = self._encode_operation_to_tensor(operation)
                 ops_tensors.append(ops_tensor)
+                valid_indices.append(idx)
                 
             except Exception as e:
-                print(f"处理操作时出错: operation={operation}, error={e}")
+                print(f"处理操作时出错: idx={idx}, operation={operation}, error={e}")
                 continue
         
-        # 如果没有有效的数据，返回空列表
+        # 如果没有有效的数据，返回全 None 列表
         if not ops_tensors:
-            return []
+            return [None] * len(valid_operations)
         
         # 准备初始分子图数据（所有操作基于同一个初始分子）
-        initial_graph = prepare_molecule_from_smiles(current_smiles, device=self.device)
+        try:
+            initial_graph = prepare_molecule_from_smiles(current_smiles, device=self.device)
+        except ValueError as e:
+            if "Bad Conformer Id" in str(e):
+                print(f"准备分子图数据时出错 (Bad Conformer Id): current_smiles={current_smiles}, error={e}")
+                # 为所有操作返回 None
+                return [None] * len(valid_operations)
+            else:
+                raise
         
         # 分批处理操作
         all_predictions = []
@@ -203,12 +213,22 @@ class EvolutionTreeOptimizer:
             
             # 执行批量预测
             # 模型现在支持真正的批量处理，可以一次性预测所有操作
-            with torch.no_grad():
-                predicted_changes = self.model(batched_graph, ops_batch)
-                predictions = predicted_changes.cpu().numpy().flatten().tolist()
-                all_predictions.extend(predictions)
+            try:
+                with torch.no_grad():
+                    predicted_changes = self.model(batched_graph, ops_batch)
+                    predictions = predicted_changes.cpu().numpy().flatten().tolist()
+                    all_predictions.extend(predictions)
+            except Exception as e:
+                print(f"批量预测时出错: error={e}")
+                # 为该批次的所有操作返回 None
+                all_predictions.extend([None] * batch_size)
         
-        return all_predictions
+        # 构建完整的预测结果列表，确保长度与 valid_operations 一致
+        result = [None] * len(valid_operations)
+        for idx, prediction in zip(valid_indices, all_predictions):
+            result[idx] = prediction
+        
+        return result
     
     def _encode_operation_to_tensor(self, operation_details):
         """
@@ -500,17 +520,6 @@ class EvolutionTreeOptimizer:
         print(f"logP有效范围: {logp_range}")
         print(f"logP剪枝耐心值: {logp_patience}")
         
-        # 检查中断标志
-        if hasattr(self, 'interrupted') and self.interrupted:
-            print("检测到中断信号，停止进化树优化")
-            return {
-                "initial_smiles": initial_smiles,
-                "max_depth": max_depth,
-                "max_branching": max_branching,
-                "nodes": {},
-                "edges": []
-            }
-        
         # 获取初始分子的属性值
         initial_property_value = self.initial_property_value
         if initial_property_value is None and self.initial_smiles_csv:  # UPDATE 根据默认文件中的属性值
@@ -651,7 +660,7 @@ class EvolutionTreeOptimizer:
         if output_file is None:
             # 创建输出目录
             if output_dir is None:
-                default_output_dir = os.path.join(project_root, "mol_evo", "output", "evo-mo", "ic50")
+                default_output_dir = os.path.join(project_root, "mol_evo", "output", "ic50")
             else:
                 default_output_dir = output_dir
             os.makedirs(default_output_dir, exist_ok=True)
@@ -747,7 +756,7 @@ class EvolutionTreeOptimizer:
             # 创建输出目录
             # 如果指定了输出目录，使用它；否则使用默认目录
             if output_dir is None:
-                default_output_dir = os.path.join(project_root, "mol_evo", "output", "evo-mo", "ic50")
+                default_output_dir = os.path.join(project_root, "mol_evo", "output", "ic50")
             else:
                 default_output_dir = output_dir
             os.makedirs(default_output_dir, exist_ok=True)
@@ -810,9 +819,9 @@ def run():
     parser.add_argument('--format', type=str, choices=['text', 'json'], 
                         default='text', help='输出格式')
     parser.add_argument('--output-file', type=str,
-                        help='输出文件路径 (默认: mol_evo/output/evo-mo/{timestamp}/evolution_tree_{smiles}.json)')
+                        help='输出文件路径 (默认: mol_evo/output/ic50/{timestamp}/evolution_tree_{smiles}.json)')
     parser.add_argument('--output-dir', type=str,
-                        help='输出目录路径 (默认: mol_evo/output/evo-mo/{timestamp}/)')
+                        help='输出目录路径 (默认: mol_evo/output/ic50/{timestamp}/)')
     parser.add_argument('--topK', type=int, default=5,
                         help='保留效果最好的K个结果并输出到CSV文件')
     
