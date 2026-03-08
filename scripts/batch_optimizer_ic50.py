@@ -301,7 +301,7 @@ def run_evolution_optimizer(optimizer, smiles, property_value, args, output_dir)
         
         # 显示部分关键信息
         print(f"处理完成，耗时: {end_time - start_time:.2f} 秒")
-        print(f"找到 {len(topK_results)} 个topK结果")
+        print(f"找到 {len(topK_results.get('topK_results', []))} 个topK结果")
         
         return {
             'status': 'success',
@@ -404,7 +404,7 @@ def batch_process(data_list, args, output_dir, resume_mode=False):
             if result['status'] == 'success':
                 f.write(f"耗时: {result['runtime']:.2f} 秒\n")
                 f.write(f"优化结果数量: {len(result['optimized_result'].get('results', [])) if 'optimized_result' in result else 0}\n")
-                f.write(f"topK结果数量: {len(result['topk_results']) if 'topk_results' in result else 0}\n")
+                f.write(f"topK结果数量: {len(result['topk_results'].get('topK_results', [])) if 'topk_results' in result else 0}\n")
             elif result['status'] == 'timeout':
                 f.write(f"超时信息: {result['error']}\n")
             else:

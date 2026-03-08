@@ -678,7 +678,10 @@ class EvolutionTreeOptimizer:
         
     def optimize_evolution_tree(self, initial_smiles, max_depth=2, max_branching=3, 
                                optimization_direction='increase', pruning_patience=3, 
-                               logp_range=(0, 5), logp_patience=3):
+                               logp_range=(0, 5), logp_patience=3,
+                               search_mode='bfs',
+                               num_simulations=200,
+                               exploration_weight=1.4):
         """
         优化分子进化树
         
@@ -690,17 +693,24 @@ class EvolutionTreeOptimizer:
             pruning_patience: 剪枝耐心值，连续多少代没有改善就剪枝
             logp_range: logP值的有效范围，默认(0, 5)
             logp_patience: logP剪枝耐心值，连续多少代logP超出范围就剪枝
+            search_mode: 搜索模式 ('bfs' 或 'mcts')
+            num_simulations: MCTS 模拟总轮数 (仅 mcts 模式)
+            exploration_weight: MCTS PUCT 探索系数 (仅 mcts 模式)
             
         Returns:
             带有预测属性变化值的进化树
         """
         print(f"开始优化分子进化树: {initial_smiles}")
+        print(f"搜索模式: {search_mode}")
         print(f"最大演化深度: {max_depth}")
         print(f"最大分支数: {max_branching}")
         print(f"优化方向: {optimization_direction}")
         print(f"剪枝耐心值: {pruning_patience}")
         print(f"logP有效范围: {logp_range}")
         print(f"logP剪枝耐心值: {logp_patience}")
+        if search_mode == 'mcts':
+            print(f"MCTS 模拟轮数: {num_simulations}")
+            print(f"MCTS 探索系数: {exploration_weight}")
 
         # 获取初始分子的属性值
         initial_property_value = self.initial_property_value
@@ -723,17 +733,32 @@ class EvolutionTreeOptimizer:
         evolver.interrupted = hasattr(self, 'interrupted') and self.interrupted
         
         # TAG 传入预测器和相关参数，实现生成过程中的预测和剪枝
-        evolution_tree = evolver.generate_expansion_tree(
-            max_depth=max_depth, 
-            max_branching=max_branching,
-            predictor=self, # INFO 关键预测器
-            optimization_direction=optimization_direction,
-            pruning_patience=pruning_patience,
-            initial_property_value=initial_property_value,
-            optimization_mode=self.optimization_mode,
-            logp_range=logp_range,
-            logp_patience=logp_patience
-        )
+        if search_mode == 'mcts':
+            evolution_tree = evolver.generate_expansion_tree_mcts(
+                max_depth=max_depth,
+                max_branching=max_branching,
+                predictor=self,
+                optimization_direction=optimization_direction,
+                pruning_patience=pruning_patience,
+                initial_property_value=initial_property_value,
+                optimization_mode=self.optimization_mode,
+                logp_range=logp_range,
+                logp_patience=logp_patience,
+                num_simulations=num_simulations,
+                exploration_weight=exploration_weight,
+            )
+        else:
+            evolution_tree = evolver.generate_expansion_tree(
+                max_depth=max_depth, 
+                max_branching=max_branching,
+                predictor=self, # INFO 关键预测器
+                optimization_direction=optimization_direction,
+                pruning_patience=pruning_patience,
+                initial_property_value=initial_property_value,
+                optimization_mode=self.optimization_mode,
+                logp_range=logp_range,
+                logp_patience=logp_patience
+            )
         
         # 更新尝试次数（这里简单地使用节点数量作为尝试次数）
         self.attempt_count = len(evolution_tree.get("nodes", {}))
@@ -1008,6 +1033,13 @@ def run():
                         help='输出目录路径 (默认: mol_evo/output/evo-mo/{timestamp}/)')
     parser.add_argument('--topK', type=int, default=5,
                         help='保留效果最好的K个结果并输出到CSV文件')
+    # MCTS 参数
+    parser.add_argument('--search-mode', type=str, choices=['bfs', 'mcts'],
+                        default='bfs', help='搜索模式: bfs(广度优先) 或 mcts(蒙特卡洛树搜索)')
+    parser.add_argument('--num-simulations', type=int, default=200,
+                        help='MCTS 模拟轮数 (仅 mcts 模式)')
+    parser.add_argument('--exploration-weight', type=float, default=1.4,
+                        help='MCTS PUCT 探索系数 (仅 mcts 模式)')
     
     args = parser.parse_args()
     
@@ -1029,7 +1061,10 @@ def run():
         args.max_depth, 
         args.max_branching, 
         args.direction,
-        args.pruning_patience
+        args.pruning_patience,
+        search_mode=args.search_mode,
+        num_simulations=args.num_simulations,
+        exploration_weight=args.exploration_weight,
     )
     
     # 保存到文件（如果指定了输出文件）

@@ -10,12 +10,12 @@ import sys
 import json
 import argparse
 import time
-from datetime import datetime
 import pandas as pd
 import uuid
 import traceback
 from rdkit import RDLogger
 import signal
+from datetime import datetime
 
 # 全局中断标志
 interrupted = False
@@ -43,7 +43,6 @@ project_root = os.path.join(script_dir, "..", "..")
 sys.path.insert(0, project_root)
 
 try:
-    # 导入必要的模块
     from mol_evo.core.evolution_optimizer import EvolutionTreeOptimizer
 except ImportError as e:
     print(f"无法导入必要的模块: {e}")
@@ -93,6 +92,13 @@ def parse_args():
                         help='起始索引')
     parser.add_argument('--end-index', type=int, default=-1,
                         help='结束索引，-1表示处理到文件末尾')
+    # MCTS 参数
+    parser.add_argument('--search-mode', type=str, choices=['bfs', 'mcts'],
+                        default='bfs', help='搜索模式: bfs(广度优先) 或 mcts(蒙特卡洛树搜索)')
+    parser.add_argument('--num-simulations', type=int, default=200,
+                        help='MCTS 模拟轮数 (仅 mcts 模式)')
+    parser.add_argument('--exploration-weight', type=float, default=1.4,
+                        help='MCTS PUCT 探索系数 (仅 mcts 模式)')
     return parser.parse_args()
 
 def create_output_dir():
@@ -146,7 +152,10 @@ def run_evolution_optimizer(optimizer, smiles, property_value, args, output_dir)
             args.direction,
             pruning_patience=args.pruning_patience,
             logp_range=(args.logp_min, args.logp_max),
-            logp_patience=args.logp_patience
+            logp_patience=args.logp_patience,
+            search_mode=args.search_mode,
+            num_simulations=args.num_simulations,
+            exploration_weight=args.exploration_weight,
         )
         
         # 保存优化结果
@@ -166,7 +175,7 @@ def run_evolution_optimizer(optimizer, smiles, property_value, args, output_dir)
         
         # 显示部分关键信息
         print(f"处理完成，耗时: {end_time - start_time:.2f} 秒")
-        print(f"找到 {len(topK_results)} 个topK结果")
+        print(f"找到 {len(topK_results.get('topK_results', []))} 个topK结果")
         
         return {
             'status': 'success',
@@ -253,7 +262,7 @@ def batch_process(data_list, args, output_dir):
             if result['status'] == 'success':
                 f.write(f"耗时: {result['runtime']:.2f} 秒\n")
                 f.write(f"优化结果数量: {len(result['optimized_result'].get('results', [])) if 'optimized_result' in result else 0}\n")
-                f.write(f"topK结果数量: {len(result['topk_results']) if 'topk_results' in result else 0}\n")
+                f.write(f"topK结果数量: {len(result['topk_results'].get('topK_results', [])) if 'topk_results' in result else 0}\n")
             else:
                 f.write(f"错误信息: {result['error']}\n")
         
@@ -313,6 +322,10 @@ def main():
         f.write(f"topK值: {args.topK}\n")
         f.write(f"起始索引: {args.start_index}\n")
         f.write(f"结束索引: {args.end_index}\n")
+        f.write(f"搜索模式: {args.search_mode}\n")
+        if args.search_mode == 'mcts':
+            f.write(f"MCTS 模拟轮数: {args.num_simulations}\n")
+            f.write(f"MCTS 探索系数: {args.exploration_weight}\n")
         f.write("\n")
     
     # 读取数据

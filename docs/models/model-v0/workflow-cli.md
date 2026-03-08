@@ -134,7 +134,8 @@ python mol_evo/dataset/build_ab_pairs.py
 
 #### 1. Task-1: lumo/homo optimize
 
-base single cli example in [mo-cli.md](../mo/mo-cli.md).
+1. bfs
+base single cli example in [mo-cli.md](../../mo/mo-cli.md).
 
 ```bash
 ## 1. lumo
@@ -142,6 +143,12 @@ conda activate mol-edit && CUDA_VISIBLE_DEVICES=0 python mol_evo/scripts/batch_o
 
 ## 2. homo
 conda activate mol-edit && CUDA_VISIBLE_DEVICES=0 python mol_evo/scripts/batch_optimizer.py --input-csv /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/eval-data/20251205_131636/qm9_test_molecules.csv --target-property homo --start-index 0 --end-index 50 --max-depth 4 --direction decrease
+```
+
+2. mcts
+
+```bash
+conda activate mol-edit && CUDA_VISIBLE_DEVICES=0 python mol_evo/scripts/batch_optimizer.py   --input-csv /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/eval-data/20251205_131636/qm9_test_molecules.csv   --output-json /home/rhj/projects/mol_opt/mol-ofo/test_output.json   --target-property lumo   --start-index 0 --end-index 50  --max-depth 10 --max-branching 20 --direction increase   --search-mode mcts   --num-simulations 400   --exploration-weight 2 --pruning-patience 3 --logp-min -1 --logp-max 6 --logp-patience 5
 ```
 
 #### 2. Task-2: ic50 optimize
@@ -173,8 +180,11 @@ conda activate mol-edit && CUDA_VISIBLE_DEVICES=0 python mol_evo/scripts/batch_o
 
 ```bash
 # 1. cal lumo/homo ... true value
-conda activate mol-edit && python mol_evo/evaluate_batch_mo.py /home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/evo-mo/batch_optimization_20251207_200713 --target-prop lumo --direction decrease --max-files 2 --item-size 2
+conda activate mol-edit && python utils/evaluate_batch_mo.py --result-dir /home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/evo-mo/batch_optimization_20260308_112752 --target-prop lumo --direction decrease --item-size 10 \
+ --max-files 2 --item-size 2
 
 # 2. summary result csv
-conda activate mol-edit &&  python utils/evaluate_csv_results.py --target-prop lumo --direction decrease --csv-file /home/rhj/projects/mol_opt/DST/result/20251207_205949_lumo_0_50/evaluation_results_lumo_decrease/20251211_023732_size20_maxall/batch_evaluation_results.csv
+conda activate mol-opt-tdc &&  python utils/evaluate_csv_results.py --target-prop lumo --direction decrease --csv-file /home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/evo-mo/batch_optimization_20260308_010253/.evaluation_results_lumo_decrease/20260308_013106_size10_maxall/batch_evaluation_results.csv
+
+conda activate mol-opt-tdc &&  python utils/evaluate_csv_results.py --target-prop lumo --direction decrease --csv-file /home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/evo-mo/batch_optimization_20260308_112752/.evaluation_results_lumo_decrease/20260308_120002_size10_maxall/batch_evaluation_results.csv
 ```
