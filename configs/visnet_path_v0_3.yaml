@@ -1,0 +1,27 @@
+# v0.3 长链路路径训练配置模板
+# 使用方式: python mol_evo/train_v0_3_path.py -c mol_evo/configs/visnet_path_v0_3.yaml
+
+train:
+  data_file: "mol_evo/dataset/data/paths.json"
+  target_property: "lumo_change"
+  max_paths: null           # null = 不限制, 设置数字用于调试
+  epochs: 200
+  batch_size: 32
+  learning_rate: 0.001
+  seed: 42
+  min_lr: 1e-6
+  step_loss_weight: 0.3     # 步骤辅助损失权重 (0 = 只用路径级损失)
+  max_path_length: 20       # 超过该步数的路径会被截断
+  keep_invalid_middle: true # 保留含非法中间节点的路径
+
+model:
+  node_feature_dim: 11
+  edge_feature_dim: 15       # 将被数据自动覆盖
+  hidden_dims: [128, 256, 256]
+  output_dim: 1
+  path_nhead: 4
+  path_num_layers: 3
+  path_dim_feedforward: 512
+  path_dropout: 0.1
+  step_hidden_dim: 256
+  enable_step_head: true
