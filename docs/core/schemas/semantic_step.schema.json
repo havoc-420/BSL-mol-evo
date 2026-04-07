@@ -1,0 +1,105 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "semantic_step.schema.json",
+  "title": "SemanticStep",
+  "description": "A semantic action record built on top of primitive execution traces. It preserves the underlying primitive span while optionally attaching a fragment_op as the high-level semantic interpretation.",
+  "type": "object",
+  "required": [
+    "semantic_step_id",
+    "semantic_level",
+    "primitive_span",
+    "primitive_ops",
+    "fragment_op",
+    "annotation_status",
+    "annotation_confidence",
+    "provenance"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "semantic_step_id": {
+      "type": "string",
+      "description": "Stable identifier of the semantic step within a dataset or replay trace."
+    },
+    "semantic_level": {
+      "type": "string",
+      "description": "Whether the semantic step was cleanly resolved to a fragment action, or had to fall back to an atomic/primitive interpretation.",
+      "enum": ["fragment", "atomic_fallback"]
+    },
+    "primitive_span": {
+      "description": "Inclusive [start_idx, end_idx] span into the primitive execution trace that this semantic step covers. Null is allowed for legacy/bootstrap records where the primitive span is unavailable.",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0 },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        { "type": "null" }
+      ]
+    },
+    "primitive_ops": {
+      "type": "array",
+      "description": "Primitive operation dicts covered by this semantic step. The exact primitive-op schema is intentionally left flexible because the project still has multiple legacy operation dialects.",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "fragment_op": {
+      "description": "High-level fragment action when the semantic step is resolved at fragment level. Null for atomic_fallback records.",
+      "oneOf": [
+        { "$ref": "fragment_op.schema.json" },
+        { "type": "null" }
+      ]
+    },
+    "annotation_status": {
+      "type": "string",
+      "description": "Status of semantic annotation quality.",
+      "enum": ["resolved", "approximate", "unresolved"]
+    },
+    "annotation_confidence": {
+      "type": ["number", "null"],
+      "description": "Confidence score in [0,1] for the semantic interpretation. Null is allowed when confidence is unavailable.",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "provenance": {
+      "type": "object",
+      "required": ["source"],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": ["rule_brics", "rule_rgroup", "data_mcs", "data_mmp", "template", "manual"],
+          "description": "Primary generation source inherited from the underlying fragment/action extraction logic."
+        },
+        "generator": {
+          "type": ["string", "null"],
+          "description": "Code path or tool that generated the semantic_step record."
+        },
+        "annotation_method": {
+          "type": ["string", "null"],
+          "description": "Human-readable name of the semantic annotation method."
+        },
+        "source_record_id": {
+          "type": ["string", "null"],
+          "description": "Optional upstream pair/path identifier used to trace the semantic step back to its source record."
+        },
+        "confidence": {
+          "type": ["number", "null"],
+          "description": "Optional duplicate of annotation confidence for downstream systems that only inspect provenance.",
+          "minimum": 0.0,
+          "maximum": 1.0
+        },
+        "actionlib_version": {
+          "type": ["string", "null"],
+          "description": "Version of the action library or semantic annotation logic that produced this record."
+        },
+        "notes": {
+          "type": ["string", "null"],
+          "description": "Optional notes, fallback reason, diff_type, or error hint."
+        }
+      }
+    }
+  }
+}

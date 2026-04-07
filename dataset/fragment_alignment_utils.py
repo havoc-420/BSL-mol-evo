@@ -710,6 +710,78 @@ def interpret_pair(
 
 
 # ---------------------------------------------------------------------------
+# Semantic-step helpers
+# ---------------------------------------------------------------------------
+
+SEMANTIC_LEVEL_FRAGMENT = "fragment"
+SEMANTIC_LEVEL_ATOMIC_FALLBACK = "atomic_fallback"
+
+ANNOTATION_STATUS_RESOLVED = "resolved"
+ANNOTATION_STATUS_APPROXIMATE = "approximate"
+ANNOTATION_STATUS_UNRESOLVED = "unresolved"
+
+
+def build_semantic_step(
+    pair_result: dict,
+    semantic_step_id: str,
+    primitive_ops: Optional[list[dict]] = None,
+    primitive_span: Optional[list[int]] = None,
+    provenance_extra: Optional[dict] = None,
+) -> dict:
+    """
+    Build a semantic_step dict from an ``interpret_pair()`` result.
+
+    The semantic layer keeps the fragment-level interpretation when available,
+    but degrades gracefully to ``atomic_fallback`` when the pair cannot be
+    cleanly compressed into a fragment action.
+    """
+    primitive_ops = primitive_ops or []
+    provenance_extra = provenance_extra or {}
+
+    status = pair_result.get("status", "invalid")
+    confidence = pair_result.get("confidence")
+    fragment_op = pair_result.get("fragment_op")
+    error = pair_result.get("error")
+    diff_type = pair_result.get("diff_type")
+
+    if primitive_span is None and primitive_ops:
+        primitive_span = [0, max(0, len(primitive_ops) - 1)]
+
+    if status == "ok" and fragment_op is not None:
+        semantic_level = SEMANTIC_LEVEL_FRAGMENT
+        annotation_status = ANNOTATION_STATUS_RESOLVED
+    elif status == "approximate" and fragment_op is not None:
+        semantic_level = SEMANTIC_LEVEL_FRAGMENT
+        annotation_status = ANNOTATION_STATUS_APPROXIMATE
+    else:
+        semantic_level = SEMANTIC_LEVEL_ATOMIC_FALLBACK
+        annotation_status = ANNOTATION_STATUS_UNRESOLVED
+        fragment_op = None
+
+    fragment_provenance = (fragment_op or {}).get("provenance") or {}
+    provenance = {
+        "source": fragment_provenance.get("source", provenance_extra.get("source", "data_mcs")),
+        "generator": "fragment_alignment_utils.interpret_pair",
+        "annotation_method": "mcs_pair_alignment_v0",
+        "source_record_id": provenance_extra.get("source_record_id"),
+        "confidence": confidence,
+        "actionlib_version": fragment_provenance.get("actionlib_version", ACTIONLIB_VERSION),
+        "notes": provenance_extra.get("notes") or error or diff_type,
+    }
+
+    return {
+        "semantic_step_id": semantic_step_id,
+        "semantic_level": semantic_level,
+        "primitive_span": primitive_span,
+        "primitive_ops": primitive_ops,
+        "fragment_op": fragment_op,
+        "annotation_status": annotation_status,
+        "annotation_confidence": confidence,
+        "provenance": provenance,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Action validity checker
 # ---------------------------------------------------------------------------
 

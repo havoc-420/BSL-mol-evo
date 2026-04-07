@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-从 QM9 构造适合 `OFO-frag` 上游使用的 canonical local pair 数据。
+从 QM9 构造适合 `OFO-frag` 上游 bootstrap / 调试使用的 canonical local pair 数据。
 
 主线：
     QM9 CSV -> heavy-atom 局部候选 -> fingerprint 预筛 ->
     MoleculeEvolverAnalysis -> canonical primitive operations -> JSONL 导出
+
+注意：QM9 在这里仅作为小分子 bootstrap 与管线验证源，
+不应被视为最终的 fragment 主训练源。
 
 这一步只负责生成 `canonical_pairs_raw.jsonl`，不负责：
 - 属性变化标注

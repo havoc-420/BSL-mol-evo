@@ -1,0 +1,120 @@
+{
+  "_comment": "Sample instances of semantic_step. Each example keeps primitive trace information and optionally carries a fragment_op.",
+  "_schema": "../schemas/semantic_step.schema.json",
+  "_actionlib_version": "actionlib_v0",
+  "examples": [
+    {
+      "_id": "semantic_ex_01",
+      "_description": "Resolved fragment-level semantic step extracted from a single-step pair.",
+      "smiles_from": "CC(=O)N",
+      "smiles_to": "CC(=O)O",
+      "semantic_step": {
+        "semantic_step_id": "pair:amide_to_acid",
+        "semantic_level": "fragment",
+        "primitive_span": [0, 0],
+        "primitive_ops": [
+          {
+            "operation": "replace_atom",
+            "position": "1",
+            "atom": "O",
+            "from_atom": "N"
+          }
+        ],
+        "fragment_op": {
+          "op_type": "replace_substituent",
+          "anchor": {
+            "anchor_atom_indices": [1],
+            "anchor_frag_idx": 0,
+            "anchor_env_type": "carbonyl_C",
+            "anchor_position_encoding": "chain_internal"
+          },
+          "fragment": {
+            "fragment_id": "mcs_extracted:frag_OH",
+            "fragment_smiles": "[*]O",
+            "attachment_points": [
+              { "ap_index": 0, "ap_atom_idx_in_fragment": 0 }
+            ],
+            "fragment_size": 1,
+            "fragment_source": "mcs_extracted"
+          },
+          "leaving_group": {
+            "matched_atom_indices": [3],
+            "leaving_fragment_smiles": "[*]N",
+            "leaving_group_size": 1
+          },
+          "connection": {
+            "bond_type": "SINGLE",
+            "attachment_mapping": { "1": 0 },
+            "topology_change": "replaces_branch"
+          },
+          "constraints": {
+            "scaffold_preserving": true,
+            "rgroup_only": true,
+            "ring_change": false,
+            "charge_change": false,
+            "valence_safe": true
+          },
+          "provenance": {
+            "source": "data_mcs",
+            "template_id": null,
+            "rule_id": null,
+            "confidence": 0.88,
+            "actionlib_version": "actionlib_v0"
+          }
+        },
+        "annotation_status": "resolved",
+        "annotation_confidence": 0.88,
+        "provenance": {
+          "source": "data_mcs",
+          "generator": "fragment_alignment_utils.interpret_pair",
+          "annotation_method": "mcs_pair_alignment_v0",
+          "source_record_id": "pair:amide_to_acid",
+          "confidence": 0.88,
+          "actionlib_version": "actionlib_v0",
+          "notes": "substituent_replace"
+        }
+      }
+    },
+    {
+      "_id": "semantic_ex_02",
+      "_description": "Atomic fallback semantic step for a complex multi-change span that could not be cleanly compressed to a fragment action.",
+      "smiles_from": "CC1=CC=CC=C1",
+      "smiles_to": "NC1=NC=CC=C1F",
+      "semantic_step": {
+        "semantic_step_id": "path:complex_swap:step:2",
+        "semantic_level": "atomic_fallback",
+        "primitive_span": [2, 4],
+        "primitive_ops": [
+          {
+            "operation": "replace_atom",
+            "position": "2",
+            "atom": "N",
+            "from_atom": "C"
+          },
+          {
+            "operation": "add_atom",
+            "position": "5",
+            "atom": "F"
+          },
+          {
+            "operation": "remove_add_atom",
+            "position": "0",
+            "atom": "C"
+          }
+        ],
+        "fragment_op": null,
+        "annotation_status": "unresolved",
+        "annotation_confidence": 0.41,
+        "provenance": {
+          "source": "data_mcs",
+          "generator": "fragment_alignment_utils.interpret_pair",
+          "annotation_method": "mcs_pair_alignment_v0",
+          "source_record_id": "path:complex_swap:step:2",
+          "confidence": 0.41,
+          "actionlib_version": "actionlib_v0",
+          "notes": "complex_multi_change"
+        }
+      }
+    }
+  ]
+}

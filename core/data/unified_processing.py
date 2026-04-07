@@ -31,6 +31,7 @@ try:
         atom_type_to_onehot, 
         operation_type_to_onehot,
         prepare_edge_features as processing_prepare_edge_features,
+        prepare_semantic_step_features as processing_prepare_semantic_step_features,
         load_operation_config,
         get_atom_types
     )
@@ -43,7 +44,8 @@ except ImportError:
         smiles_to_fingerprint, 
         atom_type_to_onehot, 
         operation_type_to_onehot,
-        processing_prepare_edge_features,
+        prepare_edge_features as processing_prepare_edge_features,
+        prepare_semantic_step_features as processing_prepare_semantic_step_features,
         load_operation_config,
         get_atom_types
     )
@@ -76,6 +78,15 @@ def prepare_edge_features(row: pd.Series, property_stats: Dict[str, Tuple[float,
     """
     # 使用processing.py中的实现
     return processing_prepare_edge_features(row, property_stats, include_property_changes, include_position_encoding)
+
+
+def prepare_semantic_step_features(row: pd.Series,
+                                  property_stats: Dict[str, Tuple[float, float]] = None,
+                                  include_property_changes: bool = False) -> List[float]:
+    """
+    准备 `semantic_step` 特征向量（保持与 `processing.py` 的接口一致）。
+    """
+    return processing_prepare_semantic_step_features(row, property_stats, include_property_changes)
 
 
 def load_json_data(json_file: str) -> pd.DataFrame:

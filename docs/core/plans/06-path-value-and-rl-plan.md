@@ -1,90 +1,196 @@
-# 06：路径级 / Value / Policy 计划
+# 06：Semantic Path / Value / Policy / RL 计划（重构收口版）
 
-> 目标：在单步 `OFO-frag` 与新 planner 稳定后，引入真正支持长程规划的路径级建模，而不是继续依赖“单步分数累加”。
+> 目标：在单步 semantic-step scorer 与新 planner 内核稳定后，引入真正支持长程规划的 path/value/policy 路线，而不是继续假设“单步分数累加就等于长程收益”。
+
+> 本文件只解决 **learned long-range signals**：`semantic path` 数据、value、policy、heuristic 与 RL；**不重新设计 planner 内核、frontier 机制与 replay 抽象**，这些统一视为 `05` 已提供的基础设施。
 
 ---
 
-## 1. 本阶段核心判断
+## 1. 本阶段的出发点
 
-当前系统的根本短板之一是：
+当前系统最大的长程短板不是搜索器名字，而是：
 
 > **单步 delta predictor 不等于未来价值估计。**
 
-因此，一旦 `fragment_op` 和 planner 基本稳定，就应该进入：
+同时，新路线下的 path 也不能再简单理解成 primitive op 序列。
 
-- path model
-- value model
-- policy model
+更合理的定义应是：
 
-这也是后续认真做 `A* + RL` 的前提。
+- **事实层**：primitive path
+- **语义层**：semantic path
 
----
-
-## 2. 本阶段目标
-
-- 构造可用于多步训练的路径数据
-- 训练 `V(s)` 或 `path_target` 模型
-- 训练轻量 policy / prior model
-- 为 planner 提供更像样的 `h(s)` 或扩展优先级
-
-边界说明：
-
-- 本文件默认 `beam / best-first` 等基础 planner 结构已由 `05-planner-upgrade-plan.md` 提供
-- 这里重点解决 **value / path / policy 的建模与接入**，而不是重复设计搜索器骨架
-- 若需要讨论 `A*` 的状态队列、budget、去重等基础机制，回到 `05`
+其中 semantic path 的每条边是一个 `semantic_step`，并引用其对应的 `primitive_span / primitive_trace`。
 
 ---
 
-## 3. 推荐推进顺序
+## 2. 本文件的边界
 
-### Step 1：先做 path/value
+### 2.1 本阶段负责什么
 
-优先于 RL，因为：
+本阶段负责：
 
-- 更贴近当前已有的 `v0.3` 路径思路
-- 更容易利用离线轨迹数据
-- 更适合作为 planner 的直接辅助信号
+- 构造 `semantic_paths` 数据
+- 训练 path / value 模型
+- 训练 policy / prior
+- 为 `05` 已经存在的 planner 接入 learned heuristic / bonus
+- 在 offline 路线稳定后再讨论 RL
 
-### Step 2：再做 policy
+### 2.2 本阶段不负责什么
+
+本阶段**不**重新负责：
+
+- planner 的 frontier 抽象
+- beam / best-first 的主体实现
+- pruning / dominance / budget 的主逻辑
+- replay 协议本身的重新设计
+
+这些都应复用 `05` 的结果。
+
+---
+
+## 3. 新的 path 观
+
+### 3.1 semantic path 的最小抽象
+
+推荐把路径表示成：
+
+- `node_smiles_list`
+- `semantic_steps`
+- `primitive_replay`
+- `step_targets`
+- `path_target`
+
+也就是说：
+
+- 节点仍然是分子状态
+- 边不再只是一条 primitive op
+- 边是一个 `semantic_step`
+- 每条 semantic edge 可以挂一段 primitive trace
+
+### 3.2 为什么这很重要
+
+这样做能同时保住：
+
+- path 的长程规划语义
+- fragment 级动作语义
+- primitive 级可执行与可审计能力
+
+---
+
+## 4. 本阶段目标
+
+- 构造 `semantic_paths` 训练数据
+- 训练 path / value 模型
+- 训练轻量 policy / prior
+- 为 planner 提供更像样的 `h(s)` 与动作优先级
+- 只在前面都稳定后再讨论 RL
+
+---
+
+## 5. 与 `05` 的交接前提
+
+只有在下面这些条件成立后，`06` 才应进入主线：
+
+- planner 接口稳定
+- frontier / pruning / replay 已稳定
+- semantic planner 已能在不依赖 learned long-range signals 的情况下稳定运行
+- `semantic_pairs / semantic_paths / planner_replay` 的导出链已经可用
+
+也就是说：
+
+> **`06` 不是替代 `05`，而是建立在 `05` 之上的 learned augmentation 层。**
+
+---
+
+## 6. 推荐推进顺序
+
+### Step 1：先做 `semantic path` 数据
+
+先把 path 表示、mask、replay 和 target 组织清楚。
+
+### Step 2：再做 value / path model
+
+优先训练：
+
+- `path_target` 预测
+- 或 `V(s)` 未来可达收益预测
+
+### Step 3：再做 policy / prior
 
 让模型学习：
 
-- 当前状态优先扩哪些动作
-- 哪些动作大概率无效
+- 哪些 semantic actions 值得优先扩展
+- 哪些候选动作大概率低价值
 
-### Step 3：最后再做 RL
+### Step 4：把 learned signals 接入 `05`
 
-把 RL 放在：
+优先接入：
 
-- 利用已有轨迹离线学习
-- 微调 policy/value
-- 减少在线搜索浪费
+- `best-first + value bonus`
+- `A*` 的 learned / semi-learned `h(s)`
+- action prior 作为 proposal rerank 或 pruning 辅助
 
-而不是一开始就做端到端生成。
+### Step 5：最后再做 RL
+
+RL 只在以下前提下进入主线：
+
+- semantic action 协议稳定
+- planner 稳定
+- value / policy 已显示出正收益
 
 ---
 
-## 4. 可选模型方向
+## 7. 推荐的数据协议
 
-### Route A：路径累计收益预测
+### 7.1 `semantic_paths_*`
+
+建议至少包含：
+
+- `path_id`
+- `node_smiles_list`
+- `semantic_steps`
+- `primitive_replay`
+- `target_property`
+- `step_targets`
+- `path_target`
+- `valid_step_mask`
+- `meta`
+
+### 7.2 `step_targets` 的组织建议
+
+当一个 semantic step 覆盖多个 primitive 步时，建议：
+
+- `step_target` 对应 semantic span 的聚合收益
+- `primitive_step_targets` 可保留在 replay 或 meta 中
+
+这样可以同时支持：
+
+- semantic-step 监督
+- primitive replay 分析
+
+---
+
+## 8. 可选模型方向
+
+### Route A：semantic path 累计收益模型
 
 输入：
 
 - `start_smiles`
-- `fragment_op` 序列
-- 中间状态（可选）
+- `semantic_step` 序列
+- 可选的中间状态表示
 
 输出：
 
 - `path_target`
-- 每步 `step_target`
+- 可选每步收益分配
 
 ### Route B：状态价值模型 `V(s)`
 
 输入：
 
-- 当前分子状态 `s`
-- 可选约束条件 / target property
+- 当前状态 `s`
+- 目标属性与约束条件
 
 输出：
 
@@ -95,7 +201,7 @@
 输入：
 
 - 当前状态
-- 候选动作列表
+- 候选 semantic actions
 
 输出：
 
@@ -103,27 +209,23 @@
 
 ---
 
-## 5. 任务拆解
+## 9. 本阶段任务拆解
 
-### Task 1：整理多步训练数据
-
-复用或扩展：
-
-- `core/data/path_processing.py`
+### Task 1：整理 semantic path 数据
 
 需要补齐：
 
-- 路径长度分布
-- 动作序列有效性掩码
-- 中间状态缺失时的策略
-- planner 轨迹回放数据导出
+- path 长度分布
+- 有效 step mask
+- semantic step 与 primitive replay 的对齐关系
+- planner 轨迹回放导出
 
-### Task 2：训练 value/path 模型
+### Task 2：训练 value / path 模型
 
 建议第一版目标：
 
 - 预测 `path_target`
-- 或预测当前状态的未来可达收益
+- 或预测当前状态未来可达收益
 
 并与“单步分数累加”做对比。
 
@@ -132,55 +234,51 @@
 优先做：
 
 - `best-first + value bonus`
-- `A*` 中的轻量 `h(s)`
+- `A*` 的轻量 `h(s)`
 
 ### Task 4：训练 policy / prior
 
-目标不是直接生成最终分子，而是：
+目标不是直接端到端生成，而是：
 
+- 降低无效扩展比例
 - 缩小候选动作集合
-- 提高扩展优先级质量
-- 降低无效分支比例
+- 提高 frontier 质量
 
-### Task 5：最后引入 RL
+### Task 5：最后再做 RL
 
-仅在以下前提下进行：
-
-- planner 已稳定
-- path/value 已有正收益
-- 动作空间已基本固定
+只在 offline 路线稳定后进行。
 
 ---
 
-## 6. 建议代码落点
+## 10. 代码落点建议
 
 优先复用：
 
 - `core/data/path_processing.py`
-- `core/models/v1/*`
+- 当前路径模型相关代码
+- `core/planners/*` 中由 `05` 提供的稳定接口
 
 建议新增：
 
+- `core/data/semantic_path_processing.py`
 - `core/models/value/*`
 - `core/models/policy/*`
 - `core/planners/heuristics.py`
 
 ---
 
-## 7. 验收标准
+## 11. 验收标准
 
 完成本阶段时，应满足：
 
-- 至少一版 path/value 模型可训练、可验证
+- 至少一版 `semantic_path` 数据可训练可验证
 - planner 能调用 value 作为辅助分数
-- 与纯单步评分相比，在部分任务上显示出更好的长程路径保留能力
+- 与纯单步分数累加相比，长程保留能力至少在部分任务上更强
 - policy / prior 至少能减少一部分低价值扩展
+- `06` 的新增复杂度主要体现为 learned long-range signals，而不是重新改写 planner 内核
 
 ---
 
-## 8. 风险与注意事项
+## 12. 一句话结论
 
-- 不要在没有稳定轨迹数据时急着上 RL
-- 不要把 value 和 step delta 混为一谈
-- 不要在 planner 仍不稳定时做过多 path/value 结论
-- 不要忽略路径数据里的噪声与中间状态异常
+> **path 这条线不应在 fragment 时代消失；它应该升级成“以 semantic step 为边、以 primitive replay 为底”的长程规划层，并作为 `05` 之上的 learned augmentation 层进入系统。**

@@ -472,6 +472,105 @@ def prepare_position_encoding_features(row: pd.Series, pe_dim: int = 8) -> List[
     return position_features
 
 
+def _row_get(row: Any, key: str, default=None):
+    """兼容 `dict` / `pd.Series` 两种输入的轻量读取函数。"""
+    if isinstance(row, dict):
+        return row.get(key, default)
+    try:
+        return row[key] if key in row else default
+    except Exception:
+        return default
+
+
+def _small_vocab_onehot(value: Any, vocab: List[str]) -> List[float]:
+    onehot = [0.0] * len(vocab)
+    if value in vocab:
+        onehot[vocab.index(value)] = 1.0
+    return onehot
+
+
+def prepare_semantic_step_features(row: Any,
+                                   property_stats: Dict[str, Tuple[float, float]] = None,
+                                   include_property_changes: bool = False) -> List[float]:
+    """
+    准备 `semantic_step` 的最小可用特征向量。
+
+    第一版只编码语义层级、annotation 状态、fragment-op 核心类型、
+    connection / topology 以及若干 trace summary 标量，先为 `04` 提供
+    一个稳定的入口，不改变现有训练主链。
+    """
+    semantic_step = _row_get(row, 'semantic_step', {}) or {}
+    fragment_op = semantic_step.get('fragment_op') or _row_get(row, 'fragment_op', {}) or {}
+
+    semantic_level = semantic_step.get('semantic_level', _row_get(row, 'semantic_level', 'atomic_fallback'))
+    annotation_status = semantic_step.get('annotation_status', _row_get(row, 'annotation_status', 'unresolved'))
+    annotation_confidence = semantic_step.get('annotation_confidence', _row_get(row, 'annotation_confidence', 0.0))
+    annotation_confidence = float(annotation_confidence or 0.0)
+
+    primitive_ops = semantic_step.get('primitive_ops') or _row_get(row, 'primitive_ops', []) or []
+    primitive_span = semantic_step.get('primitive_span')
+    if primitive_span is None and primitive_ops:
+        primitive_span = [0, max(0, len(primitive_ops) - 1)]
+
+    connection = fragment_op.get('connection') or {}
+    constraints = fragment_op.get('constraints') or {}
+    anchor = fragment_op.get('anchor') or {}
+    fragment = fragment_op.get('fragment') or {}
+    leaving_group = fragment_op.get('leaving_group') or {}
+
+    span_length = 0.0
+    if isinstance(primitive_span, list) and len(primitive_span) == 2:
+        try:
+            span_length = float(max(0, int(primitive_span[1]) - int(primitive_span[0]) + 1))
+        except Exception:
+            span_length = 0.0
+
+    semantic_level_vocab = ['fragment', 'atomic_fallback']
+    annotation_status_vocab = ['resolved', 'approximate', 'unresolved']
+    fragment_op_vocab = [
+        'attach_fragment',
+        'replace_substituent',
+        'grow_r_group',
+        'bioisostere_swap',
+        'delete_fragment',
+    ]
+    bond_type_vocab = ['SINGLE', 'DOUBLE', 'TRIPLE', 'AROMATIC', 'none']
+    topology_vocab = ['adds_branch', 'replaces_branch', 'extends_chain', 'forms_ring', 'breaks_ring', 'removes_branch']
+
+    semantic_level_features = _small_vocab_onehot(semantic_level, semantic_level_vocab)
+    annotation_status_features = _small_vocab_onehot(annotation_status, annotation_status_vocab)
+    fragment_op_features = _small_vocab_onehot(fragment_op.get('op_type'), fragment_op_vocab)
+    bond_type_features = _small_vocab_onehot(connection.get('bond_type'), bond_type_vocab)
+    topology_features = _small_vocab_onehot(connection.get('topology_change'), topology_vocab)
+
+    scalar_features = [
+        1.0 if fragment_op else 0.0,
+        float(len(primitive_ops)),
+        span_length,
+        float(len(anchor.get('anchor_atom_indices', []) or [])),
+        float(fragment.get('fragment_size') or 0.0),
+        float(leaving_group.get('leaving_group_size') or 0.0),
+        1.0 if constraints.get('scaffold_preserving') else 0.0,
+        1.0 if constraints.get('rgroup_only') else 0.0,
+        1.0 if constraints.get('ring_change') else 0.0,
+        1.0 if constraints.get('charge_change') else 0.0,
+        1.0 if constraints.get('valence_safe') else 0.0,
+        annotation_confidence,
+    ]
+
+    # 暂不在 edge 特征里拼接 property change，避免把标签信息直接泄漏到输入。
+    _ = property_stats, include_property_changes
+
+    return (
+        semantic_level_features
+        + annotation_status_features
+        + fragment_op_features
+        + bond_type_features
+        + topology_features
+        + scalar_features
+    )
+
+
 # INFO 准备边特征向量
 def prepare_edge_features_with_position(row: pd.Series, property_stats: Dict[str, Tuple[float, float]] = None, 
                                        include_property_changes: bool = False, 
