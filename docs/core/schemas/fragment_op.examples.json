@@ -1,0 +1,293 @@
+{
+  "_comment": "Sample instances of fragment_op for each op_type in vocabulary v0. Each example is paired with (smiles_from, smiles_to) for verification.",
+  "_schema": "../schemas/fragment_op.schema.json",
+  "_actionlib_version": "actionlib_v0",
+
+  "examples": [
+
+    {
+      "_id": "ex_01",
+      "_op_type": "attach_fragment",
+      "_description": "Attach a methyl ester group to a terminal aromatic carbon of benzene -> methyl benzoate",
+      "smiles_from": "c1ccccc1",
+      "smiles_to": "COC(=O)c1ccccc1",
+      "fragment_op": {
+        "op_type": "attach_fragment",
+        "anchor": {
+          "anchor_atom_indices": [0],
+          "anchor_frag_idx": 0,
+          "anchor_env_type": "aromatic_C",
+          "anchor_position_encoding": "ring_atom"
+        },
+        "fragment": {
+          "fragment_id": "brics:frag_ester_methyl",
+          "fragment_smiles": "[*]C(=O)OC",
+          "attachment_points": [
+            { "ap_index": 0, "ap_atom_idx_in_fragment": 0 }
+          ],
+          "fragment_size": 4,
+          "fragment_source": "brics"
+        },
+        "leaving_group": null,
+        "connection": {
+          "bond_type": "SINGLE",
+          "attachment_mapping": { "0": 0 },
+          "topology_change": "adds_branch"
+        },
+        "constraints": {
+          "scaffold_preserving": true,
+          "rgroup_only": true,
+          "ring_change": false,
+          "charge_change": false,
+          "valence_safe": true
+        },
+        "provenance": {
+          "source": "rule_brics",
+          "template_id": null,
+          "rule_id": "brics_attach_aromatic_C",
+          "confidence": null,
+          "actionlib_version": "actionlib_v0"
+        }
+      }
+    },
+
+    {
+      "_id": "ex_02",
+      "_op_type": "replace_substituent",
+      "_description": "Replace a chloro substituent with a trifluoromethyl group: 4-chlorotoluene -> 4-(trifluoromethyl)toluene",
+      "smiles_from": "Cc1ccc(Cl)cc1",
+      "smiles_to": "Cc1ccc(C(F)(F)F)cc1",
+      "fragment_op": {
+        "op_type": "replace_substituent",
+        "anchor": {
+          "anchor_atom_indices": [5],
+          "anchor_frag_idx": 0,
+          "anchor_env_type": "aromatic_C",
+          "anchor_position_encoding": "ring_atom"
+        },
+        "fragment": {
+          "fragment_id": "rgroup:CF3_001",
+          "fragment_smiles": "[*]C(F)(F)F",
+          "attachment_points": [
+            { "ap_index": 0, "ap_atom_idx_in_fragment": 0 }
+          ],
+          "fragment_size": 4,
+          "fragment_source": "rgroup"
+        },
+        "leaving_group": {
+          "matched_atom_indices": [6],
+          "leaving_fragment_smiles": "[*]Cl",
+          "leaving_group_size": 1
+        },
+        "connection": {
+          "bond_type": "SINGLE",
+          "attachment_mapping": { "5": 0 },
+          "topology_change": "replaces_branch"
+        },
+        "constraints": {
+          "scaffold_preserving": true,
+          "rgroup_only": true,
+          "ring_change": false,
+          "charge_change": false,
+          "valence_safe": true
+        },
+        "provenance": {
+          "source": "rule_rgroup",
+          "template_id": null,
+          "rule_id": "rgroup_halo_to_CF3",
+          "confidence": null,
+          "actionlib_version": "actionlib_v0"
+        }
+      }
+    },
+
+    {
+      "_id": "ex_03",
+      "_op_type": "grow_r_group",
+      "_description": "Extend an ethyl chain by one methylene: ethylbenzene -> propylbenzene",
+      "smiles_from": "CCc1ccccc1",
+      "smiles_to": "CCCc1ccccc1",
+      "fragment_op": {
+        "op_type": "grow_r_group",
+        "anchor": {
+          "anchor_atom_indices": [1],
+          "anchor_frag_idx": 1,
+          "anchor_env_type": "aliphatic_C",
+          "anchor_position_encoding": "chain_end"
+        },
+        "fragment": {
+          "fragment_id": "brics:frag_CH2",
+          "fragment_smiles": "[*]C",
+          "attachment_points": [
+            { "ap_index": 0, "ap_atom_idx_in_fragment": 0 }
+          ],
+          "fragment_size": 1,
+          "fragment_source": "brics"
+        },
+        "leaving_group": null,
+        "connection": {
+          "bond_type": "SINGLE",
+          "attachment_mapping": { "1": 0 },
+          "topology_change": "extends_chain"
+        },
+        "constraints": {
+          "scaffold_preserving": true,
+          "rgroup_only": true,
+          "ring_change": false,
+          "charge_change": false,
+          "valence_safe": true
+        },
+        "provenance": {
+          "source": "rule_brics",
+          "template_id": null,
+          "rule_id": "brics_grow_chain_end",
+          "confidence": null,
+          "actionlib_version": "actionlib_v0"
+        }
+      }
+    },
+
+    {
+      "_id": "ex_04",
+      "_op_type": "bioisostere_swap",
+      "_description": "Replace phenyl ring with pyridine ring (C->N bioisostere): toluene-like scaffold -> pyridine-methyl",
+      "smiles_from": "Cc1ccccc1",
+      "smiles_to": "Cc1ccncc1",
+      "fragment_op": {
+        "op_type": "bioisostere_swap",
+        "anchor": {
+          "anchor_atom_indices": [1],
+          "anchor_frag_idx": 0,
+          "anchor_env_type": "aromatic_C",
+          "anchor_position_encoding": "ring_atom"
+        },
+        "fragment": {
+          "fragment_id": "template:pyridine_bioisostere_phenyl",
+          "fragment_smiles": "[*:1]c1ccncc1",
+          "attachment_points": [
+            { "ap_index": 1, "ap_atom_idx_in_fragment": 0 }
+          ],
+          "fragment_size": 6,
+          "fragment_source": "template"
+        },
+        "leaving_group": {
+          "matched_atom_indices": [1, 2, 3, 4, 5, 6],
+          "leaving_fragment_smiles": "[*:1]c1ccccc1",
+          "leaving_group_size": 6
+        },
+        "connection": {
+          "bond_type": "SINGLE",
+          "attachment_mapping": { "1": 1 },
+          "topology_change": "replaces_branch"
+        },
+        "constraints": {
+          "scaffold_preserving": false,
+          "rgroup_only": false,
+          "ring_change": false,
+          "charge_change": false,
+          "valence_safe": true
+        },
+        "provenance": {
+          "source": "template",
+          "template_id": "bio_phenyl_pyridine_v0",
+          "rule_id": null,
+          "confidence": 0.92,
+          "actionlib_version": "actionlib_v0"
+        }
+      }
+    },
+
+    {
+      "_id": "ex_05",
+      "_op_type": "delete_fragment",
+      "_description": "Remove methoxy substituent from anisole -> benzene",
+      "smiles_from": "COc1ccccc1",
+      "smiles_to": "c1ccccc1",
+      "fragment_op": {
+        "op_type": "delete_fragment",
+        "anchor": {
+          "anchor_atom_indices": [1],
+          "anchor_frag_idx": 1,
+          "anchor_env_type": "aromatic_C",
+          "anchor_position_encoding": "ring_atom"
+        },
+        "fragment": null,
+        "leaving_group": {
+          "matched_atom_indices": [0],
+          "leaving_fragment_smiles": "[*]OC",
+          "leaving_group_size": 2
+        },
+        "connection": {
+          "bond_type": "none",
+          "attachment_mapping": null,
+          "topology_change": "removes_branch"
+        },
+        "constraints": {
+          "scaffold_preserving": true,
+          "rgroup_only": true,
+          "ring_change": false,
+          "charge_change": false,
+          "valence_safe": true
+        },
+        "provenance": {
+          "source": "data_mcs",
+          "template_id": null,
+          "rule_id": null,
+          "confidence": 0.95,
+          "actionlib_version": "actionlib_v0"
+        }
+      }
+    },
+
+    {
+      "_id": "ex_06",
+      "_op_type": "replace_substituent",
+      "_description": "MCS-extracted example: replace an amide NH2 with OH (data-driven extraction)",
+      "smiles_from": "CC(=O)N",
+      "smiles_to": "CC(=O)O",
+      "fragment_op": {
+        "op_type": "replace_substituent",
+        "anchor": {
+          "anchor_atom_indices": [1],
+          "anchor_frag_idx": 0,
+          "anchor_env_type": "carbonyl_C",
+          "anchor_position_encoding": "chain_internal"
+        },
+        "fragment": {
+          "fragment_id": "mcs_extracted:frag_OH",
+          "fragment_smiles": "[*]O",
+          "attachment_points": [
+            { "ap_index": 0, "ap_atom_idx_in_fragment": 0 }
+          ],
+          "fragment_size": 1,
+          "fragment_source": "mcs_extracted"
+        },
+        "leaving_group": {
+          "matched_atom_indices": [3],
+          "leaving_fragment_smiles": "[*]N",
+          "leaving_group_size": 1
+        },
+        "connection": {
+          "bond_type": "SINGLE",
+          "attachment_mapping": { "1": 0 },
+          "topology_change": "replaces_branch"
+        },
+        "constraints": {
+          "scaffold_preserving": true,
+          "rgroup_only": true,
+          "ring_change": false,
+          "charge_change": false,
+          "valence_safe": true
+        },
+        "provenance": {
+          "source": "data_mcs",
+          "template_id": null,
+          "rule_id": null,
+          "confidence": 0.88,
+          "actionlib_version": "actionlib_v0"
+        }
+      }
+    }
+
+  ]
+}

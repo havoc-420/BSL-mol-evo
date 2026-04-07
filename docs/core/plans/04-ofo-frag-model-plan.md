@@ -26,6 +26,25 @@
 - 让当前模型工厂可支持 `OFO-frag` 版本
 - 跑通第一版片段动作单步训练
 
+### 2.1 数据前置条件
+
+本阶段默认训练入口已经由 `03a-qm9-frag-pair-build-plan.md` 固定，优先消费：
+
+- `fragment_pairs_train.jsonl`
+- `fragment_pairs_valid.jsonl`
+- `fragment_pairs_test.jsonl`
+
+单条样本至少应稳定提供：
+
+- `smiles_from`
+- `smiles_to`
+- `fragment_op`
+- `target_property`
+- `step_target`
+- `annotation_status`
+
+也就是说，`04` 默认不再从 bootstrap 风格的离线重解释脚本直接取训练入口，而是消费 `03/03a` 导出的 canonical `frag pair` 视图。
+
 ---
 
 ## 3. 推荐表示策略

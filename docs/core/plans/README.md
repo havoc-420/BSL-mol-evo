@@ -31,8 +31,9 @@
 |------|------|----------|--------------|
 | 01 | `01-baseline-and-benchmark-plan.md` | 固化当前 baseline、评测与日志 | 无 |
 | 02 | `02-fragment-op-schema-plan.md` | 定义 `fragment_op` schema 与动作库 | 01 |
-| 03 | `03-fragment-dataset-bootstrap-plan.md` | 从 pair/path 数据构造片段动作样本 | 01, 02 |
-| 04 | `04-ofo-frag-model-plan.md` | 升级 OFO 为片段动作条件打分器 | 02, 03 |
+| 03 | `03-fragment-dataset-bootstrap-plan.md` | 固定 QM9 canonical 数据主线与导出分层 | 01, 02 |
+| 03a | `03a-qm9-frag-pair-build-plan.md` | 细化 `OFO-frag` 所需单步 `frag pair` 的构造方案 | 01, 02, 03 |
+| 04 | `04-ofo-frag-model-plan.md` | 升级 OFO 为片段动作条件打分器 | 02, 03, 03a |
 | 05 | `05-planner-upgrade-plan.md` | 以 `beam / best-first` 取代粗粒度层截断 | 01, 04 |
 | 06 | `06-path-value-and-rl-plan.md` | 引入路径级 / value / policy 建模 | 04, 05 |
 | 07 | `07-experiment-and-milestone-plan.md` | 组织对比实验、里程碑与验收 | 贯穿全程 |
@@ -66,15 +67,19 @@
 
 - `02-fragment-op-schema-plan.md`
 - `03-fragment-dataset-bootstrap-plan.md`
+- `03a-qm9-frag-pair-build-plan.md`
 
 进度清单：
 
-- [ ] 明确 `fragment_op` 正式 schema 主字段
-- [ ] 明确 `scaffold_preserving` 的第一版判定规则
-- [ ] 形成 `fragment_op` 小词表 / 动作词表 v0
-- [ ] 输出 `fragment_op.schema.json` 与样例动作文件
-- [ ] 补齐动作合法性校验逻辑
-- [ ] 建立 `fragment_op` 数据构造脚本原型
+- [x] 明确 `fragment_op` 正式 schema 主字段
+- [x] 明确 `scaffold_preserving` 的第一版判定规则
+- [x] 形成 `fragment_op` 小词表 / 动作词表 v0
+- [x] 输出 `fragment_op.schema.json` 与样例动作文件
+- [x] 补齐动作合法性校验逻辑
+- [x] 建立 `fragment_op` 数据构造脚本原型
+- [x] 固定 QM9 `frag pair` 候选筛选规则、样本协议与导出字段（`03a-qm9-frag-pair-build-plan.md`）
+- [ ] 生成第一版 `canonical_pairs_raw.jsonl`
+- [ ] 生成第一版 `canonical_pairs_labeled.jsonl`
 - [ ] 生成第一版 `fragment_pairs_{train,valid,test}.jsonl`
 - [ ] 生成第一版 `fragment_paths_train.jsonl` 与 `fragment_dataset_stats.json`
 
@@ -139,8 +144,9 @@
 - **`01a`**：回答“baseline 具体怎么跑”
 - **`01b`**：回答“baseline 输入输出长什么样、结果如何对齐”
 - **`02`**：只负责定义 `fragment_op` 的概念边界、schema、词表与校验规则
-- **`03`**：只负责把现有 pair/path 数据转成 `fragment_op` 数据集，不展开模型细节
-- **`04`**：只负责 `OFO-frag` 的特征编码与模型改造，默认 `fragment_op` schema 与数据入口已由 `02`/`03` 提供
+- **`03`**：负责 QM9 canonical 数据主线、property labels、path normalization 与训练视图导出分层
+- **`03a`**：只负责把 `03` 进一步细化为 `OFO-frag` 可直接消费的单步 `frag pair` 构造计划
+- **`04`**：只负责 `OFO-frag` 的特征编码与模型改造，默认训练入口已由 `03a` 提供
 - **`05`**：只负责 planner 机制与搜索预算分配，不展开 value / policy 训练细节
 - **`06`**：只负责 path / value / policy 与 heuristic，不重复 `beam / best-first` 的基础接口设计
 - **`07`**：只负责跨阶段实验矩阵、指标、里程碑与结论汇总

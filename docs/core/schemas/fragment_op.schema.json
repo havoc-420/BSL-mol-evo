@@ -1,0 +1,254 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "fragment_op.schema.json",
+  "title": "FragmentOp",
+  "description": "A chemically meaningful fragment-level molecular edit action. Represents a single step in molecular optimization that operates at the level of molecular fragments rather than individual atoms/bonds.",
+  "type": "object",
+  "required": ["op_type", "anchor", "fragment", "connection", "constraints", "provenance"],
+  "additionalProperties": false,
+
+  "properties": {
+
+    "op_type": {
+      "type": "string",
+      "description": "The type of fragment-level operation being performed. Vocabulary v0 contains exactly 5 action types.",
+      "enum": [
+        "attach_fragment",
+        "replace_substituent",
+        "grow_r_group",
+        "bioisostere_swap",
+        "delete_fragment"
+      ],
+      "enumDescriptions": {
+        "attach_fragment": "Attach a new fragment to an open attachment point on the molecule. Does not remove any existing fragment.",
+        "replace_substituent": "Replace an existing side-chain substituent with a different fragment. Removes a leaving group and attaches a new fragment at the same anchor.",
+        "grow_r_group": "Extend an R-group by appending an additional fragment to its terminal point. Scaffold is always preserved.",
+        "bioisostere_swap": "Replace a fragment with a bioisosteric equivalent (same pharmacophoric properties, different chemical structure). Scaffold may or may not be preserved depending on swap site.",
+        "delete_fragment": "Remove an existing fragment/substituent from the molecule without replacing it. Leaves the anchor atom with a free valence (implicitly filled with H)."
+      }
+    },
+
+    "anchor": {
+      "type": "object",
+      "description": "Specifies where in the parent molecule the operation is applied.",
+      "required": ["anchor_atom_indices"],
+      "additionalProperties": false,
+      "properties": {
+        "anchor_atom_indices": {
+          "type": "array",
+          "description": "Atom index or indices (in the parent molecule) that serve as the attachment/detachment site. Usually 1 atom for attach/delete, 2 atoms for replace (bond-level anchor).",
+          "items": { "type": "integer", "minimum": 0 },
+          "minItems": 1,
+          "maxItems": 2
+        },
+        "anchor_frag_idx": {
+          "type": ["integer", "null"],
+          "description": "Index of the fragment (in BRICS/Murcko decomposition of the parent molecule) that contains the anchor atom(s). Null if decomposition was not performed.",
+          "minimum": 0
+        },
+        "anchor_env_type": {
+          "type": ["string", "null"],
+          "description": "Local chemical environment tag at the anchor atom, e.g. BRICS environment type (integers '1'–'16') or a free-text label such as 'aromatic_C', 'aliphatic_N', 'carbonyl_C'. Null if not annotated.",
+          "examples": ["1", "3", "16", "aromatic_C", "NH", "carbonyl_C"]
+        },
+        "anchor_position_encoding": {
+          "type": ["string", "null"],
+          "description": "Additional positional context. E.g. 'scaffold_edge' (anchor is on a bond connecting scaffold to R-group), 'ring_atom', 'chain_end'. Null if not annotated.",
+          "enum": ["scaffold_edge", "ring_atom", "ring_edge", "chain_end", "chain_internal", null]
+        }
+      }
+    },
+
+    "fragment": {
+      "type": "object",
+      "description": "Describes the incoming fragment being introduced by the operation (for attach_fragment, replace_substituent, grow_r_group, bioisostere_swap). For delete_fragment, this object is null.",
+      "oneOf": [
+        {
+          "description": "Fragment present (for non-delete operations).",
+          "required": ["fragment_id", "fragment_smiles", "attachment_points", "fragment_size", "fragment_source"],
+          "additionalProperties": false,
+          "properties": {
+            "fragment_id": {
+              "type": "string",
+              "description": "Stable identifier for this fragment in the action library. Format: '{source}:{canonical_smiles_hash}' or '{source}:{template_id}'. Must be unique within an action library version.",
+              "examples": ["brics:frag_023", "rgroup:CF3_001", "template:v0_ring_001"]
+            },
+            "fragment_smiles": {
+              "type": "string",
+              "description": "SMILES of the incoming fragment. Attachment points are marked with '[*]' or '[*:N]' where N is the attachment point index.",
+              "examples": ["[*]CC(=O)N", "[*:1]c1ccccc1", "[*:1]CN[*:2]"]
+            },
+            "attachment_points": {
+              "type": "array",
+              "description": "List of attachment point descriptors within the fragment. Each entry maps to a '[*:N]' wildcard in fragment_smiles.",
+              "items": {
+                "type": "object",
+                "required": ["ap_index", "ap_atom_idx_in_fragment"],
+                "additionalProperties": false,
+                "properties": {
+                  "ap_index": {
+                    "type": "integer",
+                    "description": "Attachment point index (matches the N in '[*:N]' SMILES notation). Use 0 or 1 for single-point attachments.",
+                    "minimum": 0
+                  },
+                  "ap_atom_idx_in_fragment": {
+                    "type": "integer",
+                    "description": "Atom index within the fragment's own atom numbering that bonds to the anchor.",
+                    "minimum": 0
+                  }
+                }
+              },
+              "minItems": 1,
+              "maxItems": 4
+            },
+            "fragment_size": {
+              "type": "integer",
+              "description": "Number of heavy atoms in the fragment (excluding wildcard attachment atoms).",
+              "minimum": 1
+            },
+            "fragment_source": {
+              "type": "string",
+              "description": "How this fragment was obtained.",
+              "enum": ["brics", "rgroup", "mcs_extracted", "template", "manual"],
+              "enumDescriptions": {
+                "brics": "Fragment derived from BRICS decomposition of a known molecule.",
+                "rgroup": "Fragment defined as an R-group substituent from a matched molecular series.",
+                "mcs_extracted": "Fragment extracted from MCS-based alignment of a molecule pair.",
+                "template": "Fragment comes from a manually or data-derived template action library.",
+                "manual": "Manually defined fragment for testing or seeding."
+              }
+            }
+          }
+        },
+        {
+          "description": "No incoming fragment (for delete_fragment operation).",
+          "type": "null"
+        }
+      ]
+    },
+
+    "leaving_group": {
+      "description": "The fragment that is removed during replace_substituent or delete_fragment. Null for attach_fragment and grow_r_group.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["matched_atom_indices", "leaving_fragment_smiles", "leaving_group_size"],
+          "additionalProperties": false,
+          "properties": {
+            "matched_atom_indices": {
+              "type": "array",
+              "description": "Atom indices (in the parent molecule) belonging to the fragment/substituent being removed.",
+              "items": { "type": "integer", "minimum": 0 },
+              "minItems": 1
+            },
+            "leaving_fragment_smiles": {
+              "type": "string",
+              "description": "SMILES of the fragment being removed. Attachment point marked with '[*]'.",
+              "examples": ["[*]Cl", "[*]CC", "[*]c1ccccc1"]
+            },
+            "leaving_group_size": {
+              "type": "integer",
+              "description": "Number of heavy atoms in the leaving group (excluding wildcard attachment atom).",
+              "minimum": 1
+            }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+
+    "connection": {
+      "type": "object",
+      "description": "Describes the bond formed (or broken) between anchor atom and the incoming fragment.",
+      "required": ["bond_type"],
+      "additionalProperties": false,
+      "properties": {
+        "bond_type": {
+          "type": "string",
+          "description": "Bond order of the new bond formed. 'none' for delete_fragment where no bond is formed.",
+          "enum": ["SINGLE", "DOUBLE", "TRIPLE", "AROMATIC", "none"]
+        },
+        "attachment_mapping": {
+          "type": ["object", "null"],
+          "description": "Maps anchor atom index to fragment attachment point index. Key: anchor atom index (string), Value: fragment ap_index.",
+          "additionalProperties": { "type": "integer" }
+        },
+        "topology_change": {
+          "type": ["string", "null"],
+          "description": "High-level description of topological impact on the molecular graph.",
+          "enum": ["adds_branch", "replaces_branch", "extends_chain", "forms_ring", "breaks_ring", "removes_branch", null]
+        }
+      }
+    },
+
+    "constraints": {
+      "type": "object",
+      "description": "Structural and chemical constraints that can be computed for this action. All fields are boolean flags (True = constraint is satisfied).",
+      "required": ["scaffold_preserving", "valence_safe"],
+      "additionalProperties": false,
+      "properties": {
+        "scaffold_preserving": {
+          "type": "boolean",
+          "description": "True if the Murcko scaffold of the resulting molecule is identical to the Murcko scaffold of the parent molecule. First-version rule: compare canonical Murcko SMILES of parent and product."
+        },
+        "rgroup_only": {
+          "type": ["boolean", "null"],
+          "description": "True if the action only modifies R-groups (side chains) and does not touch the scaffold at all. Stricter than scaffold_preserving. Null if not annotated."
+        },
+        "ring_change": {
+          "type": ["boolean", "null"],
+          "description": "True if the action introduces or removes a ring system (topology_change in ['forms_ring', 'breaks_ring']). Null if not annotated."
+        },
+        "charge_change": {
+          "type": ["boolean", "null"],
+          "description": "True if the formal charge of the molecule changes as a result of this action. Null if not annotated."
+        },
+        "valence_safe": {
+          "type": "boolean",
+          "description": "True if the resulting molecule passes RDKit sanitization (no valence violations, no invalid chemistry)."
+        }
+      }
+    },
+
+    "provenance": {
+      "type": "object",
+      "description": "Tracks how this action record was created.",
+      "required": ["source"],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "Primary generation mechanism.",
+          "enum": ["rule_brics", "rule_rgroup", "data_mcs", "data_mmp", "template", "manual"],
+          "enumDescriptions": {
+            "rule_brics": "Generated by applying BRICS fragmentation rules.",
+            "rule_rgroup": "Generated by R-group enumeration rules.",
+            "data_mcs": "Extracted from (smiles_from, smiles_to) pair via MCS alignment.",
+            "data_mmp": "Extracted from a matched molecular pair (MMP) database.",
+            "template": "Instantiated from a pre-defined template action.",
+            "manual": "Manually authored."
+          }
+        },
+        "template_id": {
+          "type": ["string", "null"],
+          "description": "ID of the template this action was instantiated from. Null if source is not 'template'."
+        },
+        "rule_id": {
+          "type": ["string", "null"],
+          "description": "ID of the rule that generated this action (e.g. 'brics_rule_3_to_5', 'rgroup_swap_NH'). Null if source is not rule-based."
+        },
+        "confidence": {
+          "type": ["number", "null"],
+          "description": "Confidence score [0.0, 1.0] for data-extracted actions. Based on MCS coverage ratio or MMP frequency. Null for rule-generated actions.",
+          "minimum": 0.0,
+          "maximum": 1.0
+        },
+        "actionlib_version": {
+          "type": ["string", "null"],
+          "description": "Version of the action library this action belongs to (e.g. 'actionlib_v0', 'actionlib_v1'). Null if standalone.",
+          "examples": ["actionlib_v0", "actionlib_v1"]
+        }
+      }
+    }
+  }
+}
