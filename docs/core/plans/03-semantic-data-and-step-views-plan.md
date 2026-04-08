@@ -336,6 +336,38 @@
 
 那么模型和 planner 就不应依赖“它是不是 QM9”。
 
+### 8.4 基于普通 item 的事实源验证（`QM9 / ZINC`）
+
+建议把“事实源是否可构造”收敛到同一条 item-first 主线：
+
+> **原始数据源 / 下载根目录 → 普通 item 表（带 `smiles`） → `molecule_manifest` → canonical `primitive_pairs` → `primitive_paths` → semantic annotation → export views**
+
+其中要区分两层“起点”：
+
+- **原始数据入口层**：事实源真正开始的位置
+- **仓库内标准化落盘层**：`dataset/data/*`，它是后续脚本复用的稳定 checkpoint，不是最原始来源
+
+其中：
+
+- **`QM9`**：真正起点更接近 `raw-data/QM9`（或 `torch_geometric.datasets.QM9` 的 root）；仓库内现有的 `dataset/data/qm9_smiles_all_atoms.csv` 是通过 `dataset/extract_smiles.py` / `dataset/dev-tools/merge_qm9_files.py` 整理后的 item 表，可作为第一轮事实源验线入口
+- **`ZINC`**：真正起点更接近 `torch_geometric.datasets.ZINC` 的 root 或外部原始数据；当前仓库内还没有可直接进事实层的 item 表，所以必须先准备一个至少包含 `smiles` 和样本 ID 的 `zinc_items.csv / jsonl`
+- **实现入口**：
+  - `dataset/extract_smiles.py`：把原始 `QM9` root 提取为 item CSV
+  - `dataset/build_molecule_manifest.py`：把普通 item 表规范化成 `molecule_manifest.jsonl`
+  - `dataset/build_canonical_pairs.py`：通用 canonical pair 入口
+  - `dataset/build_canonical_qm9_pairs.py`：底层实现，现已支持 `CSV / JSONL / JSON` item 表，并通过 `--source-dataset` 区分 `qm9 / zinc`
+- **当前仍未完成的部分**：
+  - `primitive_pairs -> primitive_paths` 的正式协议统一
+  - property delta / split manifest 的统一补齐
+  - `ZINC` 原始数据到 item 表的仓库内标准抽取脚本仍缺失
+
+因此这一阶段对 `QM9 / ZINC` 的验收不应再问“有没有评估 pair”，而应问：
+
+1. 原始数据能否稳定变成普通 item 表
+2. 普通 item 能否稳定变成 `molecule_manifest`
+3. `molecule_manifest` 能否稳定变成带 `primitive_ops` 的 canonical pair
+4. canonical pair 是否能继续走到 path / semantic annotation / export views
+
 ---
 
 ## 9. 推荐脚本分层
@@ -348,12 +380,16 @@
 - 生成统一的 molecule manifest
 - 提供 `mol_id`、`scaffold_key`、属性回查入口
 
+**当前状态**：已落地，可直接把 `CSV / JSONL / JSON` 普通 item 表转换成 `molecule_manifest.jsonl`
+
 ### 9.2 `build_canonical_pairs.py`
 
 职责：
 
 - 基于现有 evolver / diff 逻辑生成 primitive pairs
 - 输出 `primitive_pairs_raw.jsonl`
+
+**当前状态**：已落地为通用 CLI 入口；底层复用 `build_canonical_qm9_pairs.py`，但已支持任意带 `smiles` 的 item 表
 
 ### 9.3 `annotate_property_deltas.py`
 

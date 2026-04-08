@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-从 QM9 构造适合 `OFO-frag` 上游 bootstrap / 调试使用的 canonical local pair 数据。
+从普通分子 item 表构造适合 `OFO-frag` 上游 bootstrap / 调试使用的 canonical local pair 数据。
 
 主线：
-    QM9 CSV -> heavy-atom 局部候选 -> fingerprint 预筛 ->
+    item table -> heavy-atom 局部候选 -> fingerprint 预筛 ->
     MoleculeEvolverAnalysis -> canonical primitive operations -> JSONL 导出
 
-注意：QM9 在这里仅作为小分子 bootstrap 与管线验证源，
-不应被视为最终的 fragment 主训练源。
+默认输入仍指向 `QM9`，因为它是当前仓库内现成的 bootstrap 源；
+但脚本本身现在也支持任何只要带 `smiles` 列的 item 表（CSV / JSONL / JSON），
+例如外部导出的 `ZINC` 子集 item 表。
 
-这一步只负责生成 `canonical_pairs_raw.jsonl`，不负责：
+这一步只负责生成事实层 `primitive_pairs_raw` 风格的 pair，不负责：
 - 属性变化标注
 - `fragment_op` 标注
 - train/valid/test split
@@ -29,7 +30,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 import pandas as pd
 from rdkit import Chem, DataStructs
@@ -51,12 +52,41 @@ DEFAULT_OUTPUT = PROJECT_ROOT / "mol_evo" / "dataset" / "data" / "canonical_pair
 DEFAULT_STATS = PROJECT_ROOT / "mol_evo" / "dataset" / "data" / "canonical_pairs_raw.stats.json"
 
 
+def load_input_table(path: Path) -> pd.DataFrame:
+    """读取普通 item 表，支持 CSV / JSONL / JSON。"""
+    suffix = path.suffix.lower()
+    if suffix == ".csv":
+        return pd.read_csv(path)
+
+    if suffix == ".jsonl":
+        rows: List[dict] = []
+        with path.open("r", encoding="utf-8") as handle:
+            for line_no, line in enumerate(handle, start=1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except json.JSONDecodeError as exc:
+                    raise ValueError(f"JSONL 第 {line_no} 行解析失败: {exc}") from exc
+        return pd.DataFrame(rows)
+
+    if suffix == ".json":
+        with path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        if not isinstance(data, list):
+            raise ValueError("JSON 输入必须是对象数组")
+        return pd.DataFrame(data)
+
+    raise ValueError(f"不支持的输入格式: {path.suffix}")
+
+
 @dataclass
 class MoleculeRecord:
-    """缓存单个 QM9 分子的轻量信息。"""
+    """缓存单个 item 分子的轻量信息。"""
 
     record_id: int
-    qm9_index: int
+    source_index: Union[int, str]
     smiles: str
     heavy_atoms: int
     scaffold_key: str
@@ -197,8 +227,8 @@ def get_path_dict(smiles: str) -> Tuple[dict, ...]:
     return tuple(path_dict)
 
 
-def load_qm9_records(
-    csv_path: Path,
+def load_item_records(
+    input_path: Path,
     smiles_column: str,
     index_column: str,
     source_start: int,
@@ -207,15 +237,16 @@ def load_qm9_records(
     heavy_atom_min: Optional[int],
     heavy_atom_max: Optional[int],
     deduplicate_smiles: bool,
+    source_dataset: str,
 ) -> Tuple[List[MoleculeRecord], List[int], BuildStats]:
-    """加载并预处理 QM9 CSV。"""
-    df = pd.read_csv(csv_path)
+    """加载并预处理普通 item 表。"""
+    df = load_input_table(input_path)
     stats = BuildStats(total_rows=len(df))
 
     records: List[MoleculeRecord] = []
     seen_smiles = set()
 
-    for row_id, row in tqdm(df.iterrows(), total=len(df), desc="加载 QM9 分子", unit="mol"):
+    for row_id, row in tqdm(df.iterrows(), total=len(df), desc=f"加载 {source_dataset} 分子", unit="mol"):
         canonical = canonicalize_smiles(row.get(smiles_column, ""))
         if canonical is None:
             continue
@@ -233,14 +264,14 @@ def load_qm9_records(
 
         raw_index = row.get(index_column, row_id)
         try:
-            qm9_index = int(raw_index)
+            source_index: Union[int, str] = int(raw_index)
         except Exception:
-            qm9_index = int(row_id)
+            source_index = str(raw_index).strip() or int(row_id)
 
         records.append(
             MoleculeRecord(
                 record_id=len(records),
-                qm9_index=qm9_index,
+                source_index=source_index,
                 smiles=smiles,
                 heavy_atoms=heavy_atoms,
                 scaffold_key=get_scaffold_key(mol),
@@ -361,6 +392,8 @@ def build_pair_record(
     min_steps: int,
     max_steps: int,
     generation_version: str,
+    source_dataset: str,
+    pair_id_prefix: str,
     stats: BuildStats,
 ) -> Optional[dict]:
     """为单个 source/target 构造 canonical pair 记录。"""
@@ -383,9 +416,10 @@ def build_pair_record(
         return None
 
     pair_record = {
-        "pair_id": f"qm9_{source.qm9_index}_{target.qm9_index}",
-        "from_index": int(source.qm9_index),
-        "to_index": int(target.qm9_index),
+        "pair_id": f"{pair_id_prefix}_{source.source_index}_{target.source_index}",
+        "source_dataset": source_dataset,
+        "from_index": source.source_index,
+        "to_index": target.source_index,
         "smiles_from": source.smiles,
         "smiles_to": target.smiles,
         "operations": operations,
@@ -398,7 +432,7 @@ def build_pair_record(
             "candidate_rank": int(candidate.candidate_rank),
             "heavy_atom_delta": int(candidate.heavy_atom_delta),
             "selection_strategy": "local_bucket_similarity",
-            "source_dataset": "qm9",
+            "source_dataset": source_dataset,
             "generation_version": generation_version,
         },
     }
@@ -419,8 +453,8 @@ def write_jsonl(path: Path, rows: Iterable[dict], append: bool) -> int:
 
 def build_canonical_pairs(args: argparse.Namespace) -> BuildStats:
     """主执行逻辑。"""
-    records, source_ids, stats = load_qm9_records(
-        csv_path=args.input_csv,
+    records, source_ids, stats = load_item_records(
+        input_path=args.input_csv,
         smiles_column=args.smiles_column,
         index_column=args.index_column,
         source_start=args.source_start,
@@ -429,10 +463,17 @@ def build_canonical_pairs(args: argparse.Namespace) -> BuildStats:
         heavy_atom_min=args.heavy_atom_min,
         heavy_atom_max=args.heavy_atom_max,
         deduplicate_smiles=args.deduplicate_smiles,
+        source_dataset=args.source_dataset,
     )
     buckets = build_bucket_index(records)
 
-    LOGGER.info("加载完成：总行数=%s，有效分子=%s，source 数量=%s", stats.total_rows, stats.valid_rows, stats.source_rows)
+    LOGGER.info(
+        "加载完成：数据源=%s，总行数=%s，有效分子=%s，source 数量=%s",
+        args.source_dataset,
+        stats.total_rows,
+        stats.valid_rows,
+        stats.source_rows,
+    )
     LOGGER.info(
         "候选筛选配置：heavy_atom_window=%s, top_k_targets=%s, min_similarity=%.3f, min_steps=%s, max_steps=%s",
         args.heavy_atom_window,
@@ -472,6 +513,8 @@ def build_canonical_pairs(args: argparse.Namespace) -> BuildStats:
                 min_steps=args.min_steps,
                 max_steps=args.max_steps,
                 generation_version=args.generation_version,
+                source_dataset=args.source_dataset,
+                pair_id_prefix=args.pair_id_prefix,
                 stats=stats,
             )
             if pair_record is None:
@@ -499,12 +542,20 @@ def build_canonical_pairs(args: argparse.Namespace) -> BuildStats:
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="从 QM9 构造 canonical local pair 数据集")
-    parser.add_argument("--input-csv", type=Path, default=DEFAULT_INPUT, help="QM9 输入 CSV 路径")
+    parser = argparse.ArgumentParser(description="从普通 item 表构造 canonical local pair 数据集")
+    parser.add_argument(
+        "--input-file", "--input-csv",
+        dest="input_csv",
+        type=Path,
+        default=DEFAULT_INPUT,
+        help="输入 item 表路径，支持 CSV / JSONL / JSON；默认仍指向 QM9 CSV",
+    )
     parser.add_argument("--output-file", type=Path, default=DEFAULT_OUTPUT, help="输出 JSONL 路径")
     parser.add_argument("--stats-file", type=Path, default=DEFAULT_STATS, help="统计信息 JSON 路径")
+    parser.add_argument("--source-dataset", type=str, default="qm9", help="数据源名称，例如 qm9 / zinc")
+    parser.add_argument("--pair-id-prefix", type=str, default=None, help="pair_id 前缀；默认回退到 source_dataset")
     parser.add_argument("--smiles-column", type=str, default="smiles", help="SMILES 列名")
-    parser.add_argument("--index-column", type=str, default="index", help="QM9 index 列名，不存在时退回到行号")
+    parser.add_argument("--index-column", type=str, default="index", help="样本 ID 列名，不存在时退回到行号")
     parser.add_argument("--source-start", type=int, default=0, help="source 起始下标（基于过滤后的有效分子）")
     parser.add_argument("--source-end", type=int, default=None, help="source 结束下标（开区间）")
     parser.add_argument("--max-sources", type=int, default=None, help="最多处理多少个 source 分子")
@@ -531,8 +582,10 @@ def save_stats(stats_file: Path, args: argparse.Namespace, stats: BuildStats) ->
     """保存统计摘要。"""
     stats_file.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "input_csv": str(args.input_csv),
+        "input_file": str(args.input_csv),
         "output_file": str(args.output_file),
+        "source_dataset": args.source_dataset,
+        "pair_id_prefix": args.pair_id_prefix,
         "generation_version": args.generation_version,
         "filters": {
             "source_start": args.source_start,
@@ -567,6 +620,9 @@ def main() -> None:
     if not args.input_csv.exists():
         raise FileNotFoundError(f"输入文件不存在: {args.input_csv}")
 
+    if not args.pair_id_prefix:
+        args.pair_id_prefix = args.source_dataset
+
     if args.min_steps < 1:
         raise ValueError("--min-steps 必须 >= 1")
     if args.max_steps < args.min_steps:
@@ -581,7 +637,7 @@ def main() -> None:
     stats = build_canonical_pairs(args)
     save_stats(args.stats_file, args, stats)
 
-    LOGGER.info("canonical pair 构造完成，写出 %s 条记录。", stats.pairs_written)
+    LOGGER.info("canonical pair 构造完成，数据源=%s，写出 %s 条记录。", args.source_dataset, stats.pairs_written)
     LOGGER.info("统计信息已保存到: %s", args.stats_file)
 
 

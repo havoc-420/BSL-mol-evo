@@ -187,6 +187,12 @@
 
 - **状态**：**已落地入口，待实跑验证**
 - **已完成**：
+  - `dataset/build_molecule_manifest.py`
+    - 能把普通 item 表（`CSV / JSONL / JSON`）规范化为 `molecule_manifest.jsonl`
+    - 适合作为 `QM9 / ZINC` 的统一事实源入口
+  - `dataset/build_canonical_pairs.py`
+    - 提供通用 canonical pair CLI 入口
+    - 底层复用 `dataset/build_canonical_qm9_pairs.py`，但已支持任意带 `smiles` 的 item 表
   - `dataset/build_fragment_op_dataset.py`
     - 能直接输出 `semantic_pairs_* / fragment_pairs_* / semantic_paths_*`
     - 能输出 `fragment_dataset_stats.json` 和 `fragment_action_config.yaml`
@@ -195,9 +201,10 @@
   - `dataset/export_training_views.py`
     - 负责 train/valid/test 视图导出
 - **当前约束**：
-  - 当前输入协议以 **JSON / JSONL** 为主；还**没有**把现有评估 CSV 直接接成正式输入协议
-  - `build_split_manifest.py`、`molecule_manifest.jsonl`、`primitive_pairs_* / primitive_paths_*` 的统一规范化链路还没补完
-- **结论**：从“脚本能力”上看，**build 数据集的主入口已经接上**；从“工程验收”上看，还差一次服务器上的真实样本运行来把状态从“待实跑验证”升级成“已验证”。
+  - 当前输入协议虽然已扩展到普通 item 表，但真正完整的事实主链仍需经过 `primitive_pairs -> primitive_paths -> semantic_paths` 的协议统一
+  - `ZINC` 在仓库内仍**没有**现成可复用的 item 表；要验事实源，仍需要先准备至少包含 `smiles` + 样本 ID 的 `zinc_items.csv / jsonl`
+  - `build_split_manifest.py`、`primitive_paths_*` 和 property delta 的统一规范化链路还没补完
+- **结论**：从“普通 item -> facts”这半段看，**入口已经落地**；从“完整事实主干工程验收”看，仍需要补跑 `QM9` 与 `ZINC item table` 两条验证链，外加 path 协议统一，才能把状态升级成“已验证”。
 
 ### 7.3 `04` 单步 semantic-step 模型入口
 
@@ -224,7 +231,32 @@
 
 ### 8.1 准备最小输入样本
 
-如果你手头已经有正式的 pair/path `JSON / JSONL`，可以直接跳过这一步。否则可以先把现有评估 CSV 抽成一个最小 smoke 输入：
+如果你手头已经有正式的 pair/path `JSON / JSONL`，可以直接跳过这一步。否则可以先把现有评估 CSV 抽成一个最小 smoke 输入。
+
+**这里要特别说明：**
+
+- 这个 smoke `pair` **不是** `03` 计划里的正式 `primitive_pair`
+- 它的来源只是现有评估 CSV 里的 `A_smiles / B_smiles / improvement`
+- 它**没有**携带 `primitive_ops`，因此也**不是**从 `evo path` 反推得到的事实层样本
+- 配套生成的 smoke `path` 也只是一个 **2-node synthetic path**（`[smiles_from, smiles_to]`），目的是验证 `semantic_paths` 导出接口，不是验证真正的 replay / primitive path 主干
+
+**所以这一步验证的是：**
+
+- `annotate_semantic_steps.py` 能否接受最小 pair/path 输入并落盘
+- `export_training_views.py` 和 `build_fragment_op_dataset.py` 能否把 annotation 结果导出成训练视图
+
+**它不验证的是：**
+
+- canonical `primitive_pairs_*` 是否构造正确
+- `primitive_ops` / `primitive_span` 是否可靠
+- 真正的 `evo path -> primitive_paths_* -> semantic_paths_*` 主数据链是否已经跑通
+
+**正式来源应该是：**
+
+- `build_canonical_qm9_pairs.py`：基于 `MoleculeEvolverAnalysis` 构造带 `operations` 的 primitive pair
+- `pair_to_path.py` 或后续 `normalize_primitive_paths.py`：把带操作序列的 pair 组织成可回放 path
+
+否则可以先把现有评估 CSV 抽成一个最小 smoke 输入：
 
 ```bash
 REPO=/path/to/mol-ofo && cd "$REPO" && eval "$(conda shell.zsh hook)" && conda activate mol-opt-evo && mkdir -p mol_evo/dataset/tests/smoke_inputs && python -c "import csv,json,pathlib; src=pathlib.Path('mol_evo/dataset/eval-data/20251205_131636/qm9_test_ab_pairs_gap_pairs.csv'); rows=[]; f=src.open(); reader=csv.DictReader(f); [rows.append(r) for _,r in zip(range(6), reader)]; f.close(); pairs=[]; paths=[]; [pairs.append({'pair_id': f'gap_smoke_pair_{i}', 'smiles_from': r['A_smiles'], 'smiles_to': r['B_smiles'], 'target_property': 'gap', 'step_target': float(r['improvement'])}) or paths.append({'path_id': f'gap_smoke_path_{i}', 'node_smiles_list': [r['A_smiles'], r['B_smiles']], 'step_targets': [float(r['improvement'])], 'path_target': float(r['improvement']), 'target_property': 'gap'}) for i,r in enumerate(rows)]; pathlib.Path('mol_evo/dataset/tests/smoke_inputs/gap_pairs_smoke.jsonl').write_text(''.join(json.dumps(x, ensure_ascii=False)+'\n' for x in pairs), encoding='utf-8'); pathlib.Path('mol_evo/dataset/tests/smoke_inputs/gap_paths_smoke.jsonl').write_text(''.join(json.dumps(x, ensure_ascii=False)+'\n' for x in paths), encoding='utf-8')"
@@ -233,7 +265,7 @@ REPO=/path/to/mol-ofo && cd "$REPO" && eval "$(conda shell.zsh hook)" && conda a
 ### 8.2 跑 annotation 阶段
 
 ```bash
-cd /Users/havoc420/Documents/Projects/whu/mol-ofo && eval "$(conda shell.zsh hook)" && conda activate mol-opt-evo && python mol_evo/dataset/annotate_semantic_steps.py --pairs_input mol_evo/dataset/tests/smoke_inputs/gap_pairs_smoke.jsonl --paths_input mol_evo/dataset/tests/smoke_inputs/gap_paths_smoke.jsonl --output_dir mol_evo/dataset/tests/smoke_outputs/annotated --max_workers 1
+REPO=/path/to/mol-ofo && cd "$REPO" && eval "$(conda shell.zsh hook)" && conda activate mol-opt-evo && python mol_evo/dataset/annotate_semantic_steps.py --pairs_input mol_evo/dataset/tests/smoke_inputs/gap_pairs_smoke.jsonl --paths_input mol_evo/dataset/tests/smoke_inputs/gap_paths_smoke.jsonl --output_dir mol_evo/dataset/tests/smoke_outputs/annotated --max_workers 1
 ```
 
 **预期产物**：
@@ -245,7 +277,7 @@ cd /Users/havoc420/Documents/Projects/whu/mol-ofo && eval "$(conda shell.zsh hoo
 ### 8.3 跑 training views 导出阶段
 
 ```bash
-cd /Users/havoc420/Documents/Projects/whu/mol-ofo && eval "$(conda shell.zsh hook)" && conda activate mol-opt-evo && python mol_evo/dataset/export_training_views.py --annotated_pairs_input mol_evo/dataset/tests/smoke_outputs/annotated/semantic_pairs_annotated.jsonl --annotated_paths_input mol_evo/dataset/tests/smoke_outputs/annotated/semantic_paths_annotated.jsonl --output_dir mol_evo/dataset/tests/smoke_outputs/views
+REPO=/path/to/mol-ofo && cd "$REPO" && eval "$(conda shell.zsh hook)" && conda activate mol-opt-evo && python mol_evo/dataset/export_training_views.py --annotated_pairs_input mol_evo/dataset/tests/smoke_outputs/annotated/semantic_pairs_annotated.jsonl --annotated_paths_input mol_evo/dataset/tests/smoke_outputs/annotated/semantic_paths_annotated.jsonl --output_dir mol_evo/dataset/tests/smoke_outputs/views
 ```
 
 **预期产物**：
@@ -269,7 +301,49 @@ REPO=/path/to/mol-ofo && cd "$REPO" && eval "$(conda shell.zsh hook)" && conda a
 - `fragment_dataset_stats.json`
 - `fragment_action_config.yaml`
 
-### 8.5 最低通过标准
+### 8.5 更正式的 facts-preserving smoke（推荐随后补跑）
+
+如果你想验证的不是“最小接口能不能跑”，而是 **`evo path / primitive_ops` 主干是否真的接上**，建议补跑下面这条链：
+
+#### Step A：先生成带 `operations` 的 canonical primitive pairs
+
+```bash
+REPO=/path/to/mol-ofo && cd "$REPO" && eval "$(conda shell.zsh hook)" && conda activate mol-opt-evo && python mol_evo/dataset/build_canonical_qm9_pairs.py --input-csv mol_evo/dataset/data/qm9_smiles_all_atoms.csv --output-file mol_evo/dataset/tests/facts_smoke/canonical_pairs_raw.jsonl --stats-file mol_evo/dataset/tests/facts_smoke/canonical_pairs_raw.stats.json --max-sources 32 --max-pairs 128 --min-steps 1 --max-steps 3 --deduplicate-smiles
+```
+
+#### Step B：把 JSONL 临时转成 `pair_to_path.py` 可接受的 JSON 数组
+
+> 当前这里仍有一个格式断层：`build_canonical_qm9_pairs.py` 输出 `JSONL`，而 `pair_to_path.py` 仍主要吃 `JSON` 数组。这也是 `03` 计划里仍保留 `normalize_primitive_paths.py` 的原因之一。
+
+```bash
+REPO=/path/to/mol-ofo && cd "$REPO" && eval "$(conda shell.zsh hook)" && conda activate mol-opt-evo && python -c "import json, pathlib; src=pathlib.Path('mol_evo/dataset/tests/facts_smoke/canonical_pairs_raw.jsonl'); dst=pathlib.Path('mol_evo/dataset/tests/facts_smoke/canonical_pairs_raw.json'); rows=[json.loads(line) for line in src.read_text(encoding='utf-8').splitlines() if line.strip()]; dst.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding='utf-8')"
+```
+
+#### Step C：从带 `operations` 的 pair 构造 path
+
+```bash
+REPO=/path/to/mol-ofo && cd "$REPO" && eval "$(conda shell.zsh hook)" && conda activate mol-opt-evo && python mol_evo/core/data/pair_to_path.py -i mol_evo/dataset/tests/facts_smoke/canonical_pairs_raw.json -o mol_evo/dataset/tests/facts_smoke/canonical_paths_raw.json -p gap --max-samples 128 --min-steps 1 --max-steps 3
+```
+
+#### Step D：在事实层 pair/path 上做 semantic annotation
+
+```bash
+REPO=/path/to/mol-ofo && cd "$REPO" && eval "$(conda shell.zsh hook)" && conda activate mol-opt-evo && python mol_evo/dataset/annotate_semantic_steps.py --pairs_input mol_evo/dataset/tests/facts_smoke/canonical_pairs_raw.jsonl --paths_input mol_evo/dataset/tests/facts_smoke/canonical_paths_raw.json --output_dir mol_evo/dataset/tests/facts_smoke/annotated --max_workers 1
+```
+
+#### Step E：导出训练视图
+
+```bash
+REPO=/path/to/mol-ofo && cd "$REPO" && eval "$(conda shell.zsh hook)" && conda activate mol-opt-evo && python mol_evo/dataset/export_training_views.py --annotated_pairs_input mol_evo/dataset/tests/facts_smoke/annotated/semantic_pairs_annotated.jsonl --annotated_paths_input mol_evo/dataset/tests/facts_smoke/annotated/semantic_paths_annotated.jsonl --output_dir mol_evo/dataset/tests/facts_smoke/views
+```
+
+**这条链验证的是：**
+
+- `MoleculeEvolverAnalysis -> operations -> primitive pair`
+- `primitive pair -> path`
+- `primitive facts -> semantic annotation -> training views`
+
+### 8.6 最低通过标准
 
 如果满足下面 4 条，就可以把 `03` 的状态从“待实跑验证”更新为“已验证”：
 
@@ -277,6 +351,66 @@ REPO=/path/to/mol-ofo && cd "$REPO" && eval "$(conda shell.zsh hook)" && conda a
 2. `annotated`、`views`、`bootstrap` 三个输出目录都能成功落盘
 3. `semantic_pairs_*` 与 `semantic_paths_*` 文件非空
 4. `fragment_dataset_stats.json` / `training_view_stats.json` 中 split size 合理，且 `fragment_pairs_*` 至少不是全空
+
+### 8.7 基于普通 item 的事实源验证（`QM9 / ZINC`）
+
+> 这组命令验证的不是“评估 pair 能不能导出视图”，而是**原始数据能不能先进入事实层入口**。
+>
+> 统一口径：`raw dataset root -> item table -> molecule_manifest -> canonical primitive pairs`
+
+#### `QM9`：真正起点在原始数据 root，不在 `dataset/data`
+
+Step 0：先从原始 `QM9` root 提取 item 表
+
+```bash
+REPO=/path/to/mol-ofo && cd "$REPO" && eval "$(conda shell.zsh hook)" && conda activate mol-opt-evo && python mol_evo/dataset/extract_smiles.py --dir raw-data/QM9 --heavy-only --output mol_evo/dataset/data/qm9_smiles_all_atoms.csv
+```
+
+> 说明：这里的 `raw-data/QM9` 才更接近事实源的原始起点；`mol_evo/dataset/data/qm9_smiles_all_atoms.csv` 只是仓库内标准化后的 item 表 checkpoint。
+
+Step A：再把 `QM9` item 表规范化为 `molecule_manifest`
+
+```bash
+REPO=/path/to/mol-ofo && cd "$REPO" && eval "$(conda shell.zsh hook)" && conda activate mol-opt-evo && python mol_evo/dataset/build_molecule_manifest.py --input-file mol_evo/dataset/data/qm9_smiles_all_atoms.csv --output-file mol_evo/dataset/tests/qm9_item_facts/qm9_manifest.jsonl --source-dataset qm9 --id-column index --smiles-column smiles --property-columns homo lumo gap --max-records 512
+```
+
+Step B：再从 `molecule_manifest` 构造 canonical primitive pairs
+
+```bash
+REPO=/path/to/mol-ofo && cd "$REPO" && eval "$(conda shell.zsh hook)" && conda activate mol-opt-evo && python mol_evo/dataset/build_canonical_pairs.py --input-file mol_evo/dataset/tests/qm9_item_facts/qm9_manifest.jsonl --output-file mol_evo/dataset/tests/qm9_item_facts/qm9_primitive_pairs_raw.jsonl --stats-file mol_evo/dataset/tests/qm9_item_facts/qm9_primitive_pairs_raw.stats.json --source-dataset qm9 --index-column mol_id --smiles-column smiles --max-sources 64 --max-pairs 256 --min-steps 1 --max-steps 3 --deduplicate-smiles
+```
+
+#### `ZINC`：真正起点同样在原始数据 root 或 PyG root
+
+> 当前仓库里**没有**现成的 `ZINC` item 表，也没有仓库内标准化抽取脚本。也就是说，`mol_evo/dataset/data/zinc_items.csv` 不是起点，而是你需要先从原始 `ZINC` / `torch_geometric.datasets.ZINC` root 整理出来的 item 表。
+
+Step 0：先从原始 `ZINC` 数据准备 item 表（仓库内暂缺标准脚本，要求至少包含 `zinc_id` 和 `smiles`）
+
+```bash
+# 目标产物示意：mol_evo/dataset/data/zinc_items.csv
+zinc_id,smiles
+ZINC00000001,CCO
+```
+
+Step A：把 `ZINC` item 表规范化为 `molecule_manifest`
+
+```bash
+REPO=/path/to/mol-ofo && cd "$REPO" && eval "$(conda shell.zsh hook)" && conda activate mol-opt-evo && python mol_evo/dataset/build_molecule_manifest.py --input-file mol_evo/dataset/data/zinc_items.csv --output-file mol_evo/dataset/tests/zinc_item_facts/zinc_manifest.jsonl --source-dataset zinc --id-column zinc_id --smiles-column smiles --max-records 512
+```
+
+Step B：从 `ZINC` manifest 构造 canonical primitive pairs
+
+```bash
+REPO=/path/to/mol-ofo && cd "$REPO" && eval "$(conda shell.zsh hook)" && conda activate mol-opt-evo && python mol_evo/dataset/build_canonical_pairs.py --input-file mol_evo/dataset/tests/zinc_item_facts/zinc_manifest.jsonl --output-file mol_evo/dataset/tests/zinc_item_facts/zinc_primitive_pairs_raw.jsonl --stats-file mol_evo/dataset/tests/zinc_item_facts/zinc_primitive_pairs_raw.stats.json --source-dataset zinc --index-column mol_id --smiles-column smiles --max-sources 64 --max-pairs 256 --min-steps 1 --max-steps 3 --deduplicate-smiles
+```
+
+#### 这组验证的最低通过标准
+
+- 原始数据 root 能稳定产出普通 item 表
+- `molecule_manifest` 非空，且 `mol_id / smiles / scaffold_key` 字段齐全
+- canonical pair 输出非空，且 `operations` 不是全空
+- `*_primitive_pairs_raw.stats.json` 中 `pairs_written > 0`
+- `QM9` 和 `ZINC` 两侧都能在**普通 item**层面进入同一条事实源口径
 
 ---
 
