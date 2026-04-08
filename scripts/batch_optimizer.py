@@ -93,12 +93,25 @@ def parse_args():
     parser.add_argument('--end-index', type=int, default=-1,
                         help='结束索引，-1表示处理到文件末尾')
     # MCTS 参数
-    parser.add_argument('--search-mode', type=str, choices=['bfs', 'mcts'],
-                        default='bfs', help='搜索模式: bfs(广度优先) 或 mcts(蒙特卡洛树搜索)')
+    parser.add_argument('--search-mode', type=str, choices=['bfs', 'mcts', 'astar_demo'],
+                        default='bfs', help='搜索模式: bfs(广度优先)、mcts(蒙特卡洛树搜索) 或 astar_demo(A* RL Demo)')
     parser.add_argument('--num-simulations', type=int, default=200,
                         help='MCTS 模拟轮数 (仅 mcts 模式)')
     parser.add_argument('--exploration-weight', type=float, default=1.4,
                         help='MCTS PUCT 探索系数 (仅 mcts 模式)')
+    # astar_demo 参数
+    parser.add_argument('--policy-path', type=str, default=None,
+                        help='PolicyNet 权重路径 (仅 astar_demo 模式)')
+    parser.add_argument('--value-path', type=str, default=None,
+                        help='ValueNet 权重路径 (仅 astar_demo 模式)')
+    parser.add_argument('--rl-train', action='store_true',
+                        help='astar_demo 在线 RL 训练模式（搜索过程中更新 policy/value）')
+    parser.add_argument('--rl-eval', action='store_true',
+                        help='astar_demo 纯评估模式（加载权重，不更新）')
+    parser.add_argument('--top-n-prefilter', type=int, default=20,
+                        help='PolicyNet 预筛候选数 (仅 astar_demo 模式)')
+    parser.add_argument('--open-set-budget', type=int, default=200,
+                        help='A* open set 展开预算 (仅 astar_demo 模式)')
     return parser.parse_args()
 
 def create_output_dir():
@@ -156,6 +169,11 @@ def run_evolution_optimizer(optimizer, smiles, property_value, args, output_dir)
             search_mode=args.search_mode,
             num_simulations=args.num_simulations,
             exploration_weight=args.exploration_weight,
+            policy_net=getattr(args, '_policy_net', None),
+            value_net=getattr(args, '_value_net', None),
+            rl_trainer=getattr(args, '_rl_trainer', None),
+            top_n_prefilter=getattr(args, 'top_n_prefilter', 20),
+            open_set_budget=getattr(args, 'open_set_budget', 200),
         )
         
         # 保存优化结果
@@ -226,6 +244,53 @@ def batch_process(data_list, args, output_dir):
         args.optimization_mode
     )
     optimizer.optimization_direction = args.direction
+
+    # --- astar_demo 模型加载 ---
+    if args.search_mode == 'astar_demo':
+        try:
+            import torch
+            from mol_evo.core.models.astar_rl import PolicyNet, ValueNet, RLTrainer
+            from mol_evo.core.models.astar_rl.reward import RewardConfig
+            from mol_evo.core.data.rl_demo_processing import STATE_DIM, ACTION_DIM
+
+            _device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            _policy_net = PolicyNet(state_dim=STATE_DIM, action_dim=ACTION_DIM).to(_device)
+            _value_net = ValueNet(state_dim=STATE_DIM).to(_device)
+
+            if args.policy_path and os.path.isfile(args.policy_path):
+                _policy_net.load_state_dict(torch.load(args.policy_path, map_location=_device))
+                print(f"[astar_demo] PolicyNet 权重已加载: {args.policy_path}")
+                _policy_net.eval()
+            else:
+                print("[astar_demo] PolicyNet 权重未指定，使用随机初始化")
+
+            if args.value_path and os.path.isfile(args.value_path):
+                _value_net.load_state_dict(torch.load(args.value_path, map_location=_device))
+                print(f"[astar_demo] ValueNet 权重已加载: {args.value_path}")
+                _value_net.eval()
+            else:
+                print("[astar_demo] ValueNet 权重未指定，使用随机初始化")
+
+            _rl_trainer = None
+            if args.rl_train:
+                _rl_trainer = RLTrainer(
+                    policy_net=_policy_net,
+                    value_net=_value_net,
+                    reward_config=RewardConfig(direction=args.direction),
+                    device=str(_device),
+                    checkpoint_dir=os.path.join(output_dir, "rl_checkpoints"),
+                    checkpoint_every=50,
+                )
+                print("[astar_demo] RLTrainer 在线训练模式已初始化")
+
+            args._policy_net = _policy_net
+            args._value_net = _value_net
+            args._rl_trainer = _rl_trainer
+        except Exception as _e:
+            print(f"[astar_demo] 警告：RL 模型加载失败，将在无 policy/value 的降级模式下运行: {_e}")
+            args._policy_net = None
+            args._value_net = None
+            args._rl_trainer = None
     
     for i, data in enumerate(data_list):
         smiles = data['smiles']
@@ -326,6 +391,12 @@ def main():
         if args.search_mode == 'mcts':
             f.write(f"MCTS 模拟轮数: {args.num_simulations}\n")
             f.write(f"MCTS 探索系数: {args.exploration_weight}\n")
+        if args.search_mode == 'astar_demo':
+            f.write(f"PolicyNet 权重: {args.policy_path}\n")
+            f.write(f"ValueNet 权重: {args.value_path}\n")
+            f.write(f"RL 模式: {'train' if args.rl_train else 'eval'}\n")
+            f.write(f"top_n_prefilter: {args.top_n_prefilter}\n")
+            f.write(f"open_set_budget: {args.open_set_budget}\n")
         f.write("\n")
     
     # 读取数据

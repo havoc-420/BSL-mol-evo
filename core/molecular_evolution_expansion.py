@@ -1482,6 +1482,427 @@ class MolecularEvolutionExpansion:
 
         return expansion_tree
 
+    # MARK: A* RL Demo 搜索模式
+    def generate_expansion_tree_astar_demo(
+        self,
+        max_depth: int = 4,
+        max_branching: int = 8,
+        predictor=None,
+        optimization_direction: str = "decrease",
+        pruning_patience: int = 3,
+        initial_property_value=None,
+        optimization_mode=None,
+        logp_range=(0, 5),
+        logp_patience: int = 3,
+        # --- A* RL 专属参数 ---
+        policy_net=None,
+        value_net=None,
+        rl_trainer=None,
+        top_n_prefilter: int = 20,
+        open_set_budget: int = 200,
+    ) -> Dict:
+        """使用 A* 启发式搜索 + PolicyNet/ValueNet 生成分子进化树（RL Demo 模式）。
+
+        与 BFS/MCTS 版共享同一输出结构（nodes / edges），以兼容下游 save/print/topK 链路。
+        额外在树 JSON 中追加 ``astar_stats`` 字段，用于评测对比。
+
+        搜索流程：
+          1. _get_possible_operations() → 全量合法候选操作
+          2. PolicyNet.top_k_actions() → top_n_prefilter 预筛（可选）
+          3. predict_batch() → OFO 批量打分（property_change）
+          4. ValueNet.estimate() → 未来收益 h_score（可选）
+          5. f_score = g_score + h_score + policy_bonus
+          6. heapq 优先队列按 f_score 展开
+          7. 收集 TrajectoryStep → RLTrainer（在线训练）或忽略（纯评估）
+
+        Args:
+            max_depth:          最大搜索深度
+            max_branching:      每次从 open set 展开时最多加入树的子节点数
+            predictor:          预测器，需提供 predict_batch()
+            optimization_direction: 'increase' | 'decrease'
+            pruning_patience:   路径连续无改善剪枝阈值（暂未使用，保留接口）
+            initial_property_value: 根节点属性初始值
+            optimization_mode:  优化模式（透传）
+            logp_range:         logP 有效范围
+            logp_patience:      logP 连续超出范围剪枝阈值（暂未使用，保留接口）
+            policy_net:         PolicyNet 实例（可选，None 时跳过预筛）
+            value_net:          ValueNet 实例（可选，None 时 h_score=0）
+            rl_trainer:         RLTrainer 实例（可选，None 时不收集轨迹）
+            top_n_prefilter:    PolicyNet 保留的候选数（policy_net 存在时生效）
+            open_set_budget:    open set 总展开次数上限
+
+        Returns:
+            dict: 包含 nodes / edges / astar_stats 的扩展树字典
+        """
+        import heapq
+
+        if predictor is None:
+            raise NotImplementedError("[astar_demo] 必须提供 predictor")
+
+        # ------------------------------------------------------------------
+        # 懒加载 encode_state / encode_action（避免循环导入）
+        # ------------------------------------------------------------------
+        try:
+            from mol_evo.core.data.rl_demo_processing import encode_state, encode_action
+            from mol_evo.core.models.astar_rl.rl_trainer import TrajectoryStep
+            _rl_imports_ok = True
+        except Exception:
+            _rl_imports_ok = False
+
+        # ------------------------------------------------------------------
+        # 初始化搜索树
+        # ------------------------------------------------------------------
+        expansion_tree = {
+            "initial_smiles": self.initial_smiles,
+            "max_depth": max_depth,
+            "max_branching": max_branching,
+            "nodes": {},
+            "edges": [],
+        }
+
+        logp_min, logp_max = logp_range
+        node_counter = 0
+
+        # 根节点
+        root_logp = self.calculate_logP(self.initial_smiles)
+        root_logp_in_range = (
+            root_logp is not None and logp_min <= root_logp <= logp_max
+        )
+        root_node = {
+            "id": "0",
+            "smiles": self.initial_smiles,
+            "depth": 0,
+            "parent_id": None,
+            "operation": None,
+            "details": {},
+            "property_change": 0.0,
+            "accumulated_change": 0.0,
+            "logP": root_logp,
+            "logP_in_range": root_logp_in_range,
+            # A* 额外字段
+            "g_score": 0.0,
+            "h_score": 0.0,
+            "f_score": 0.0,
+            "policy_score": 0.0,
+            "stagnation_count": 0,
+            "logp_violation_count": 0,
+        }
+        if initial_property_value is not None:
+            root_node["property_value"] = float(initial_property_value)
+        expansion_tree["nodes"]["0"] = root_node
+        node_counter = 1
+
+        # ------------------------------------------------------------------
+        # open set: (neg_f_score, tie_breaker, node_id, g_score)
+        # 使用负 f_score 使 heapq（最小堆）效果等同于最大优先队列
+        # ------------------------------------------------------------------
+        tie_counter = 0
+        open_set = []
+        heapq.heappush(open_set, (0.0, tie_counter, "0", 0.0))
+        tie_counter += 1
+
+        # 路径感知去重：记录 (smiles, parent_id) 对，允许同一分子在不同路径下被访问
+        visited_path_keys: set = set()
+        visited_path_keys.add((self.initial_smiles, "root"))
+
+        # ------------------------------------------------------------------
+        # 统计
+        # ------------------------------------------------------------------
+        expanded_nodes = 0
+        open_set_peak = 1
+        policy_prefilter_size = 0
+        ofo_scored_candidates = 0
+        actual_expansions = 0
+
+        # rl_trainer episode 重置
+        if rl_trainer is not None and _rl_imports_ok:
+            rl_trainer.reset_episode()
+
+        # ------------------------------------------------------------------
+        # A* 主循环
+        # ------------------------------------------------------------------
+        while open_set and expanded_nodes < open_set_budget:
+            neg_f, _, current_id, current_g = heapq.heappop(open_set)
+            open_set_peak = max(open_set_peak, len(open_set) + 1)
+
+            current_node = expansion_tree["nodes"].get(current_id)
+            if current_node is None:
+                continue
+
+            current_depth = current_node["depth"]
+            if current_depth >= max_depth:
+                continue
+
+            current_smiles = current_node["smiles"]
+            current_mol = Chem.MolFromSmiles(current_smiles)
+            if current_mol is None:
+                continue
+
+            expanded_nodes += 1
+
+            # ---- 生成候选操作 ----
+            possible_operations = self._get_possible_operations(current_mol)
+            if not possible_operations:
+                continue
+
+            # ---- PolicyNet 预筛（可选）----
+            if policy_net is not None and _rl_imports_ok:
+                try:
+                    state_vec = encode_state(
+                        smiles=current_smiles,
+                        accumulated_change=current_node.get("accumulated_change", 0.0),
+                        remaining_depth=max_depth - current_depth,
+                        max_depth=max_depth,
+                        logp_value=current_node.get("logP") or 0.0,
+                        logp_in_range=current_node.get("logP_in_range", True),
+                        stagnation_count=current_node.get("stagnation_count", 0),
+                        direction=optimization_direction,
+                        target_property_value=initial_property_value or 0.0,
+                    )
+                    import torch
+                    action_vecs = torch.stack([
+                        encode_action(op, ofo_predicted_change=0.0)
+                        for op in possible_operations
+                    ])
+                    k = min(top_n_prefilter, len(possible_operations))
+                    top_indices, top_logits = policy_net.top_k_actions(state_vec, action_vecs, k=k)
+                    top_indices = top_indices.tolist()
+                    top_logits = top_logits.tolist()
+                    prefiltered_ops = [(possible_operations[i], top_logits[j]) for j, i in enumerate(top_indices)]
+                    policy_prefilter_size += len(prefiltered_ops)
+                except Exception:
+                    prefiltered_ops = [(op, 0.0) for op in possible_operations]
+            else:
+                prefiltered_ops = [(op, 0.0) for op in possible_operations]
+
+            # ---- 生成有效 SMILES ----
+            valid_candidates = []  # (operation, new_smiles, policy_logit)
+            for operation, pol_logit in prefiltered_ops:
+                try:
+                    operation_type = operation["type"]
+                    operation_params = operation.get("params", {})
+                    new_mol = self._apply_operation(current_mol, operation_type, **operation_params)
+                    if new_mol and self.validate_molecule(new_mol):
+                        new_smiles = Chem.MolToSmiles(new_mol)
+                        valid_candidates.append((operation, new_smiles, pol_logit))
+                except Exception:
+                    continue
+
+            if not valid_candidates:
+                continue
+
+            # ---- OFO 批量打分 ----
+            batch_from = [current_smiles] * len(valid_candidates)
+            batch_to = [c[1] for c in valid_candidates]
+            batch_ops = [c[0] for c in valid_candidates]
+
+            try:
+                property_changes = predictor.predict_batch(batch_from, batch_to, batch_ops)
+            except Exception:
+                continue
+
+            ofo_scored_candidates += len(valid_candidates)
+
+            # ---- 计算 f_score 并筛选 top max_branching ----
+            scored = []
+            for i, (operation, new_smiles, pol_logit) in enumerate(valid_candidates):
+                if i >= len(property_changes):
+                    continue
+                pc = property_changes[i]
+                if pc is None or isinstance(pc, (list, dict)):
+                    continue
+
+                # g_score = 已实现的累计改善（方向归一化，越大越好）
+                step_gain = -float(pc) if optimization_direction == "decrease" else float(pc)
+                child_g = current_g + step_gain
+
+                # h_score（ValueNet 估计的未来收益）
+                h_score = 0.0
+                if value_net is not None and _rl_imports_ok:
+                    try:
+                        child_logp = self.calculate_logP(new_smiles) or 0.0
+                        child_logp_in_range = logp_min <= child_logp <= logp_max
+                        child_state_vec = encode_state(
+                            smiles=new_smiles,
+                            accumulated_change=current_node.get("accumulated_change", 0.0) + float(pc),
+                            remaining_depth=max_depth - current_depth - 1,
+                            max_depth=max_depth,
+                            logp_value=child_logp,
+                            logp_in_range=child_logp_in_range,
+                            stagnation_count=0,
+                            direction=optimization_direction,
+                            target_property_value=initial_property_value or 0.0,
+                        )
+                        h_score = value_net.estimate(child_state_vec)
+                    except Exception:
+                        h_score = 0.0
+
+                # policy_bonus（对数 logit 缩放，鼓励高 policy 优先级节点）
+                policy_bonus = float(pol_logit) * 0.1
+
+                f_score = child_g + h_score + policy_bonus
+                scored.append((operation, new_smiles, float(pc), child_g, h_score, f_score, pol_logit))
+
+            if not scored:
+                continue
+
+            # 取 top max_branching
+            scored.sort(key=lambda x: x[5], reverse=True)
+            top_scored = scored[:max_branching]
+
+            # ---- 收集 TrajectoryStep（在线 RL）----
+            if rl_trainer is not None and policy_net is not None and _rl_imports_ok:
+                try:
+                    import torch
+                    state_vec_traj = encode_state(
+                        smiles=current_smiles,
+                        accumulated_change=current_node.get("accumulated_change", 0.0),
+                        remaining_depth=max_depth - current_depth,
+                        max_depth=max_depth,
+                        logp_value=current_node.get("logP") or 0.0,
+                        logp_in_range=current_node.get("logP_in_range", True),
+                        stagnation_count=current_node.get("stagnation_count", 0),
+                        direction=optimization_direction,
+                        target_property_value=initial_property_value or 0.0,
+                    )
+                    all_action_vecs = torch.stack([
+                        encode_action(op, ofo_predicted_change=float(pc))
+                        for op, _, pc, *_ in top_scored
+                    ])
+                    # 选得分最高的作为"被选中"的动作（索引 0）
+                    selected_idx = 0
+                    log_prob = policy_net.get_log_probs(state_vec_traj, all_action_vecs, selected_idx)
+                    value_est = value_net.estimate(state_vec_traj) if value_net is not None else 0.0
+
+                    # 计算 step_reward（用 property_change 和 logP 状态）
+                    best_op, best_smiles, best_pc, *_ = top_scored[0]
+                    best_logp = self.calculate_logP(best_smiles) or 0.0
+                    best_logp_in_range = logp_min <= best_logp <= logp_max
+                    try:
+                        from mol_evo.core.models.astar_rl.reward import compute_step_reward
+                        from mol_evo.core.models.astar_rl.reward import RewardConfig
+                        step_reward = compute_step_reward(
+                            property_change=best_pc,
+                            logp_in_range=best_logp_in_range,
+                            stagnation_count=current_node.get("stagnation_count", 0),
+                            config=RewardConfig(direction=optimization_direction),
+                        )
+                    except Exception:
+                        step_reward = 0.0
+
+                    next_state_vec = encode_state(
+                        smiles=best_smiles,
+                        accumulated_change=current_node.get("accumulated_change", 0.0) + best_pc,
+                        remaining_depth=max_depth - current_depth - 1,
+                        max_depth=max_depth,
+                        logp_value=best_logp,
+                        logp_in_range=best_logp_in_range,
+                        stagnation_count=0,
+                        direction=optimization_direction,
+                        target_property_value=initial_property_value or 0.0,
+                    )
+                    is_done = (current_depth + 1 >= max_depth)
+                    traj_step = TrajectoryStep(
+                        state_tensor=state_vec_traj,
+                        action_tensors=all_action_vecs,
+                        selected_action_idx=selected_idx,
+                        log_prob=log_prob,
+                        step_reward=step_reward,
+                        next_state_tensor=next_state_vec,
+                        value_estimate=value_est,
+                        done=is_done,
+                    )
+                    rl_trainer.collect_step(traj_step)
+                except Exception:
+                    pass
+
+            # ---- 加入树与 open set ----
+            for operation, new_smiles, pc, child_g, h_score, f_score, pol_logit in top_scored:
+                path_key = (new_smiles, current_id)
+                if path_key in visited_path_keys:
+                    continue
+                visited_path_keys.add(path_key)
+
+                new_logp = self.calculate_logP(new_smiles)
+                new_logp_in_range = (
+                    new_logp is not None and logp_min <= new_logp <= logp_max
+                )
+                new_accumulated = current_node.get("accumulated_change", 0.0) + pc
+                new_property_value = (
+                    current_node.get("property_value", 0.0) + pc
+                    if "property_value" in current_node else None
+                )
+
+                node_id = str(node_counter)
+                new_node = {
+                    "id": node_id,
+                    "smiles": new_smiles,
+                    "depth": current_depth + 1,
+                    "parent_id": current_id,
+                    "operation": operation["type"],
+                    "details": operation.get("params", {}),
+                    "property_change": pc,
+                    "accumulated_change": new_accumulated,
+                    "logP": new_logp,
+                    "logP_in_range": new_logp_in_range,
+                    # A* 额外字段
+                    "g_score": child_g,
+                    "h_score": h_score,
+                    "f_score": f_score,
+                    "policy_score": float(pol_logit),
+                    "stagnation_count": 0,
+                    "logp_violation_count": 0 if new_logp_in_range else 1,
+                }
+                if new_property_value is not None:
+                    new_node["property_value"] = new_property_value
+
+                expansion_tree["nodes"][node_id] = new_node
+                expansion_tree["edges"].append({
+                    "from": current_id,
+                    "to": node_id,
+                    "operation": operation["type"],
+                    "details": operation.get("params", {}),
+                })
+                node_counter += 1
+                actual_expansions += 1
+
+                # 压入 open set（负 f_score 实现最大优先）
+                heapq.heappush(
+                    open_set,
+                    (-f_score, tie_counter, node_id, child_g),
+                )
+                tie_counter += 1
+                open_set_peak = max(open_set_peak, len(open_set))
+
+        # ------------------------------------------------------------------
+        # episode 结束，触发在线 RL 更新
+        # ------------------------------------------------------------------
+        if rl_trainer is not None and _rl_imports_ok:
+            try:
+                rl_trainer.end_episode()
+            except Exception:
+                pass
+
+        # ------------------------------------------------------------------
+        # astar_stats
+        # ------------------------------------------------------------------
+        expansion_tree["astar_stats"] = {
+            "expanded_nodes": expanded_nodes,
+            "open_set_peak": open_set_peak,
+            "policy_prefilter_size": policy_prefilter_size,
+            "ofo_scored_candidates": ofo_scored_candidates,
+            "actual_expansions": actual_expansions,
+        }
+
+        total_nodes = len(expansion_tree["nodes"])
+        total_edges = len(expansion_tree["edges"])
+        print(
+            f"[astar_demo] 搜索完成: 树节点={total_nodes}, 边={total_edges}, "
+            f"展开次数={expanded_nodes}, OFO调用={ofo_scored_candidates}"
+        )
+
+        return expansion_tree
+
     def generate_sequential_expansions(self, num_steps: int = 5) -> List[Dict]:
         """
         生成从初始分子开始的顺序扩展路径，每一步都是在前一步基础上进行操作

@@ -676,15 +676,21 @@ class EvolutionTreeOptimizer:
                 if edge["from"] == node_id:
                     queue.append((edge["to"], node["cumulative_change"]))
         
-    def optimize_evolution_tree(self, initial_smiles, max_depth=2, max_branching=3, 
-                               optimization_direction='increase', pruning_patience=3, 
+    def optimize_evolution_tree(self, initial_smiles, max_depth=2, max_branching=3,
+                               optimization_direction='increase', pruning_patience=3,
                                logp_range=(0, 5), logp_patience=3,
                                search_mode='bfs',
                                num_simulations=200,
-                               exploration_weight=1.4):
+                               exploration_weight=1.4,
+                               # --- astar_demo 专属参数 ---
+                               policy_net=None,
+                               value_net=None,
+                               rl_trainer=None,
+                               top_n_prefilter=20,
+                               open_set_budget=200):
         """
         优化分子进化树
-        
+
         Args:
             initial_smiles: 初始分子SMILES
             max_depth: 最大演化深度
@@ -693,10 +699,15 @@ class EvolutionTreeOptimizer:
             pruning_patience: 剪枝耐心值，连续多少代没有改善就剪枝
             logp_range: logP值的有效范围，默认(0, 5)
             logp_patience: logP剪枝耐心值，连续多少代logP超出范围就剪枝
-            search_mode: 搜索模式 ('bfs' 或 'mcts')
+            search_mode: 搜索模式 ('bfs', 'mcts', 或 'astar_demo')
             num_simulations: MCTS 模拟总轮数 (仅 mcts 模式)
             exploration_weight: MCTS PUCT 探索系数 (仅 mcts 模式)
-            
+            policy_net: PolicyNet 实例 (仅 astar_demo 模式)
+            value_net: ValueNet 实例 (仅 astar_demo 模式)
+            rl_trainer: RLTrainer 实例 (仅 astar_demo 在线训练模式)
+            top_n_prefilter: PolicyNet 预筛候选数 (仅 astar_demo 模式)
+            open_set_budget: A* open set 展开预算 (仅 astar_demo 模式)
+
         Returns:
             带有预测属性变化值的进化树
         """
@@ -711,6 +722,11 @@ class EvolutionTreeOptimizer:
         if search_mode == 'mcts':
             print(f"MCTS 模拟轮数: {num_simulations}")
             print(f"MCTS 探索系数: {exploration_weight}")
+        if search_mode == 'astar_demo':
+            print(f"A* PolicyNet 预筛: {top_n_prefilter}, open_set_budget: {open_set_budget}")
+            print(f"PolicyNet: {'已加载' if policy_net is not None else '未加载（无预筛）'}")
+            print(f"ValueNet:  {'已加载' if value_net is not None else '未加载（h_score=0）'}")
+            print(f"RLTrainer: {'在线训练模式' if rl_trainer is not None else '纯评估模式'}")
 
         # 获取初始分子的属性值
         initial_property_value = self.initial_property_value
@@ -746,6 +762,23 @@ class EvolutionTreeOptimizer:
                 logp_patience=logp_patience,
                 num_simulations=num_simulations,
                 exploration_weight=exploration_weight,
+            )
+        elif search_mode == 'astar_demo':
+            evolution_tree = evolver.generate_expansion_tree_astar_demo(
+                max_depth=max_depth,
+                max_branching=max_branching,
+                predictor=self,
+                optimization_direction=optimization_direction,
+                pruning_patience=pruning_patience,
+                initial_property_value=initial_property_value,
+                optimization_mode=self.optimization_mode,
+                logp_range=logp_range,
+                logp_patience=logp_patience,
+                policy_net=policy_net,
+                value_net=value_net,
+                rl_trainer=rl_trainer,
+                top_n_prefilter=top_n_prefilter,
+                open_set_budget=open_set_budget,
             )
         else:
             evolution_tree = evolver.generate_expansion_tree(
