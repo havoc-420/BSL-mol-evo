@@ -5,6 +5,13 @@ from e3nn.o3 import Irreps
 from e3nn.util.jit import compile_mode
 
 
+def _autocast_disabled():
+    """兼容新旧 PyTorch 的 autocast disabled decorator。"""
+    if hasattr(torch, "amp") and hasattr(torch.amp, "autocast"):
+        return torch.amp.autocast("cuda", enabled=False)
+    return torch.cuda.amp.autocast(enabled=False)
+
+
 # Reference:
 #   https://github.com/NVIDIA/DeepLearningExamples/blob/master/DGLPyTorch/DrugDiscovery/SE3Transformer/se3_transformer/model/layers/norm.py
 #   https://github.com/e3nn/e3nn/blob/main/e3nn/nn/_batchnorm.py
@@ -86,7 +93,7 @@ class EquivariantLayerNormV2(nn.Module):
         return f"{self.__class__.__name__}({self.irreps}, eps={self.eps})"
 
 
-    @torch.cuda.amp.autocast(enabled=False)
+    @_autocast_disabled()
     def forward(self, node_input, **kwargs):
         # batch, *size, dim = node_input.shape  # TODO: deal with batch
         # node_input = node_input.reshape(batch, -1, dim)  # [batch, sample, stacked features]

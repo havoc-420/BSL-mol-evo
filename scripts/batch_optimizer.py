@@ -42,6 +42,22 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.join(script_dir, "..", "..")
 sys.path.insert(0, project_root)
 
+
+def _torch_load_compat(path, *, map_location=None, weights_only=None):
+    """兼容不同 PyTorch 版本的 `torch.load` 参数。"""
+    import torch
+
+    kwargs = {}
+    if map_location is not None:
+        kwargs["map_location"] = map_location
+    if weights_only is not None:
+        kwargs["weights_only"] = weights_only
+    try:
+        return torch.load(path, **kwargs)
+    except TypeError:
+        kwargs.pop("weights_only", None)
+        return torch.load(path, **kwargs)
+
 try:
     from mol_evo.core.evolution_optimizer import EvolutionTreeOptimizer
 except ImportError as e:
@@ -265,7 +281,9 @@ def batch_process(data_list, args, output_dir):
                 print("[astar_demo] PolicyNet 权重未指定，使用随机初始化")
 
             if args.value_path and os.path.isfile(args.value_path):
-                _value_net.load_state_dict(torch.load(args.value_path, map_location=_device))
+                _value_net.load_state_dict(
+                    _torch_load_compat(args.value_path, map_location=_device, weights_only=True)
+                )
                 print(f"[astar_demo] ValueNet 权重已加载: {args.value_path}")
                 _value_net.eval()
             else:

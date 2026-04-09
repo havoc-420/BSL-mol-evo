@@ -1,5 +1,5 @@
 # A* RL Demo — 实验推进手册
-<!-- last-updated: 2026-04-09 -->
+<!-- last-updated: 2026-04-10 -->
 
 本文档面向实验推进阶段，给出**从零到有效 RL 结果**的完整实验路线、
 对比基准设计、消融方向和预期结果解读。
@@ -18,6 +18,57 @@ Step 5  BC + 在线 RL — 完整 astar_demo
 Step 6  消融实验 / 超参扫描
 Step 7  论文级结果整理
 ```
+
+---
+
+## 当前进度快照（2026-04-09）
+
+### 已完成
+
+- **Step 0 ~ Step 3**：已完成，`astar_demo` 的基础搜索链路、测试与 smoke check 可用。
+- **Step 4（BC 冷启动）**：已完成。
+  - BFS 树来源：`mol_evo/output/evo-mo/batch_optimization_20260409_125846`
+  - 导出样本：`mol_evo/dataset/rl_demo/lumo_bfs15_depth3_bc_transitions_20260409.json`
+  - 样本量：**9090** 条 transition（来自 15 棵 `lumo` BFS 树，`max-depth=3`）
+  - BC 最优权重：`mol_evo/output/astar_rl/lumo_bc_bfs15_depth3/bc_20260409_145233`
+- **Step 5（BC + 在线 RL）**：主训练与训练后评估均已跑通。
+  - 在线 RL run：`mol_evo/output/astar_rl/lumo_rl_bfs15_depth3_run100/rl_20260409_161937`
+  - 训练统计：`return_mean=13.6251`，`return_max=170.9716`，`steps_mean=26.82`
+  - 轨迹收集状态：**100/100 episode 的 `episode_steps` 均 > 0**
+- **Step 6（P0 + P1）**：`50` 分子网格评估已完成。
+  - 结果目录：`mol_evo/output/astar_rl/lumo_eval_grid50_parallel_20260409_194105`
+  - 覆盖组合：`BC / RL × open_set_budget(50/100/200) × top_n_prefilter(20/50)`
+
+### 当前结论
+
+- **工程链路已闭环**：`BFS 树 → BC 样本 → BC 训练 → BC-only 评估 → 在线 RL → RL 后评估 → 50 分子网格复核` 全部已跑通。
+- **搜索参数结论已经明确**：`top_n_prefilter=50` 对 BC 和 RL 都明显优于 `20`，当前不建议继续把 `20` 当默认值。
+- **RL 已经展现出超过 BC 的潜力**：最佳均值配置为 `rl + budget=50 + prefilter=50`，`top1_mean=7.4856`。
+- **但当前还不能下“RL 已稳定领先”的结论**：同配置下分子级配对比较里，RL 仅 **12 / 50** 个分子优于 BC、**38 / 50** 个落后；`delta_median=-0.3116`，去掉头尾各 3 个样本后的 trimmed mean 也为 **-0.2753**。这说明 `7.4856` 的高均值主要由 **3 个超大 improvement outlier** 拉动。
+- **阶段结论**：下一阶段重点应转向 **outlier 复核、checkpoint 选择策略、扩大 BC 冷启动数据**，而不是盲目继续加 episode。
+
+---
+
+## 实验结果归档（2026-04-10）
+
+### 归档范围
+
+- **BC 冷启动 run**：`mol_evo/output/astar_rl/lumo_bc_bfs15_depth3/bc_20260409_145233`
+- **在线 RL run**：`mol_evo/output/astar_rl/lumo_rl_bfs15_depth3_run100/rl_20260409_161937`
+- **50 分子网格复核**：`mol_evo/output/astar_rl/lumo_eval_grid50_parallel_20260409_194105`
+
+### 冻结结论
+
+- **5 分子后评估不再作为主判断**：`BC-only` 在 `5` 分子上 `top1_mean=2.0896`，`RL-after-train` 在同口径下为 `1.0347`；但这一定性已被 `50` 分子网格复核覆盖，不再单独作为 go / no-go 依据。
+- **当前最稳的搜索参数结论**：`top_n_prefilter=50` 对 BC 和 RL 都明显优于 `20`，后续扩规模实验默认优先固定为 `50`。
+- **当前最优 BC 参考线**：`bc + budget=200 + prefilter=50`，`top1_mean=3.3620`，`top1_median=3.2222`。
+- **当前最强 RL 候选配置**：`rl + budget=50 + prefilter=50`，`top1_mean=7.4856`，但仅 **12 / 50** 个分子优于同配置 BC，`trimmed mean=-0.2753`，因此现阶段只能说 RL 出现了**高均值潜力**，还不能说已经**稳定领先**。
+- **后续放大训练的前提**：任何更大规模 RL 训练，都应以 `50` 分子级 holdout 指标和稳健统计为主，不再只看 `episode_return`。
+
+### 下一步文档入口
+
+- **分阶段实验得分台账**：见 `stage_scores.md`
+- **低风险扩规模计划**：见 `plan_scaleup_a.md`
 
 ---
 
@@ -162,6 +213,21 @@ python -m mol_evo.scripts.batch_optimizer \
 
 与 BFS / MCTS baseline 横向对比 topK_best_improvement 和 ofo_calls。
 
+### 4.4 本轮结果（2026-04-09）
+
+- 使用 `15` 棵 BFS 树（`max-depth=3`）导出得到 **9090** 条 BC 样本。
+- `BCDataset.encode_action()` 已兼容字符串 `operation`，因此旧数据可以直接训练，无需重导。
+- 本轮最佳 BC 权重目录：`mol_evo/output/astar_rl/lumo_bc_bfs15_depth3/bc_20260409_145233`
+- 当前 5 分子 BC-only baseline：
+
+| 指标 | 数值 |
+|------|------|
+| 非空 `topK` 分子数 | 5 / 5 |
+| top1 改善均值 | **2.0896** |
+| 单分子 top1 改善 | `0.9892`, `2.4505`, `2.3665`, `2.4696`, `2.1723` |
+
+> 注：这里的“改善”统一按 `lumo decrease` 口径计算，即 `initial_property_value - top1.property_value`。
+
 ---
 
 ## Step 5 — BC + 在线 RL
@@ -200,11 +266,125 @@ python -m mol_evo.scripts.batch_optimizer \
   --value-path  mol_evo/output/astar_rl/rl/rl_<timestamp>/value_best.pth
 ```
 
+### 5.1 本轮结果（2026-04-09）
+
+- 正式 run：`mol_evo/output/astar_rl/lumo_rl_bfs15_depth3_run100/rl_20260409_161937`
+- 主训练已完成：**100 / 100 episodes**
+- 训练统计：
+
+| 指标 | 数值 |
+|------|------|
+| `return_mean` | **13.6251** |
+| `return_max` | **170.9716** |
+| `return_min` | `-10.4454` |
+| `steps_mean` | **26.82** |
+| `steps_max` | `50` |
+| `steps_nonzero` | **100 / 100** |
+
+- 后评估结果：`mol_evo/output/astar_rl/lumo_rl_eval_5_after_run100.json`
+- 当前 5 分子 RL 评估：
+
+| 指标 | 数值 |
+|------|------|
+| 非空 `topK` 分子数 | 3 / 5 |
+| top1 改善均值 | **1.0347** |
+| 单分子 top1 改善 | `0.0000`, `0.0000`, `1.1830`, `1.1719`, `2.8188` |
+
+### 5.2 当前判断
+
+- **正向结论**：在线 RL 已经不是“空跑搜索”，而是真正采到了轨迹并发生了参数更新。
+- **负向结论**：在当前小规模评估上，RL 结果**仍弱于** BC-only baseline（`1.0347 < 2.0896`）。
+- **最可能的瓶颈**：
+  1. `open_set_budget=50` 偏小，搜索空间过浅；
+  2. BC 数据仅来自 15 棵树，冷启动覆盖不足；
+  3. 当前仅评估 5 个分子，结论噪声较大；
+  4. 训练 checkpoint 以 episode return 为主，未直接按离线评估指标选优。
+
 ---
 
 ## Step 6 — 消融实验
 
-### 6.1 PolicyNet 预筛的影响
+### 6.0 本轮结果：P0 + P1 已完成（50 分子网格）
+
+- 结果目录：`mol_evo/output/astar_rl/lumo_eval_grid50_parallel_20260409_194105`
+- 覆盖组合：`BC / RL × open_set_budget(50/100/200) × top_n_prefilter(20/50)`
+- 评估口径：`lumo decrease`，改善定义为 `initial_property_value - top1.property_value`
+
+| method | budget | prefilter | nonempty topK | top1 mean | top1 median | actual expansions mean | ofo calls mean |
+|--------|--------|-----------|---------------|-----------|-------------|------------------------|----------------|
+| bc | 50 | 20 | 35 / 50 | 1.6826 | 1.5217 | 36.76 | 44.26 |
+| rl | 50 | 20 | 50 / 50 | 2.2473 | 2.3492 | 256.58 | 367.22 |
+| bc | 50 | 50 | 50 / 50 | 3.3464 | 3.1834 | 341.02 | 583.60 |
+| rl | 50 | 50 | 50 / 50 | **7.4856** | 3.0376 | 341.86 | 567.58 |
+| bc | 100 | 20 | 50 / 50 | 1.6633 | 1.5657 | 367.42 | 564.84 |
+| rl | 100 | 20 | 45 / 50 | 2.2687 | 1.3959 | 208.16 | 333.44 |
+| bc | 100 | 50 | 50 / 50 | 2.8019 | 2.7170 | 479.60 | 1093.78 |
+| rl | 100 | 50 | 50 / 50 | 2.9246 | 2.9101 | 499.04 | 1326.82 |
+| bc | 200 | 20 | 47 / 50 | 2.0748 | 2.1244 | 167.16 | 226.06 |
+| rl | 200 | 20 | 45 / 50 | 1.8982 | 1.7691 | 114.48 | 163.86 |
+| bc | 200 | 50 | 50 / 50 | 3.3620 | **3.2222** | 486.26 | 1026.88 |
+| rl | 200 | 50 | 50 / 50 | 3.1404 | 2.7801 | 401.12 | 905.58 |
+
+### 6.1 关键观察
+
+- **`top_n_prefilter=50` 明显优于 `20`**：这个结论对 BC 和 RL 都成立，是当前最稳定的搜索参数发现。
+- **按均值看，RL 最优配置已经出现**：`rl 50/50` 的 `top1_mean=7.4856`，显著高于当前所有 BC 组合。
+- **但按稳健性看，RL 还没有稳定胜出**：
+  - 与同配置 `bc 50/50` 做分子级配对时，RL 仅 **12 / 50** 个分子更好，**38 / 50** 个分子更差；
+  - `delta_median=-0.3116`，说明多数样本上 RL 并未占优；
+  - 去掉头尾各 3 个样本后的 `trimmed mean = -0.2753`，也说明 RL 的均值优势主要由少数极大值驱动。
+- **当前最优 BC 配置**：`bc 200/50`，`top1_mean=3.3620`，`top1_median=3.2222`。
+- **当前最优 RL 配置**：`rl 50/50`，但该结果包含 3 个超大 improvement 样本（`>20`，其中 2 个 `>50`），需要进一步复核这些分子是否属于真实有效提升。
+
+### 6.2 阶段结论
+
+- **P0 结论**：50 分子评估已经足够说明，原先 5 分子的“RL 不如 BC”结论过早；在更大样本上，RL 至少已经表现出**局部强优势**。
+- **P1 结论**：继续调搜索时，应优先固定 `top_n_prefilter=50`；`open_set_budget` 并不是越大越好，当前最佳 RL 反而出现在 `budget=50`。
+- **尚未完成的判断**：`rl 50/50` 的大均值，到底是“找到了少量极优样本”还是“少量异常值/评估口径问题”，目前还不能直接下结论。
+
+### 6.3 下一步优化方案（更新后优先级）
+
+#### P2：先做 outlier 复核，而不是立刻继续训练
+
+- **目标**：确认 `rl 50/50` 的 3 个超大 improvement 是否真实可信。
+- **优先检查分子**：`COCC(C)(C)O`、`C#CC(C)(C)CC`、`CC#CC(C)(C)C`。
+- **检查内容**：
+  - top1 候选的 `property_value` 是否异常极端；
+  - 候选是否满足当前分子合法性 / 图构建约束；
+  - 与 BC 同配置结果逐分子对照，确认是否为真实“RL-only 命中”。
+
+#### P3：扩大 BC 冷启动数据，降低 RL 起点噪声
+
+- **建议规模**：把 BFS 树从当前 `15` 棵扩大到 `50 ~ 100` 棵。
+- **建议动作**：
+  - 继续收集 `lumo` BFS 树；
+  - 重新导出 `depth=3` / `depth=4` 两版 BC 数据；
+  - 先比较更强 BC baseline，再决定 RL 是否基于更强起点重训。
+
+#### P4：把 checkpoint 选择从训练回报切到离线评估
+
+- **当前问题**：现在主要按 `episode_return` 保存 best checkpoint，这不一定和 50 分子离线指标一致。
+- **建议**：训练期间每隔固定 episode 跑一个小型 holdout eval（例如 10 分子），按 `top1_mean / top1_median` 选 best checkpoint，而不是只看 return。
+
+#### P5：在更强 BC 起点上重做在线 RL 扫描
+
+在 P2 / P3 / P4 完成后，再考虑做以下训练扫描：
+
+| 变量 | 建议值 |
+|------|--------|
+| `num_episodes` | `100 / 300 / 500` |
+| `lr_policy` | `1e-4 / 5e-5` |
+| `lr_value` | `1e-3 / 5e-4` |
+| `entropy_coef` | `0.01 / 0.02 / 0.05` |
+| `seed` | 至少 `3` 个 |
+
+> 现在的重点已经从“链路能不能跑通”切换为：**先确认 RL 的大提升是否真实稳健，再决定是否继续放大训练规模。**
+
+---
+
+### 6.4 细分消融模板
+
+#### 6.4.1 PolicyNet 预筛的影响
 
 固定 `open_set_budget=200`，改变 `top_n_prefilter`：
 
@@ -307,4 +487,6 @@ python -m mol_evo.scripts.batch_optimizer \
 | `value_loss` 不收敛 | BC 数据不足 / lr 太小 | 增加 BC 数据量；提高 `--lr-value` |
 | astar_demo topK 比 BFS 差 | open_set_budget 太小 | 增大到 `200`；或确认 BC 训练收敛 |
 | 搜索提前结束（expanded_nodes 很小） | 所有候选被 path-aware dedup 过滤 | 减小 `--max-depth` 或换分子 |
+| BC 训练在 DataLoader 阶段崩溃（`operation.get` 报错） | 离线样本里 `operation` 是字符串而非字典 | 确认 `encode_action()` 已兼容 `dict / str / None`；旧样本无需重导 |
+| 在线 RL 日志显示 `steps=0`，但搜索本身能跑完 | policy/value 在 CUDA，状态/动作编码张量仍在 CPU，异常被搜索层 `try/except` 吞掉 | 检查 `generate_expansion_tree_astar_demo()` 中 state/action/value 张量是否显式 `.to(device)`，并确认 `rl_history.json` 的 `episode_steps` 非零 |
 | ImportError: e3nn | 主 models __init__ 有副作用 | 改用 `from mol_evo.core.models.astar_rl import ...` 直接导入，绕过主 `__init__` |

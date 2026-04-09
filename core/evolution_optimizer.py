@@ -23,6 +23,20 @@ from torch_geometric.data import Batch
 # 禁用RDKit的警告信息
 RDLogger.DisableLog('rdApp.*')
 
+
+def _torch_load_compat(path, *, map_location=None, weights_only=None):
+    """兼容不同 PyTorch 版本的 `torch.load` 参数。"""
+    kwargs = {}
+    if map_location is not None:
+        kwargs["map_location"] = map_location
+    if weights_only is not None:
+        kwargs["weights_only"] = weights_only
+    try:
+        return torch.load(path, **kwargs)
+    except TypeError:
+        kwargs.pop("weights_only", None)
+        return torch.load(path, **kwargs)
+
 # 设置项目根目录路径
 script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.join(script_dir, "..", "..")
@@ -152,7 +166,9 @@ class EvolutionTreeOptimizer:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
         # 加载模型权重并移动到GPU/CPU
-        self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))
+        self.model.load_state_dict(
+            _torch_load_compat(self.model_path, map_location=self.device, weights_only=True)
+        )
         self.model.to(self.device)
         self.model.eval()
         

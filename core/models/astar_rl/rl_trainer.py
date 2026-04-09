@@ -321,7 +321,10 @@ class RLTrainer:
         path:
             checkpoint 文件路径（.pth）。
         """
-        ckpt = torch.load(path, map_location=self.device)
+        try:
+            ckpt = torch.load(path, map_location=self.device, weights_only=False)
+        except TypeError:
+            ckpt = torch.load(path, map_location=self.device)
         self.episode_count = ckpt.get("episode_count", 0)
         self.total_steps = ckpt.get("total_steps", 0)
         self.policy_net.load_state_dict(ckpt["policy_net"])

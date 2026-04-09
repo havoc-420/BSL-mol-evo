@@ -1618,6 +1618,19 @@ class MolecularEvolutionExpansion:
         if rl_trainer is not None and _rl_imports_ok:
             rl_trainer.reset_episode()
 
+        import torch
+
+        def _get_module_device(module):
+            if module is None:
+                return None
+            try:
+                return next(module.parameters()).device
+            except (StopIteration, AttributeError, TypeError):
+                return torch.device("cpu")
+
+        policy_device = _get_module_device(policy_net)
+        value_device = _get_module_device(value_net)
+
         # ------------------------------------------------------------------
         # A* 主循环
         # ------------------------------------------------------------------
@@ -1659,15 +1672,18 @@ class MolecularEvolutionExpansion:
                         direction=optimization_direction,
                         target_property_value=initial_property_value or 0.0,
                     )
-                    import torch
+                    if policy_device is not None:
+                        state_vec = state_vec.to(policy_device)
                     action_vecs = torch.stack([
                         encode_action(op, ofo_predicted_change=0.0)
                         for op in possible_operations
                     ])
+                    if policy_device is not None:
+                        action_vecs = action_vecs.to(policy_device)
                     k = min(top_n_prefilter, len(possible_operations))
                     top_indices, top_logits = policy_net.top_k_actions(state_vec, action_vecs, k=k)
-                    top_indices = top_indices.tolist()
-                    top_logits = top_logits.tolist()
+                    top_indices = top_indices.detach().cpu().tolist()
+                    top_logits = top_logits.detach().cpu().tolist()
                     prefiltered_ops = [(possible_operations[i], top_logits[j]) for j, i in enumerate(top_indices)]
                     policy_prefilter_size += len(prefiltered_ops)
                 except Exception:
@@ -1733,6 +1749,8 @@ class MolecularEvolutionExpansion:
                             direction=optimization_direction,
                             target_property_value=initial_property_value or 0.0,
                         )
+                        if value_device is not None:
+                            child_state_vec = child_state_vec.to(value_device)
                         h_score = value_net.estimate(child_state_vec)
                     except Exception:
                         h_score = 0.0
@@ -1769,10 +1787,16 @@ class MolecularEvolutionExpansion:
                         encode_action(op, ofo_predicted_change=float(pc))
                         for op, _, pc, *_ in top_scored
                     ])
+                    state_vec_policy = state_vec_traj.to(policy_device) if policy_device is not None else state_vec_traj
+                    all_action_vecs_policy = all_action_vecs.to(policy_device) if policy_device is not None else all_action_vecs
                     # 选得分最高的作为"被选中"的动作（索引 0）
                     selected_idx = 0
-                    log_prob = policy_net.get_log_probs(state_vec_traj, all_action_vecs, selected_idx)
-                    value_est = value_net.estimate(state_vec_traj) if value_net is not None else 0.0
+                    log_prob = policy_net.get_log_probs(state_vec_policy, all_action_vecs_policy, selected_idx)
+                    if value_net is not None:
+                        value_state_vec = state_vec_traj.to(value_device) if value_device is not None else state_vec_traj
+                        value_est = value_net.estimate(value_state_vec)
+                    else:
+                        value_est = 0.0
 
                     # 计算 step_reward（用 property_change 和 logP 状态）
                     best_op, best_smiles, best_pc, *_ = top_scored[0]
@@ -1803,13 +1827,13 @@ class MolecularEvolutionExpansion:
                     )
                     is_done = (current_depth + 1 >= max_depth)
                     traj_step = TrajectoryStep(
-                        state_tensor=state_vec_traj,
-                        action_tensors=all_action_vecs,
+                        state_tensor=state_vec_traj.detach().cpu(),
+                        action_tensors=all_action_vecs.detach().cpu(),
                         selected_action_idx=selected_idx,
                         log_prob=log_prob,
                         step_reward=step_reward,
-                        next_state_tensor=next_state_vec,
-                        value_estimate=value_est,
+                        next_state_tensor=next_state_vec.detach().cpu(),
+                        value_estimate=float(value_est),
                         done=is_done,
                     )
                     rl_trainer.collect_step(traj_step)

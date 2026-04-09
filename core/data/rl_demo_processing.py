@@ -126,7 +126,7 @@ def encode_state(
 
 
 def encode_action(
-    operation: Dict,
+    operation: Any,
     ofo_predicted_change: float = 0.0,
     op_type_list: Optional[List[str]] = None,
 ) -> torch.Tensor:
@@ -135,7 +135,8 @@ def encode_action(
     Parameters
     ----------
     operation:
-        操作字典，含 'type' 和 'params' 字段（来自 _get_possible_operations()）。
+        操作信息，既兼容 ``{"type": ..., "params": ...}`` 字典，
+        也兼容搜索树中直接保存为字符串的操作类型。
     ofo_predicted_change:
         OFO 对此操作的单步属性变化预测值（如可用）。
     op_type_list:
@@ -146,8 +147,15 @@ def encode_action(
     torch.Tensor
         形状 ``(ACTION_DIM,)`` 的 float32 向量。
     """
-    op_type = operation.get("type", "unknown")
-    params = operation.get("params", {})
+    if isinstance(operation, dict):
+        op_type = operation.get("type", "unknown")
+        params = operation.get("params", {})
+    elif isinstance(operation, str):
+        op_type = operation or "unknown"
+        params = {}
+    else:
+        op_type = "unknown"
+        params = {}
 
     # 操作类型 one-hot（_MAX_OP_TYPES 维）
     if op_type_list:

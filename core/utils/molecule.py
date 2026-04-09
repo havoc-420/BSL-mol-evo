@@ -31,6 +31,20 @@ except AttributeError:
 bonds = {BondType.SINGLE: 0, BondType.DOUBLE: 1, BondType.TRIPLE: 2, BondType.AROMATIC: 3}
 
 
+def _torch_load_compat(path, *, map_location=None, weights_only=None):
+    """兼容不同 PyTorch 版本的 `torch.load` 参数。"""
+    kwargs = {}
+    if map_location is not None:
+        kwargs["map_location"] = map_location
+    if weights_only is not None:
+        kwargs["weights_only"] = weights_only
+    try:
+        return torch.load(path, **kwargs)
+    except TypeError:
+        kwargs.pop("weights_only", None)
+        return torch.load(path, **kwargs)
+
+
 def one_hot(tensor, num_classes):
     """
     将整数张量转换为 one-hot 编码。
@@ -518,7 +532,7 @@ class MoleculeCache:
         """
         if os.path.exists(self.cache_file):
             try:
-                cache_data = torch.load(self.cache_file)
+                cache_data = _torch_load_compat(self.cache_file, weights_only=True)
                 # 如果缓存文件包含失败记录，则加载这些记录
                 if isinstance(cache_data, dict):
                     if 'success' in cache_data:

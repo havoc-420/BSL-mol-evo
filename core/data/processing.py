@@ -11,7 +11,7 @@ from torch_geometric.data import Data
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit import DataStructs
-from typing import List, Tuple, Dict
+from typing import Any, List, Tuple, Dict
 import yaml
 import os
 

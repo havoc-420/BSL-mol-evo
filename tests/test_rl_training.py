@@ -250,10 +250,10 @@ class TestRewardFunctions(unittest.TestCase):
                 compute_discounted_returns, normalize_returns,
             )
             cls.RewardConfig = RewardConfig
-            cls.compute_step_reward = compute_step_reward
-            cls.compute_episode_reward = compute_episode_reward
-            cls.compute_discounted_returns = compute_discounted_returns
-            cls.normalize_returns = normalize_returns
+            cls.compute_step_reward = staticmethod(compute_step_reward)
+            cls.compute_episode_reward = staticmethod(compute_episode_reward)
+            cls.compute_discounted_returns = staticmethod(compute_discounted_returns)
+            cls.normalize_returns = staticmethod(normalize_returns)
             cls._imports_ok = True
         except ImportError as e:
             cls._imports_ok = False
