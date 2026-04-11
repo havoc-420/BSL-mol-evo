@@ -1,5 +1,5 @@
 # A* RL Demo — 分阶段实验得分台账
-<!-- last-updated: 2026-04-10 -->
+<!-- last-updated: 2026-04-11 -->
 
 本文档专门记录 **不同阶段 / 不同 run 的实验得分数据**，用于把“结论描述”和“原始分数台账”分开。
 后续新增实验时，优先把核心分数先补到这里，再回填 `experiments.md` 中的结论段。
@@ -12,6 +12,31 @@
 - **优先写主指标**：至少记录 `top1_mean`、`top1_median`、`nonempty_topk`、必要时补 `trimmed_mean / win_rate_vs_bc`。
 - **保留 run 来源**：每条记录都带 run 目录、JSON 或 TSV 来源，便于回查。
 - **结论与分数分离**：这里以分数表为主，不展开长篇分析。
+
+---
+
+## 0. 2026-04-11 状态刷新（进行中）
+
+### 0.1 导出修复说明
+
+- **已修复问题**：`export_rl_demo_transitions.py` 旧版本把树中的 `property_change` 错读成 `predicted_change`，导致早期 BFS / A1 BC transition 的 `property_change` 大量为 `0.0`。
+- **影响范围**：`BFS15`、`A1-small`、`A1-main` 的旧版 BC 数据需要按 fixed 口径重导、重训、重评估。
+- **当前口径**：本页中 `2026-04-10 ~ 2026-04-11` 的旧 BFS A1 分数仅保留作历史归档；最新判断以 fixed 重跑和新的 `MCTS` 结果为准。
+
+### 0.2 fixed 重跑 / MCTS 当前台账
+
+| run_name | 状态 | 样本规模 / 进度 | 当前主指标 | 备注 |
+|----------|------|------------------|------------|------|
+| `a0_fixed_bc_holdout50_budget200_pref50` | 进行中 | `40 / 50` 分子已写入原始 eval JSON | `top1_mean=3.1797`，`top1_median=3.1843`，`trimmed_mean=3.0316` | 中间快照，`*_summary.json` 尚未落盘 |
+| `a1_small_fixed_bc_holdout50_budget200_pref50` | 进行中 | `15 / 50` 分子已写入原始 eval JSON | `top1_mean=3.1099`，`top1_median=2.9432`，`trimmed_mean=3.0435` | 中间快照，`*_summary.json` 尚未落盘 |
+| `a1_main_fixed_bc_holdout50_budget200_pref50` | 进行中 | `53269` 条 fixed transition，BC 重训中 | `TBD` | 旧版 A1-main 已归档，等待 fixed 版结果 |
+| `a1_mcts_main_bc_holdout50_budget200_pref50_vs_a0_bc200_pref50` | 已完成 | `1089` 条 transition（`1089 / 1089` 非零） | `top1_mean=3.0971`，`top1_median=3.0167`，`trimmed_mean=2.9934`，`win_rate=34%` | 数据质量正常，但当前树偏稀 |
+| `plan_a_mcts_expand_rl_seed11` | 进行中 | `tmux:mcts-expand-rl` 已启动 | `TBD` | 执行 `MCTS 扩规模 -> BC -> RL(300 ep)` 全流程 |
+
+### 0.3 口径提醒
+
+- **fixed 任务的原始 eval JSON 顶层是按分子索引的结果字典**，不是 summary；正式汇总文件仍以 `*_summary.json` 为准。
+- **下面 5.2 的旧 A1-small / A1-main 表格不删**，但现在仅保留为“修复前归档”，不再作为最新主判断。
 
 ---
 
@@ -152,7 +177,7 @@
   - `a0_rl_best_mean_budget50_pref50_vs_bc50_pref50_summary.json/tsv`
 - **当前 holdout 切分**：源 CSV 共 `1033` 个分子，固定 holdout `50` 个，训练池 `983` 个
 
-### 5.2 A1 — 扩大 BC 冷启动数据
+### 5.2 A1 — 扩大 BC 冷启动数据（以下旧表为修复前归档）
 
 | run_name | 树数 | 深度 | 样本数 | BC-only holdout top1_mean | BC-only holdout top1_median | 备注 |
 |----------|------|------|--------|---------------------------|-----------------------------|------|

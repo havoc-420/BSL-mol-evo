@@ -1,5 +1,5 @@
 # A* RL Demo — 方案 A：低风险扩规模计划
-<!-- last-updated: 2026-04-10 -->
+<!-- last-updated: 2026-04-11 -->
 
 本文档给出一版**不改核心算法、以工程稳健性为主**的扩规模计划。
 目标不是立刻把 RL 改成全新框架，而是在当前 `BC → astar_demo → REINFORCE` 链路上，
@@ -27,6 +27,17 @@
 - **可以放大训练规模**，但不应只把 `num_episodes` 机械拉大。
 - **先做低风险扩规模**：更强 BC 起点、更大训练分子池、更多 episodes、固定 holdout eval、多 seed 复核。
 - **best checkpoint 不再只看 `episode_return`**，而应以固定 holdout 的离线指标作为主标准。
+
+## 0.1 执行进度刷新（2026-04-11 15:53）
+
+- **导出桥修复已完成**：`export_rl_demo_transitions.py` 已修复 `property_change` 字段错读与 `operation/details` 归一化问题，旧版 BFS/A1 结果现只作为归档。
+- **fixed BFS 重跑状态**：
+  - `fix-a0-bc`：holdout 原始 JSON 已写出，当前快照 `40 / 50` 分子，`top1_mean=3.1797`。
+  - `fix-a1-small-bc`：holdout 原始 JSON 已写出，当前快照 `15 / 50` 分子，`top1_mean=3.1099`。
+  - `fix-a1-main-bc`：`53269` 条 fixed transition 已导出，BC 重训中。
+- **MCTS 替代 BFS 的探索支线已开启**：`A1-mcts-main` 已完成，但当前只有 `1089` 条 transition，holdout `top1_mean=3.0971`，说明**数据质量没问题，问题在树不够厚**。
+- **新的扩规模主任务已启动**：`mcts-expand-rl` 正在执行 `MCTS 扩规模 -> BC -> holdout -> RL(300 ep) -> holdout`，用于验证更厚的 `MCTS` 数据源能否直接作为 RL 基石。
+- **当前策略**：在 fixed A0 / A1 基线出齐之前，不对 `MCTS-BC / MCTS-RL` 下最终结论；但扩规模 `MCTS` 流水线可以先并行推进。
 
 ---
 
@@ -121,19 +132,25 @@
 - `BC-only` 在固定 holdout 上**至少不弱于**当前最优 BC 参考线；
 - 若 `BC-A1-main` 的 holdout 中位数无法超过当前 BC 参考线，则暂停继续放大 RL。
 
-#### 当前执行进度（2026-04-11 01:34）
+#### 历史归档结果（2026-04-11 01:34，基于修复前导出脚本）
 
-- **A1-small 已完成**：`train_pool(983) → BFS 50 trees → 导出 transitions → BC 训练 → holdout eval`
-- **A1-main 已完成**：`train_pool(983) → BFS 100 trees → 导出 transitions → BC 训练 → holdout eval`
-- **A1-main 启动脚本**：`mol_evo/output/astar_rl/start_plan_a_a1_main_tmux.sh`
-- **训练池来源**：`mol_evo/dataset/eval-data/plan_a_a0/lumo_plan_a_train_pool_excluding_holdout.csv`
-- **A1-small 样本数 / 结果**：`27351` 条，`top1_mean=3.2498`，`top1_median=3.2552`，`trimmed_mean=3.1784`
-- **A1-main 样本数 / 结果**：`53269` 条，`top1_mean=4.2094`，`top1_median=3.3734`，`trimmed_mean=3.3053`
-- **A1-main BC 权重目录**：`mol_evo/output/astar_rl/lumo_plan_a_a1_main_bc/bc_20260411_000941`
-- **A1-main holdout 评估目录**：`mol_evo/output/astar_rl/plan_a_a1_main_eval`
-- **A1-main 训练停止方式**：设置 `epochs=100`，但因 `patience=20` 的 early stop，实际在 `epoch 51` 停止；最佳验证损失位于 `epoch 31`
-- **相对 A0 最优 BC 基线**（`bc_budget200_pref50`）：`win_rate=48%`，`delta_mean=+0.8474`，`delta_median≈0`，`trimmed_delta_mean=-0.0250`
-- **阶段判断**：`A1-main` 明显优于 `A1-small`，且 raw holdout 汇总指标已略高于 A0；但配对稳健性仍然接近持平，因此更适合视为“**达到可进入 A2 的门槛边缘，但不是特别强的压倒性胜出**”
+- **说明**：这一版 `A1-small / A1-main` 使用的是修复前的 transition exporter，现仅保留作历史记录，不再作为最新 go / no-go 依据。
+- **fixed 重跑状态（2026-04-11 15:53）**：
+  - `fix-a0-bc`：holdout 原始 JSON 已写出，当前快照 `40 / 50` 分子，`top1_mean=3.1797`。
+  - `fix-a1-small-bc`：holdout 原始 JSON 已写出，当前快照 `15 / 50` 分子，`top1_mean=3.1099`。
+  - `fix-a1-main-bc`：`53269` 条 fixed transition 已导出，BC 重训中。
+- **以下条目为旧口径归档**：
+  - **A1-small 已完成**：`train_pool(983) → BFS 50 trees → 导出 transitions → BC 训练 → holdout eval`
+  - **A1-main 已完成**：`train_pool(983) → BFS 100 trees → 导出 transitions → BC 训练 → holdout eval`
+  - **A1-main 启动脚本**：`mol_evo/output/astar_rl/start_plan_a_a1_main_tmux.sh`
+  - **训练池来源**：`mol_evo/dataset/eval-data/plan_a_a0/lumo_plan_a_train_pool_excluding_holdout.csv`
+  - **A1-small 样本数 / 结果**：`27351` 条，`top1_mean=3.2498`，`top1_median=3.2552`，`trimmed_mean=3.1784`
+  - **A1-main 样本数 / 结果**：`53269` 条，`top1_mean=4.2094`，`top1_median=3.3734`，`trimmed_mean=3.3053`
+  - **A1-main BC 权重目录**：`mol_evo/output/astar_rl/lumo_plan_a_a1_main_bc/bc_20260411_000941`
+  - **A1-main holdout 评估目录**：`mol_evo/output/astar_rl/plan_a_a1_main_eval`
+  - **A1-main 训练停止方式**：设置 `epochs=100`，但因 `patience=20` 的 early stop，实际在 `epoch 51` 停止；最佳验证损失位于 `epoch 31`
+  - **相对 A0 最优 BC 基线**（`bc_budget200_pref50`）：`win_rate=48%`，`delta_mean=+0.8474`，`delta_median≈0`，`trimmed_delta_mean=-0.0250`
+  - **阶段判断**：`A1-main` 明显优于 `A1-small`，且 raw holdout 汇总指标已略高于 A0；但配对稳健性仍然接近持平，因此更适合视为“**达到可进入 A2 的门槛边缘，但不是特别强的压倒性胜出**”
 
 ### A2：在线 RL 第一轮放大（300 episodes）
 

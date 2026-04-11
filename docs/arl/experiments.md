@@ -1,5 +1,5 @@
 # A* RL Demo — 实验推进手册
-<!-- last-updated: 2026-04-10 -->
+<!-- last-updated: 2026-04-11 -->
 
 本文档面向实验推进阶段，给出**从零到有效 RL 结果**的完整实验路线、
 对比基准设计、消融方向和预期结果解读。
@@ -21,7 +21,31 @@ Step 7  论文级结果整理
 
 ---
 
-## 当前进度快照（2026-04-09）
+## 当前进度刷新（2026-04-11 15:53）
+
+### 本轮新增事实
+
+- **离线导出 bug 已修复**：`export_rl_demo_transitions.py` 之前把树里的 `property_change` 错读成 `predicted_change`，导致早期 BFS / A1 BC transition 中的 `property_change` 大量变成 `0.0`；目前已修复并兼容旧字段。
+- **动作编码桥已补齐**：导出侧已统一 `operation / details`，下游 `encode_action()` 也已兼容 `dict / str / None` 与 `atom_idx / atom2_idx / bond_idx` 等参数来源。
+- **历史 BFS 基线已转入 fixed 重跑**：旧版 `BFS15 / A1-small / A1-main` 结果仅保留作归档，不再直接作为最新 go / no-go 依据。
+- **MCTS 基石链已跑通**：`A1-mcts-main` 已完成 `search -> transition export -> BC -> holdout` 全链路；导出 `1089` 条 transition，且 `1089 / 1089` 的 `property_change` 非零。
+
+### 当前正在运行的任务
+
+- **`fix-a0-bc`**：holdout eval 已写出原始 JSON，当前快照为 `40 / 50` 分子，`top1_mean=3.1797`，`top1_median=3.1843`，`trimmed_mean=3.0316`。
+- **`fix-a1-small-bc`**：holdout eval 已写出原始 JSON，当前快照为 `15 / 50` 分子，`top1_mean=3.1099`，`top1_median=2.9432`，`trimmed_mean=3.0435`。
+- **`fix-a1-main-bc`**：`53269` 条 fixed transition 已导出，正在重新训练 BC。
+- **`mcts-expand-rl`**：已在 `tmux` 启动，执行 `MCTS 扩规模 -> BC -> holdout -> RL(300 episodes) -> holdout` 的完整新链路。
+
+### 当前判断
+
+- **短期内必须先以 fixed BFS 结果重建参考线**，再判断 `MCTS-BC / MCTS-RL` 是否真的比 BFS 更优。
+- **当前这版 MCTS 的主要问题不是数据质量，而是数据量**：`num_simulations=200` 下树明显偏稀，`1089` 条 transition 不足以支撑一个强 BC 起点。
+- **当前扩规模方向明确**：通过更厚的 `MCTS` 搜索把树做大，再把该数据源直接接到 `BC -> RL` 冷启动链路。
+
+---
+
+## 历史快照（2026-04-09）
 
 ### 已完成
 

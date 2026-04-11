@@ -1,5 +1,5 @@
 # A* RL Demo 文档索引
-<!-- last-updated: 2026-04-10 -->
+<!-- last-updated: 2026-04-11 -->
 
 基于 A* 搜索 + PolicyNet/ValueNet 引导的分子优化 RL Demo 文档目录。
 
@@ -14,15 +14,16 @@
 
 ---
 
-## 当前状态（2026-04-10）
+## 当前状态（2026-04-11 15:53）
 
-- **BC 冷启动已完成**：15 棵 BFS 树 → 9090 条样本 → `bc_20260409_145233`
-- **在线 RL 已跑通**：100 episode run 位于 `lumo_rl_bfs15_depth3_run100/rl_20260409_161937`
-- **P0 + P1 已完成**：`50` 分子、`12` 组网格（`BC / RL × budget × prefilter`）结果已落在 `lumo_eval_grid50_parallel_20260409_194105`
-- **当前结论**：`top_n_prefilter=50` 明显优于 `20`；RL 在部分搜索参数上已能超过 BC 的**均值**，但最佳 `rl 50/50` 仍受少数大样本拉动，尚不能判定为“稳定全面领先”
-- **结果归档入口**：看 `experiments.md` 中的“实验结果归档（2026-04-10）”与 `Step 6`
-- **得分台账入口**：看 `stage_scores.md`，集中记录不同阶段的实验分数与主指标
-- **下一步计划**：看 `plan_scaleup_a.md`，先执行方案 A 的低风险扩规模版本
+- **离线导出桥已修复**：`export_rl_demo_transitions.py` 已修复 `property_change` / `predicted_change` 字段错读，并统一 `operation/details` 格式；因此 `2026-04-09 ~ 2026-04-10` 的早期 BFS / A1 BC 数据不再作为最新基线。
+- **fixed BFS 重跑中**：
+  - `fix-a0-bc`：holdout 原始 JSON 已写出，当前快照 `40 / 50` 分子，`top1_mean=3.1797`，`top1_median=3.1843`。
+  - `fix-a1-small-bc`：holdout 原始 JSON 已写出，当前快照 `15 / 50` 分子，`top1_mean=3.1099`，`top1_median=2.9432`。
+  - `fix-a1-main-bc`：`53269` 条 fixed transition 已导出，BC 重训进行中。
+- **MCTS 基石试跑已完成**：`A1-mcts-main` 导出 `1089` 条全非零 transition，holdout `top1_mean=3.0971`，`top1_median=3.0167`，相对参考 `win_rate=0.34`；当前判断是**数据质量正常，但树太稀、样本量偏少**。
+- **新主任务已启动**：`mcts-expand-rl` 已在 `tmux` 中启动，执行 `MCTS 扩规模 -> BC -> holdout -> RL(300 ep) -> holdout` 全流程。
+- **建议入口**：最新进度先看 `stage_scores.md`，实验判断看 `experiments.md`，执行计划看 `plan_scaleup_a.md`。
 
 ---
 

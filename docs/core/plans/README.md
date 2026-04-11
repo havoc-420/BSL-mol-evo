@@ -164,7 +164,19 @@
 
 ---
 
-## 7. 当前落地进度（截至 2026-04-08）
+## 6.1 与当前 `docs/arl` 运行链的衔接状态（2026-04-11）
+
+- **当前正在真实运行的强化学习链**，仍是 `docs/arl` 里维护的 primitive-action `A* RL Demo`：`搜索树(JSON) -> transition 导出 -> BC -> astar_demo RL -> holdout eval`。
+- **这条运行链本轮已完成一项关键修复**：`export_rl_demo_transitions.py` 现在能正确读取树中的 `property_change`，并统一 `operation / details`；因此它已经可以同时承接 `BFS` 和 `MCTS` 树，作为短期可执行的 RL 基石导出桥。
+- **当前在跑的 operational tasks**：
+  - fixed `BFS15 / A1-small / A1-main` 基线重跑；
+  - `A1-mcts-main` 已完成并暴露出“树稀疏、样本偏少”的问题；
+  - `mcts-expand-rl` 已启动，验证更厚的 `MCTS` 数据源能否直接支撑 `BC -> RL`。
+- **这对 `plans` 目录的含义**：`docs/arl` 提供的是**当前可运行 baseline 与证据链**；`02-07` 仍是更长期的 semantic 路线，不应把两者混成同一阶段目标。
+
+---
+
+## 7. 当前落地进度（截至 2026-04-11）
 
 > 这里记录的是**代码仓库里的真实落地状态**，不是目标态。标记口径分为：
 >

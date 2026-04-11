@@ -282,3 +282,35 @@ RL 只在以下前提下进入主线：
 ## 12. 一句话结论
 
 > **path 这条线不应在 fragment 时代消失；它应该升级成“以 semantic step 为边、以 primitive replay 为底”的长程规划层，并作为 `05` 之上的 learned augmentation 层进入系统。**
+
+---
+
+## 13. 与当前 primitive `A* RL Demo` 的衔接状态（2026-04-11）
+
+### 13.1 当前已存在的可运行链
+
+仓库里当前真实跑通的 RL 链，不是本文件目标态的 `semantic path/value/policy`，而是 `docs/arl` 中维护的 primitive-action demo：
+
+- `BFS / MCTS` 搜索树 JSON
+- `export_rl_demo_transitions.py` 导出 transition
+- `train_bc_pretrain.py` 训练 `PolicyNet / ValueNet`
+- `train_astar_rl_demo.py` 进行在线 RL
+- `eval_astar_rl_holdout.py` 做固定 holdout 评估
+
+### 13.2 这条链对 `06` 的现实意义
+
+- **它证明了 `policy / value / RL` 这条工程闭环已经可以 operational 地跑通**，因此 `06` 不是从零开始。
+- **但它还不是 `06` 的目标实现**：当前 state/action 仍是 primitive demo 编码，不是 `semantic_path`、也不是 `semantic_step` 语义层上的长程建模。
+- **它更像 `06` 的过渡验证台**：先用现有 primitive demo 验证 “更好的离线基石数据 -> 更强 BC -> 更稳 RL” 是否成立，再决定 semantic 路线里的 long-range signals 该如何接入。
+
+### 13.3 当前观测到的直接约束
+
+- 导出桥虽已修复，但当前 `MCTS` 在 `num_simulations=200` 下导出的树仍偏稀，导致 `A1-mcts-main` 只有 `1089` 条 transition。
+- 这说明当前问题**不只是有没有 value / policy**，还包括 **长程基石数据本身是否足够厚、是否能覆盖更多有效路径**。
+- 因此，眼下正在推进的 `mcts-expand-rl` 更适合作为 `06` 的前置证据：先验证厚 `MCTS` 数据源能否提供更强 bootstrap，再决定 semantic `path/value` 训练该如何构造目标和比较口径。
+
+### 13.4 当前边界纪律
+
+- 不要把当前 primitive `A* RL Demo` 的短期实验结果，直接等同于 `semantic path/value/policy` 的最终结论。
+- 但也不要忽略它：它提供了 `06` 未来落地时最现实的**评估外壳、holdout 口径和 checkpoint 选优经验**。
+- 换句话说：**`docs/arl` 是当前可运行的证据台，`06` 是下一阶段要接管这套证据台的语义长程版本。**
