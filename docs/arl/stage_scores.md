@@ -139,13 +139,54 @@
 
 | run_name | holdout 分子数 | BC baseline 配置 | top1_mean | top1_median | trimmed_mean | 备注 |
 |----------|----------------|------------------|-----------|-------------|--------------|------|
-| `TBD` | `TBD` | `TBD` | `TBD` | `TBD` | `TBD` | `待补` |
+| `a0_bc_best_budget200_pref50` | `50` | `bc + budget=200 + prefilter=50` | `3.3620` | `3.2222` | `3.2995` | 当前 A0 的 BC 参考线 |
+
+#### A0 当前已生成产物
+
+- **holdout CSV**：`mol_evo/dataset/eval-data/plan_a_a0/lumo_plan_a_holdout50_start0.csv`
+- **train pool CSV**：`mol_evo/dataset/eval-data/plan_a_a0/lumo_plan_a_train_pool_excluding_holdout.csv`
+- **split metadata**：`mol_evo/dataset/eval-data/plan_a_a0/lumo_plan_a_split_metadata.json`
+- **A0 summary 目录**：`mol_evo/output/astar_rl/plan_a_a0`
+  - `a0_bc_best_budget200_pref50_summary.json/tsv`
+  - `a0_bc_match_budget50_pref50_summary.json/tsv`
+  - `a0_rl_best_mean_budget50_pref50_vs_bc50_pref50_summary.json/tsv`
+- **当前 holdout 切分**：源 CSV 共 `1033` 个分子，固定 holdout `50` 个，训练池 `983` 个
 
 ### 5.2 A1 — 扩大 BC 冷启动数据
 
 | run_name | 树数 | 深度 | 样本数 | BC-only holdout top1_mean | BC-only holdout top1_median | 备注 |
 |----------|------|------|--------|---------------------------|-----------------------------|------|
-| `TBD` | `TBD` | `TBD` | `TBD` | `TBD` | `TBD` | `待补` |
+| `a1_small_bc_holdout50_budget200_pref50_vs_a0_bc200_pref50` | `50` | `3` | `27351` | `3.2498` | `3.2552` | `2026-04-10 11:43` 完成；相对 A0 BC200/50：`win_rate=44%`，`trimmed_delta_mean=-0.1194` |
+| `a1_main_bc_holdout50_budget200_pref50_vs_a0_bc200_pref50` | `100` | `3` | `53269` | `4.2094` | `3.3734` | `2026-04-11 01:34` 完成；相对 A0 BC200/50：`win_rate=48%`，`trimmed_delta_mean=-0.0250` |
+
+#### A1-small 当前结果解读
+
+- **训练样本**：`27351` 条 transitions，由 `50` 棵 `depth=3` BFS 树导出
+- **新 BC 最优权重**：`mol_evo/output/astar_rl/lumo_plan_a_a1_small_bc/bc_20260410_054557`
+- **holdout 评估 summary**：`mol_evo/output/astar_rl/plan_a_a1_small_eval/a1_small_bc_holdout50_budget200_pref50_vs_a0_bc200_pref50_summary.json`
+- **相对 A0 最优 BC 基线**（`bc_budget200_pref50`）
+  - `top1_mean`: `3.2498` vs `3.3620`
+  - `top1_median`: `3.2552` vs `3.2222`
+  - `trimmed_mean`: `3.1784` vs `3.2995`
+  - `win/loss`: `22 / 28`
+- **当前判断**：A1-small 在中位数上略高，但均值、trimmed mean 和配对胜率都**还没有超过** A0 基线，因此更像“接近持平但未证明显著更优”
+
+#### A1-main 当前结果解读
+
+- **训练样本**：`53269` 条 transitions，由 `100` 棵 `depth=3` BFS 树导出
+- **新 BC 最优权重**：`mol_evo/output/astar_rl/lumo_plan_a_a1_main_bc/bc_20260411_000941`
+- **holdout 评估 summary**：`mol_evo/output/astar_rl/plan_a_a1_main_eval/a1_main_bc_holdout50_budget200_pref50_vs_a0_bc200_pref50_summary.json`
+- **训练停止方式**：`epochs=100`，但因 `patience=20` 的 early stop，实际在 `epoch 51` 停止；最佳验证损失出现在 `epoch 31`
+- **相对 A0 最优 BC 基线**（`bc_budget200_pref50`）
+  - `top1_mean`: `4.2094` vs `3.3620`
+  - `top1_median`: `3.3734` vs `3.2222`
+  - `trimmed_mean`: `3.3053` vs `3.2995`
+  - `win/loss/tie`: `24 / 25 / 1`
+- **相对 A1-small**
+  - `top1_mean`: `4.2094` vs `3.2498`
+  - `top1_median`: `3.3734` vs `3.2552`
+  - `trimmed_mean`: `3.3053` vs `3.1784`
+- **当前判断**：A1-main 明显优于 A1-small，且在 raw holdout 汇总指标上已略高于 A0；但配对稳健性仍接近持平（`win_rate=48%`、`trimmed_delta_mean=-0.0250`），因此属于“**有提升，但还不是非常干净的全面胜出**”
 
 ### 5.3 A2 — RL 第一轮放大（300 episodes）
 

@@ -96,6 +96,44 @@ def _build_children_map(nodes: Dict, edges: List[Dict]) -> Dict[str, List[str]]:
     return children
 
 
+def _normalize_operation(node: Dict, edge: Optional[Dict] = None) -> Dict[str, Any]:
+    """把树里的动作字段统一成 {type, params} 结构。"""
+    raw_operation = node.get("operation")
+    raw_details = node.get("details", {}) or {}
+
+    if not raw_details and edge is not None:
+        raw_details = edge.get("details", {}) or {}
+        if raw_operation in (None, "", {}):
+            raw_operation = edge.get("operation")
+
+    if isinstance(raw_operation, dict):
+        op_type = raw_operation.get("type", "unknown") or "unknown"
+        params = dict(raw_operation.get("params", {}) or {})
+        if isinstance(raw_details, dict):
+            params.update(raw_details)
+        return {"type": op_type, "params": params}
+
+    if isinstance(raw_operation, str):
+        return {
+            "type": raw_operation or "unknown",
+            "params": raw_details if isinstance(raw_details, dict) else {},
+        }
+
+    return {
+        "type": "unknown",
+        "params": raw_details if isinstance(raw_details, dict) else {},
+    }
+
+
+def _get_property_change(node: Dict) -> float:
+    """优先读取当前树格式里的 property_change，兼容旧 predicted_change。"""
+    value = node.get("property_change", node.get("predicted_change", 0.0))
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _compute_future_best_gain(
     node_id: str,
     nodes: Dict,
@@ -195,12 +233,14 @@ def extract_transitions_from_tree(
         if not src_smiles or not tgt_smiles:
             continue
 
-        operation = tgt_node.get("operation", {})
-        property_change = tgt_node.get("predicted_change", 0.0)
+        operation = _normalize_operation(tgt_node, edge)
+        property_change = _get_property_change(tgt_node)
         accumulated_from = src_node.get("accumulated_change", 0.0)
 
         # logP 约束判断
-        tgt_logp = _get_logp(tgt_smiles)
+        tgt_logp = tgt_node.get("logP")
+        if tgt_logp is None:
+            tgt_logp = _get_logp(tgt_smiles)
         logp_in_range = logp_min <= tgt_logp <= logp_max
 
         # 计算 stagnation_count（简化：看父节点有无改善记录）

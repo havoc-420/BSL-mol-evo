@@ -91,6 +91,17 @@
 - BC 对应 holdout baseline 结果 JSON / TSV
 - RL 各 checkpoint 对应 holdout 结果表
 
+#### 当前执行进度（2026-04-10）
+
+- **固定 holdout 已生成**：`mol_evo/dataset/eval-data/plan_a_a0/lumo_plan_a_holdout50_start0.csv`
+- **训练池已生成**：`mol_evo/dataset/eval-data/plan_a_a0/lumo_plan_a_train_pool_excluding_holdout.csv`
+- **切分元数据已落盘**：`mol_evo/dataset/eval-data/plan_a_a0/lumo_plan_a_split_metadata.json`
+- **当前 A0 baseline summary 已生成**：位于 `mol_evo/output/astar_rl/plan_a_a0`
+  - `a0_bc_best_budget200_pref50_summary.json/tsv`
+  - `a0_bc_match_budget50_pref50_summary.json/tsv`
+  - `a0_rl_best_mean_budget50_pref50_vs_bc50_pref50_summary.json/tsv`
+- **当前固定口径**：holdout `50` 分子、train pool `983` 分子、trim 规则为“两端各去掉 3 个样本”
+
 ### A1：扩大 BC 冷启动数据
 
 #### 目标
@@ -109,6 +120,20 @@
 
 - `BC-only` 在固定 holdout 上**至少不弱于**当前最优 BC 参考线；
 - 若 `BC-A1-main` 的 holdout 中位数无法超过当前 BC 参考线，则暂停继续放大 RL。
+
+#### 当前执行进度（2026-04-11 01:34）
+
+- **A1-small 已完成**：`train_pool(983) → BFS 50 trees → 导出 transitions → BC 训练 → holdout eval`
+- **A1-main 已完成**：`train_pool(983) → BFS 100 trees → 导出 transitions → BC 训练 → holdout eval`
+- **A1-main 启动脚本**：`mol_evo/output/astar_rl/start_plan_a_a1_main_tmux.sh`
+- **训练池来源**：`mol_evo/dataset/eval-data/plan_a_a0/lumo_plan_a_train_pool_excluding_holdout.csv`
+- **A1-small 样本数 / 结果**：`27351` 条，`top1_mean=3.2498`，`top1_median=3.2552`，`trimmed_mean=3.1784`
+- **A1-main 样本数 / 结果**：`53269` 条，`top1_mean=4.2094`，`top1_median=3.3734`，`trimmed_mean=3.3053`
+- **A1-main BC 权重目录**：`mol_evo/output/astar_rl/lumo_plan_a_a1_main_bc/bc_20260411_000941`
+- **A1-main holdout 评估目录**：`mol_evo/output/astar_rl/plan_a_a1_main_eval`
+- **A1-main 训练停止方式**：设置 `epochs=100`，但因 `patience=20` 的 early stop，实际在 `epoch 51` 停止；最佳验证损失位于 `epoch 31`
+- **相对 A0 最优 BC 基线**（`bc_budget200_pref50`）：`win_rate=48%`，`delta_mean=+0.8474`，`delta_median≈0`，`trimmed_delta_mean=-0.0250`
+- **阶段判断**：`A1-main` 明显优于 `A1-small`，且 raw holdout 汇总指标已略高于 A0；但配对稳健性仍然接近持平，因此更适合视为“**达到可进入 A2 的门槛边缘，但不是特别强的压倒性胜出**”
 
 ### A2：在线 RL 第一轮放大（300 episodes）
 

@@ -149,7 +149,7 @@ def encode_action(
     """
     if isinstance(operation, dict):
         op_type = operation.get("type", "unknown")
-        params = operation.get("params", {})
+        params = operation.get("params") or operation.get("details", {}) or {}
     elif isinstance(operation, str):
         op_type = operation or "unknown"
         params = {}
@@ -168,8 +168,28 @@ def encode_action(
     op_onehot[type_idx] = 1.0
 
     # 参数特征
-    position = float(params.get("position", 0)) / 100.0       # 位置归一化
-    fragment_size = float(params.get("fragment_size", 5)) / 20.0  # 片段大小归一化
+    if "position" in params:
+        raw_position = params.get("position", 0)
+    elif "atom_idx" in params and "atom2_idx" in params:
+        raw_position = (float(params.get("atom_idx", 0)) + float(params.get("atom2_idx", 0))) / 2.0
+    elif "atom_idx" in params:
+        raw_position = params.get("atom_idx", 0)
+    elif "bond_idx" in params:
+        raw_position = params.get("bond_idx", 0)
+    else:
+        raw_position = 0
+
+    if "fragment_size" in params:
+        raw_fragment_size = params.get("fragment_size", 1)
+    elif "atom2_idx" in params:
+        raw_fragment_size = 2
+    elif params:
+        raw_fragment_size = 1
+    else:
+        raw_fragment_size = 0
+
+    position = float(raw_position) / 100.0
+    fragment_size = float(raw_fragment_size) / 20.0
     predicted_change = float(ofo_predicted_change)
 
     scalar = np.array([position, fragment_size, predicted_change], dtype=np.float32)
