@@ -472,249 +472,11 @@ $$P_i = \frac{1}{|\mathcal{C}_t|}$$
 - [ ] 为每组消融撰写结论段落；
 - [ ] 将可直接写入 5-experiments.md 的文字整理好。
 
-### 8.1 统一运行单元与重复策略
-
-为避免“不同任务、不同种子、不同样本切片”混在一起，建议把一次正式实验定义为：
-
-- **1 个 run unit = 1 个 task × 1 个 variant × 1 个 seed**；
-- **同一 task 的所有 variant 必须使用同一批起始分子**，即固定 `input_csv + start_index + end_index`；
-- **同一 task 的 Full 基线必须和所有 ablation 在同一轮复跑一次**，不要直接复用很久以前的旧结果；
-- **主文结果建议至少 3 个 seed**：`42 / 43 / 44`；
-- **预筛阶段**可只用 `seed=42`，但进入主文表格前必须补齐多 seed 均值与标准差。
-
-建议采用三层执行节奏。**这里以当前脚本实现为准**（详见 `ofo-mcts-消融试验-pilot执行计划.md`）：
-
-- **Smoke**：`5` 个起始分子，`1` 个 seed，仅检查命令、输出目录和指标链路是否打通；
-- **Pilot**：`20` 个起始分子，`1` 个 seed，用于确认趋势是否符合预期；
-- **Official**：`50` 个起始分子，`3` 个 seed，用于论文主表；若后续需要扩到 `100`，应显式覆盖 `START_INDEX/END_INDEX` 或同步修改脚本默认值。
-
-### 8.2 目录、命名与归档规范
-
-建议为消融单独建立统一输出根目录，而不是散落在普通 `batch_optimization_*` 目录中：
-
-```bash
-REPO=/home/ubuntu/mol_opt/mol-ofo
-ABL_ROOT=$REPO/mol_evo/output/paper/ablations
-RUN_TAG=$(date +%Y%m%d)
-```
-
-每个 run unit 推荐使用如下层级：
-
-```text
-$ABL_ROOT/$RUN_TAG/
-  ofo_side/
-    lumo_up/abs_target/seed42/
-    lumo_up/wo_opfeat/seed42/
-  mcts_side/
-    lumo_up/wo_prior/seed42/
-    homo_down/wo_leaf_value/seed42/
-```
-
-每个 `seed` 目录下至少保存以下路径或软链接：
-
-- **`train_dir.txt`**：OFO 训练输出目录；
-- **`predict_dir.txt`**：`predict_v0_testset.py` 的评估输出目录；
-- **`search_dir.txt`**：`batch_optimizer.py` 的输出目录；
-- **`eval_dir.txt`**：`utils/evaluate_batch_mo.py` 输出目录；
-- **`csv_eval_dir.txt`**：`utils/evaluate_csv_results.py` 输出目录；
-- **`manifest.json`**：记录 task、variant、seed、checkpoint、样本切片、关键参数。
-
-建议固定以下 slug，避免后处理时名称不统一：
-
-- **OFO 侧**：`full`、`abs_target`、`wo_opfeat`、`gcn2d`、`single_branch`
-- **MCTS 侧**：`full`、`wo_prior`、`wo_leaf_value`、`random_topb`、`full_expand`、`wo_pruning`、`wo_logp`
-
-### 8.3 OFO 侧执行模板
-
-#### Step A：训练 / 准备 checkpoint
-
-需要重新训练的变体：
-
-- `abs_target`
-- `wo_opfeat`
-- `single_branch`（若执行）
-
-可直接复用已有 checkpoint 的变体：
-
-- `full`：`visnet_linear_linear`
-- `gcn2d`：`gcn_linear_linear`
-
-训练命令建议固定成如下模板：
-
-```bash
-cd "$REPO"
-CUDA_VISIBLE_DEVICES=0 python mol_evo/train_v0.py \
-  --data-file "$TRAIN_DATA" \
-  --target-property "$TARGET_PROPERTY" \
-  --model-type "$MODEL_TYPE" \
-  --max-pairs 120000 \
-  --epochs 200 \
-  --batch-size "$BATCH_SIZE" \
-  --learning-rate "$LR" \
-  --seed "$SEED"
-```
-
-执行约束：
-
-- **Abs target**：只改监督目标，从 `Δy` 改为 `y^{to}`；
-- **w/o op feat**：推荐重新训练，而不是只在推理时把操作向量置零；
-- **single-branch**：若时间不足，可只做单步预测，不强行接 MCTS。
-
-#### Step B：单步预测评估
-
-所有 OFO 侧变体都应在同一测试集上调用：
-
-```bash
-cd "$REPO"
-python mol_evo/predict_v0_testset.py \
-  --model-path "$MODEL_PATH" \
-  --model-dir "$MODEL_DIR" \
-  --data-file "$TEST_DATA" \
-  --seed "$SEED" \
-  --batch-size 64
-```
-
-记录来源：
-
-- `full_dataset_prediction_results.json`
-- 取其中的 `metrics.mae` 与 `metrics.rank_loss`
-
-#### Step C：接入 MCTS 做多步优化
-
-```bash
-cd "$REPO"
-python -m mol_evo.scripts.batch_optimizer \
-  --input-csv "$INPUT_CSV" \
-  --model-path "$MODEL_PATH" \
-  --model-dir "$MODEL_DIR" \
-  --config-file "$CONFIG_FILE" \
-  --target-property "$TARGET_PROP" \
-  --optimization-mode sub \
-  --search-mode mcts \
-  --num-simulations 800 \
-  --exploration-weight 2.0 \
-  --direction "$DIRECTION" \
-  --max-depth 10 \
-  --max-branching 20 \
-  --pruning-patience 3 \
-  --logp-min -0.5 \
-  --logp-max 6 \
-  --logp-patience 5 \
-  --topK 20 \
-  --start-index "$START_INDEX" \
-  --end-index "$END_INDEX"
-```
-
-完成搜索后，统一调用两级评估：
-
-```bash
-cd /home/ubuntu/mol_opt
-python utils/evaluate_batch_mo.py \
-  --target-prop "$TARGET_PROP" \
-  --direction "$DIRECTION" \
-  --item-size 20 \
-  --result-dir "$SEARCH_DIR"
-
-python utils/evaluate_csv_results.py \
-  --csv-file "$BATCH_EVAL_CSV" \
-  --target-prop "$TARGET_PROP" \
-  --direction "$DIRECTION" \
-  --max-opt-molecules 20
-```
-
-### 8.4 MCTS 侧执行设计与最小代码接口
-
-`MCTS` 侧消融里，`w/o pruning` 与 `w/o logP constraint` 已经可以直接用现有参数表达；其余 `prior / leaf value / expansion ranking` 三项，建议显式做成 CLI 开关，而不是靠临时改代码反复手工 patch。
-
-建议新增三个搜索侧参数：
-
-```text
---mcts-prior-mode {softmax,uniform}
---mcts-value-mode {accumulated,zero,step}
---mcts-expansion-mode {topk,random_topk,full}
-```
-
-推荐变体与参数映射如下：
-
-| variant | prior_mode | value_mode | expansion_mode | 其他参数 |
-|------|------------|------------|----------------|---------|
-| Full | `softmax` | `accumulated` | `topk` | 基线参数 |
-| w/o prior | `uniform` | `accumulated` | `topk` | 其余不变 |
-| w/o leaf value | `softmax` | `zero` | `topk` | 其余不变 |
-| w/o expansion ranking | `softmax` | `accumulated` | `random_topk` | 其余不变 |
-| full expand | `softmax` | `accumulated` | `full` | 仅建议在 `LUMO(U)` 上跑 |
-
-其中：
-
-- **`w/o pruning`**：直接设置 `--pruning-patience 0`；
-- **`w/o logP constraint`**：直接设置 `--logp-patience 0`，并将 `logp-min/max` 设为宽松占位值；
-- **`w/o prior`** 对应 `generate_expansion_tree_mcts()` 中 prior 归一化处；
-- **`w/o leaf value`** 对应 `_evaluate_leaf()`；
-- **`w/o expansion ranking`** 对应候选排序截断 `sorted_cands[:max_branching]` 这一段。
-
-如果暂时不改 CLI，也至少要保证三件事：
-
-- **每个变体都有单独 commit 或 patch 文件**；
-- **每次运行前把变体名写入 `manifest.json`**；
-- **Full 必须在同一代码版本上复跑一次**，避免拿不同代码版本的旧结果做对照。
-
-### 8.5 论文口径的统计规则
-
-为避免 `TopK` 多个候选把同一个起始分子重复计算，建议论文主表统一采用“**每个起始分子只取 best-of-topK**”的口径：
-
-- **`avg_improvement`**：从 `best_results_*.csv` 中读取每个起始分子的最佳结果；若 `direction=decrease`，则记 `paper_improvement = -improvement`，若 `direction=increase`，则 `paper_improvement = improvement`；最后对所有起始分子求均值；
-- **`success_rate`**：`paper_improvement > 0` 的起始分子占比；
-- **`IntDiv`**：读取 `statistics_summary_*.json` 中的 `intdiv_best`；
-- **`Morgan_sim`**：优先读取 `best_results_*.csv` 中 `morgan_similarity` 列的均值；
-- **`runtime`**：优先从 `batch_results.json` 中逐分子 `runtime` 求均值；若缺失，则用主日志总耗时除以起始分子数；
-- **`expanded_nodes`**：从每个搜索树 JSON 的 `mcts_stats.unique_states_expanded` 求平均。
-
-单步预测侧的统计口径固定为：
-
-- **`MAE`**：`full_dataset_prediction_results.json -> metrics.mae`
-- **`Rank Loss`**：`full_dataset_prediction_results.json -> metrics.rank_loss`
-
-多 seed 汇总建议：
-
-- **主文表格**：填 `mean ± std`；
-- **附录表格**：保留每个 seed 的明细；
-- **若某个 run 缺 `batch_results.json / batch_evaluation_results.csv / statistics_summary_*.json` 三者之一，则该 run 视为无效，不并入汇总。**
-
-### 8.6 最小可执行矩阵（按当前进展更新）
-
-截至 `2026-04-14`，MCTS 侧 `pilot` 已完成，当前建议的执行顺序更新为：
-
-1. **OFO 侧 - `LUMO(U)`**
-   - `full`
-   - `abs_target`
-   - `wo_opfeat`
-   - `gcn2d`
-2. **MCTS 侧 - `official` / `LUMO(U)` + `HOMO(D)`**
-   - `full`
-   - `wo_prior`
-   - `wo_leaf_value`
-   - `random_topb` 已完成 `pilot`，但当前未表现出优于 `full` 的稳定价值，先不进入主文 `official` 主矩阵
-3. **附录级**
-   - `wo_pruning`
-   - `wo_logp`
-   - `full_expand`（仅 `LUMO(U)`）
-
-这样做的好处是：
-
-- **先证明 OFO 信号本身是必要的**；
-- **再用 `official` 多 seed 把最关键的 MCTS 结论压实**；
-- **把 `random_topb` 收敛到 `pilot` 证据层，避免主文级算力被低优先级变体占用**；
-- **最后再处理 pruning / constraint 这种“可信度与效率”类补充论证。**
-
 ---
 
 ## 9. 结果记录模板
 
 ### 9.1 OFO 侧消融
-
-建议把**论文主表**和**执行台账**分开记录。
-
-#### 主表字段
 
 | task | variant | MAE | Rank Loss | avg_improvement | success_rate | IntDiv | Morgan_sim | notes |
 |------|---------|-----|-----------|----------------|-------------|--------|-----------|-------|
@@ -723,16 +485,7 @@ python utils/evaluate_csv_results.py \
 | LUMO(U) | w/o op feat | | | | | | | |
 | LUMO(U) | w/o 3D (GCN) | | | | | | | |
 
-#### 执行台账字段
-
-| task | variant | seed | model_dir | predict_json | best_results_csv | stats_json | MAE | Rank Loss | avg_improvement | success_rate | IntDiv | notes |
-|------|---------|------|-----------|--------------|------------------|------------|-----|-----------|----------------|-------------|--------|-------|
-| LUMO(U) | Full | 42 | | | | | | | | | | |
-| LUMO(U) | Abs target | 42 | | | | | | | | | | |
-
 ### 9.2 MCTS 侧消融
-
-#### 主表字段
 
 | task | variant | avg_improvement | success_rate | IntDiv | Morgan_sim | runtime | expanded_nodes | notes |
 |------|---------|----------------|-------------|--------|-----------|---------|---------------|-------|
@@ -740,14 +493,6 @@ python utils/evaluate_csv_results.py \
 | LUMO(U) | w/o prior | | | | | | | |
 | LUMO(U) | w/o leaf value | | | | | | | |
 | LUMO(U) | w/o expansion ranking | | | | | | | |
-
-#### 执行台账字段
-
-| task | variant | seed | search_dir | batch_json | batch_eval_csv | stats_json | best_results_csv | avg_improvement | success_rate | IntDiv | runtime | expanded_nodes | notes |
-|------|---------|------|-----------|-----------|----------------|------------|------------------|----------------|-------------|--------|---------|---------------|-------|
-| LUMO(U) | Full | 42 | | | | | | | | | | | |
-| LUMO(U) | w/o prior | 42 | | | | | | | | | | | |
-| LUMO(U) | w/o leaf value | 42 | | | | | | | | | | | |
 
 ---
 
@@ -779,13 +524,13 @@ python utils/evaluate_csv_results.py \
 - **w/o operation feature**：训练无操作特征版本 + 接入 MCTS 跑 LUMO(U)
 - **w/o 3D (GCN)**：已有基座数据，补跑 MCTS 优化
 
-### MCTS 侧（当前主文优先 3 项）
+### MCTS 侧（3 项）
 
-- **w/o prior**：均匀先验，跑 `LUMO(U)` + `HOMO(D)`，并在 `official` 中补齐 `42 / 43 / 44` 三个 seed
-- **w/o leaf value**：`V=0`，跑 `LUMO(U)` + `HOMO(D)`，作为当前最关键的负面对照
-- **w/o expansion ranking**：随机 `TopB` 已完成 `pilot`，当前不进入主文 `official` 主矩阵；若后续篇幅允许，可作为附加或附录结果保留
+- **w/o prior**：均匀先验，跑 LUMO(U) + HOMO(D)
+- **w/o leaf value**：V=0，跑 LUMO(U) + HOMO(D)
+- **w/o expansion ranking**：随机 TopB，跑 LUMO(U)
 
-这 6 项结果已经足以支撑主文中"增量建模必要""操作条件必要""几何感知必要""OFO 三重作用各自不可或缺"的核心论点；其中 MCTS 侧当前最优先压实的是 `w/o prior` 与 `w/o leaf value`。
+这 6 项结果已经足以支撑主文中"增量建模必要""操作条件必要""几何感知必要""OFO 三重作用各自不可或缺"的核心论点。
 
 ---
 
