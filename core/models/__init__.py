@@ -23,6 +23,9 @@ from .v0_1 import *  # noqa: F403, F401
 # 注册v0.2版本模型
 from .v0_2 import *  # noqa: F403, F401
 
+# 注册v0.3版本模型 (长链路路径基座)
+from .v0_3 import *  # noqa: F403, F401
+
 # 注册v1版本模型
 # from .v1 import *  # noqa: F403, F401 # INFO
 

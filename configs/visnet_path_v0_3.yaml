@@ -1,0 +1,41 @@
+# v0.3 长链路路径训练配置模板
+# 使用方式: python mol_evo/train_v0_3_path.py -c mol_evo/configs/visnet_path_v0_3.yaml
+
+train:
+  data_file: "mol_evo/dataset/data/paths.json"
+  target_property: "lumo_change"
+  max_paths: null           # null = 不限制, 设置数字用于调试
+  epochs: 200
+  batch_size: 32
+  learning_rate: 0.001
+  seed: 42
+  min_lr: 1e-6
+
+  # === 损失权重 ===
+  step_loss_weight: 0.0     # 步骤辅助损失权重 (默认 0 = 仅路径主监督)
+  validity_loss_weight: 0.0  # 合法性辅助损失权重 (> 0 时自动启用 validity_head)
+  magnitude_reg_weight: 0.0  # 弱幅度 L2 正则权重 (防止变化集中在单步)
+
+  # === 数据过滤 ===
+  max_path_length: 20       # 超过该步数的路径会被截断
+  keep_invalid_middle: true  # 保留含非法中间节点的路径
+
+  # === 课程学习 (short-to-long) ===
+  enable_curriculum: false   # 启用课程学习
+  curriculum_schedule: null  # 自定义计划, 格式 [[epoch, max_len], ...], null 则自动生成
+
+  # === 长度分桶 ===
+  enable_length_bucket: false  # 启用按路径长度分桶
+
+model:
+  node_feature_dim: 11
+  edge_feature_dim: 15       # 将被数据自动覆盖
+  hidden_dims: [128, 256, 256]
+  output_dim: 1
+  path_nhead: 4
+  path_num_layers: 3
+  path_dim_feedforward: 512
+  path_dropout: 0.1
+  step_hidden_dim: 256
+  enable_step_head: false    # 步骤辅助头 (默认关闭, 与路径主监督设计一致)
+  enable_validity_head: false  # 合法性辅助头 (validity_loss_weight > 0 时训练脚本自动开启)
