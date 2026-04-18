@@ -16,7 +16,7 @@ from mol_evo.core.models.astar_rl.reward import (
     compute_step_reward,
     compute_episode_reward,
 )
-from mol_evo.core.models.astar_rl.rl_trainer import RLTrainer
+from mol_evo.core.models.astar_rl.rl_trainer import RLTrainer, PPORLTrainer
 
 __all__ = [
     "PolicyNet",
@@ -25,4 +25,5 @@ __all__ = [
     "compute_step_reward",
     "compute_episode_reward",
     "RLTrainer",
+    "PPORLTrainer",
 ]

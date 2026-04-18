@@ -89,13 +89,13 @@ python extract_operation_config.py -i data/qm9-evo-pairs-step-1-with-properties-
 
 ```bash
 cd mol_evo/..
-CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py \
+CUDA_VISIBLE_DEVICES=0 python mol_evo/train_v0.py \
   --epochs 200 \
   --learning-rate 0.0001 \
-  --data-file '/home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.json' \
-  --max-pairs 120000 \
-  --batch-size 512 \
-  --target-property gap_change_pct
+  --data-file '/home/ubuntu/mol_opt/mol-ofo/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.json' \
+  --max-pairs 120 \
+  --batch-size 256 \
+  --target-property lumo_change
 ```
 
 > 随后选择目标模型，或者使用 `--model-type` 指定模型类型。
@@ -139,18 +139,18 @@ base single cli example in [mo-cli.md](../../mo/mo-cli.md).
 
 ```bash
 ## 1. lumo
-conda activate mol-edit && CUDA_VISIBLE_DEVICES=0 python mol_evo/scripts/batch_optimizer.py --input-csv /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/eval-data/20251205_131636/qm9_test_molecules.csv --output-json /home/rhj/projects/mol_opt/mol-ofo/test_output.json --target-property lumo --start-index 0 --end-index 50 --max-depth 4 --direction decrease
+conda activate mol-edit && CUDA_VISIBLE_DEVICES=0 python mol_evo/scripts/batch_optimizer.py --input-csv mol_evo/dataset/eval-data/20251205_131636/qm9_test_molecules.csv --output-json mol_evo/output/evo-mo/test_output_lumo_bfs.json --model-path mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200/last.pth --model-dir mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200 --config-file mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct-config.yaml --target-property lumo --start-index 0 --end-index 50 --max-depth 4 --direction decrease
 
 ## 2. homo
-conda activate mol-edit && CUDA_VISIBLE_DEVICES=0 python mol_evo/scripts/batch_optimizer.py --input-csv /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/eval-data/20251205_131636/qm9_test_molecules.csv --target-property homo --start-index 0 --end-index 50 --max-depth 4 --direction decrease
+conda activate mol-edit && CUDA_VISIBLE_DEVICES=0 python mol_evo/scripts/batch_optimizer.py --input-csv mol_evo/dataset/eval-data/20251205_131636/qm9_test_molecules.csv --output-json mol_evo/output/evo-mo/test_output_homo_bfs.json --model-path mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251127_121257-homo_change-120000-200/last.pth --model-dir mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251127_121257-homo_change-120000-200 --config-file mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct-config.yaml --target-property homo --start-index 0 --end-index 50 --max-depth 4 --direction decrease
 ```
 
 2. mcts
 
 ```bash
-conda activate mol-edit && CUDA_VISIBLE_DEVICES=0 python mol_evo/scripts/batch_optimizer.py   --input-csv /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/eval-data/20251205_131636/qm9_test_molecules.csv   --output-json /home/rhj/projects/mol_opt/mol-ofo/test_output.json   --target-property lumo   --start-index 0 --end-index 50  --max-depth 10 --max-branching 20 --direction increase   --search-mode mcts   --num-simulations 800   --exploration-weight 2 --pruning-patience 3 --logp-min -0.5 --logp-max 6 --logp-patience 5
+conda activate mol-ofo && CUDA_VISIBLE_DEVICES=0 python mol_evo/scripts/batch_optimizer.py --input-csv mol_evo/dataset/eval-data/20251205_131636/qm9_test_molecules.csv --output-json mol_evo/output/evo-mo/test_output_lumo_mcts.json --model-path mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200/last.pth --model-dir mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200 --config-file mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct-config.yaml --target-property lumo --start-index 0 --end-index 50 --max-depth 12 --max-branching 20 --direction decrease --search-mode mcts --num-simulations 800 --exploration-weight 2 --pruning-patience 3 --logp-min -0.5 --logp-max 6 --logp-patience 5
 
-conda activate mol-edit && CUDA_VISIBLE_DEVICES=0 python mol_evo/scripts/batch_optimizer.py   --input-csv /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/eval-data/20251205_131636/qm9_test_molecules.csv   --output-json /home/rhj/projects/mol_opt/mol-ofo/test_output.json   --target-property homo   --start-index 0 --end-index 50  --max-depth 10 --max-branching 20 --direction increase   --search-mode mcts   --num-simulations 800   --exploration-weight 2 --pruning-patience 3 --logp-min -0.5 --logp-max 6 --logp-patience 5
+conda activate mol-ofo && CUDA_VISIBLE_DEVICES=0 python mol_evo/scripts/batch_optimizer.py --input-csv mol_evo/dataset/eval-data/20251205_131636/qm9_test_molecules.csv --output-json mol_evo/output/evo-mo/test_output_homo_mcts.json --model-path mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251127_121257-homo_change-120000-200/last.pth --model-dir mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251127_121257-homo_change-120000-200 --config-file mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct-config.yaml --target-property homo --start-index 0 --end-index 50 --max-depth 10 --max-branching 20 --direction increase --search-mode mcts --num-simulations 800 --exploration-weight 2 --pruning-patience 3 --logp-min -0.5 --logp-max 6 --logp-patience 5
 
 ```
 
@@ -183,7 +183,7 @@ conda activate mol-edit && CUDA_VISIBLE_DEVICES=0 python mol_evo/scripts/batch_o
 
 ```bash
 # 1. cal lumo/homo ... true value
-conda activate mol-edit && python utils/evaluate_batch_mo.py --target-prop lumo --direction decrease --item-size 10 --result-dir /home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/evo-mo/batch_optimization_20260308_112752 \
+conda activate mol-edit && python utils/evaluate_batch_mo.py --target-prop lumo --direction decrease --item-size 10 --result-dir /home/ubuntu/mol_opt/mol-ofo/mol_evo/output/evo-mo/batch_optimization_20260412_222529 \
  --max-files 2 --item-size 2
 
 conda activate mol-edit && python utils/evaluate_batch_mo.py --target-prop homo --direction decrease --item-size 10 --result-dir mol-ofo/mol_evo/output/evo-mo/batch_optimization_20260308_130353
@@ -192,9 +192,5 @@ conda activate mol-edit && python utils/evaluate_batch_mo.py --target-prop homo 
 conda activate mol-edit && python utils/evaluate_batch_mo.py --target-prop homo --direction decrease --item-size 10 --result-dir mol-ofo/mol_evo/output/evo-mo/batch_optimization_20260308_182725
 
 # 2. summary result csv
-conda activate mol-opt-tdc &&  python utils/evaluate_csv_results.py --target-prop lumo --direction decrease --csv-file /home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/evo-mo/batch_optimization_20260308_010253/.evaluation_results_lumo_decrease/20260308_013106_size10_maxall/batch_evaluation_results.csv
-
-conda activate mol-opt-tdc &&  python utils/evaluate_csv_results.py --target-prop lumo --direction increase --csv-file mol-ofo/mol_evo/output/evo-mo/batch_optimization_20260308_130353/.evaluation_results_lumo_increase/20260308_165925_size10_maxall/batch_evaluation_results.csv
-
-conda activate mol-opt-tdc &&  python utils/evaluate_csv_results.py --target-prop homo --direction decrease --csv-file /home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/evo-mo/batch_optimization_20260308_182725/.evaluation_results_lumo_increase/20260309_052849_size10_maxall/batch_evaluation_results.csv
+conda activate mol-opt-tdc &&  python utils/evaluate_csv_results.py --target-prop lumo --direction decrease --csv-file /home/ubuntu/mol_opt/mol-ofo/mol_evo/output/evo-mo/batch_optimization_20260412_222658/.evaluation_results_lumo_decrease/20260412_231420_size10_maxall/batch_evaluation_results.csv
 ```

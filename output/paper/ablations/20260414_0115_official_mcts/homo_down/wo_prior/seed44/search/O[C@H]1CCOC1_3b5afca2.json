@@ -1,0 +1,265 @@
+{
+  "initial_smiles": "O[C@H]1CCOC1",
+  "max_depth": 10,
+  "max_branching": 20,
+  "search_mode": "mcts",
+  "mcts_stats": {
+    "num_simulations": 800,
+    "actual_simulations": 800,
+    "exploration_weight": 2.0,
+    "prior_mode": "uniform",
+    "value_mode": "accumulated",
+    "expansion_mode": "topk",
+    "random_seed": 44,
+    "unique_states_expanded": 8,
+    "root_visits": 800
+  },
+  "nodes": {
+    "0": {
+      "id": "0",
+      "smiles": "O[C@H]1CCOC1",
+      "depth": 0,
+      "parent_id": null,
+      "operation": null,
+      "details": {},
+      "logP": -0.23239999999999994,
+      "logP_in_range": true,
+      "mcts_visits": 800,
+      "mcts_prior": 0.0,
+      "mcts_q_value": 11378177668.591143,
+      "property_value": -6.606924533843994,
+      "accumulated_change": 0.0,
+      "property_change": 0.0
+    },
+    "1": {
+      "id": "1",
+      "smiles": "O[C@H]1CCOO1",
+      "depth": 1,
+      "parent_id": "0",
+      "operation": "replace_atom",
+      "details": {
+        "atom_idx": 5,
+        "atom_symbol": "O"
+      },
+      "logP": -0.34329999999999994,
+      "logP_in_range": true,
+      "mcts_visits": 800,
+      "mcts_prior": 0.05,
+      "mcts_q_value": 11378177668.591143,
+      "property_value": -7.8820561170578,
+      "accumulated_change": -1.2751315832138062,
+      "property_change": -1.2751315832138062
+    },
+    "2": {
+      "id": "2",
+      "smiles": "FO[C@H]1CCOO1",
+      "depth": 2,
+      "parent_id": "1",
+      "operation": "add_atom",
+      "details": {
+        "atom_symbol": "F",
+        "atom_idx": 0
+      },
+      "logP": 0.5655,
+      "logP_in_range": true,
+      "mcts_visits": 799,
+      "mcts_prior": 0.05,
+      "mcts_q_value": 11392418191.328712,
+      "property_value": -8.734561622142792,
+      "accumulated_change": -2.1276370882987976,
+      "property_change": -0.8525055050849915
+    },
+    "3": {
+      "id": "3",
+      "smiles": "FO[C@H]1OCOO1",
+      "depth": 3,
+      "parent_id": "2",
+      "operation": "replace_atom",
+      "details": {
+        "atom_idx": 3,
+        "atom_symbol": "O"
+      },
+      "logP": 0.10699999999999998,
+      "logP_in_range": true,
+      "mcts_visits": 798,
+      "mcts_prior": 0.05,
+      "mcts_q_value": 11406694404.598385,
+      "property_value": -114.18034714460373,
+      "accumulated_change": -107.57342261075974,
+      "property_change": -105.44578552246094
+    },
+    "4": {
+      "id": "4",
+      "smiles": "OC1OO[C@@H](OF)O1",
+      "depth": 4,
+      "parent_id": "3",
+      "operation": "add_atom",
+      "details": {
+        "atom_symbol": "O",
+        "atom_idx": 4
+      },
+      "logP": -0.5746,
+      "logP_in_range": false,
+      "mcts_visits": 797,
+      "mcts_prior": 0.05,
+      "mcts_q_value": 11421006442.61222,
+      "property_value": -590820.1803471446,
+      "accumulated_change": -590813.5734226108,
+      "property_change": -590706.0
+    },
+    "5": {
+      "id": "5",
+      "smiles": "OC1(O)OO[C@@H](OF)O1",
+      "depth": 5,
+      "parent_id": "4",
+      "operation": "add_atom",
+      "details": {
+        "atom_symbol": "O",
+        "atom_idx": 1
+      },
+      "logP": -1.2546000000000002,
+      "logP_in_range": false,
+      "mcts_visits": 796,
+      "mcts_prior": 0.05,
+      "mcts_q_value": 11435353698.427595,
+      "property_value": -3186488.1803471446,
+      "accumulated_change": -3186481.5734226108,
+      "property_change": -2595668.0
+    },
+    "6": {
+      "id": "6",
+      "smiles": "OO[C@@H]1OOC(O)(O)O1",
+      "depth": 6,
+      "parent_id": "5",
+      "operation": "replace_atom",
+      "details": {
+        "atom_idx": 7,
+        "atom_symbol": "O"
+      },
+      "logP": -1.6661,
+      "logP_in_range": false,
+      "mcts_visits": 795,
+      "mcts_prior": 0.05,
+      "mcts_q_value": 11449733782.977097,
+      "property_value": -30592752.180347145,
+      "accumulated_change": -30592745.57342261,
+      "property_change": -27406264.0
+    },
+    "7": {
+      "id": "7",
+      "smiles": "OO[C@@H]1OOC(O)(OO)O1",
+      "depth": 7,
+      "parent_id": "6",
+      "operation": "add_atom",
+      "details": {
+        "atom_symbol": "O",
+        "atom_idx": 7
+      },
+      "logP": -1.1687999999999998,
+      "logP_in_range": false,
+      "mcts_visits": 794,
+      "mcts_prior": 0.05,
+      "mcts_q_value": 11464115572.696749,
+      "property_value": -220272560.18034714,
+      "accumulated_change": -220272553.5734226,
+      "property_change": -189679808.0
+    },
+    "8": {
+      "id": "8",
+      "smiles": "OC12OOOO[C@H](OO1)O2",
+      "depth": 8,
+      "parent_id": "7",
+      "operation": "form_ring",
+      "details": {
+        "atom_idx": 0,
+        "atom2_idx": 8
+      },
+      "logP": -1.3230000000000002,
+      "logP_in_range": false,
+      "mcts_visits": 793,
+      "mcts_prior": 0.05,
+      "mcts_q_value": 11478294441.573322,
+      "property_value": -11478294448.180347,
+      "accumulated_change": -11478294441.573423,
+      "property_change": -11258021888.0
+    }
+  },
+  "edges": [
+    {
+      "from": "0",
+      "to": "1",
+      "operation": "replace_atom",
+      "details": {
+        "atom_idx": 5,
+        "atom_symbol": "O"
+      }
+    },
+    {
+      "from": "1",
+      "to": "2",
+      "operation": "add_atom",
+      "details": {
+        "atom_symbol": "F",
+        "atom_idx": 0
+      }
+    },
+    {
+      "from": "2",
+      "to": "3",
+      "operation": "replace_atom",
+      "details": {
+        "atom_idx": 3,
+        "atom_symbol": "O"
+      }
+    },
+    {
+      "from": "3",
+      "to": "4",
+      "operation": "add_atom",
+      "details": {
+        "atom_symbol": "O",
+        "atom_idx": 4
+      }
+    },
+    {
+      "from": "4",
+      "to": "5",
+      "operation": "add_atom",
+      "details": {
+        "atom_symbol": "O",
+        "atom_idx": 1
+      }
+    },
+    {
+      "from": "5",
+      "to": "6",
+      "operation": "replace_atom",
+      "details": {
+        "atom_idx": 7,
+        "atom_symbol": "O"
+      }
+    },
+    {
+      "from": "6",
+      "to": "7",
+      "operation": "add_atom",
+      "details": {
+        "atom_symbol": "O",
+        "atom_idx": 7
+      }
+    },
+    {
+      "from": "7",
+      "to": "8",
+      "operation": "form_ring",
+      "details": {
+        "atom_idx": 0,
+        "atom2_idx": 8
+      }
+    }
+  ],
+  "statistics": {
+    "generation_time": 2.3892197608947754,
+    "attempt_count": 9
+  }
+}

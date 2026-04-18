@@ -153,9 +153,9 @@ def process_single_row(idx, row, is_fragnet_model, cache, types, target_property
         else:
             # 使用标准的 smiles_to_graph_data 函数
             if interrupted: return None
-            from_data = smiles_to_graph_data(row['smiles_from'], cache)
+            from_data = smiles_to_graph_data(row['smiles_from'], cache, types)
             if interrupted: return None
-            to_data = smiles_to_graph_data(row['smiles_to'], cache)
+            to_data = smiles_to_graph_data(row['smiles_to'], cache, types)
             
         if interrupted: return None
             
@@ -257,12 +257,12 @@ def build_molecule_evolution_dataset_v0(
     # 创建线程锁以确保线程安全
     cache_lock = Lock()
     
-    def thread_safe_smiles_to_graph_data(smile, cache):
+    def thread_safe_smiles_to_graph_data(smile, cache, types=None):
         """线程安全的smiles_to_graph_data包装函数"""
         if interrupted:
             return None
         with cache_lock:
-            return smiles_to_graph_data(smile, cache)
+            return smiles_to_graph_data(smile, cache, types)
     
     # 替换原来的smiles_to_graph_data函数为线程安全版本
     import functools
@@ -415,9 +415,9 @@ def process_single_row_unified(idx, row, is_fragnet_model, is_equiformer_model, 
         else:
             # 使用标准的 smiles_to_graph_data 函数
             if interrupted: return None
-            from_data = smiles_to_graph_data(row['smiles_from'], cache)
+            from_data = smiles_to_graph_data(row['smiles_from'], cache, types)
             if interrupted: return None
-            to_data = smiles_to_graph_data(row['smiles_to'], cache)
+            to_data = smiles_to_graph_data(row['smiles_to'], cache, types)
             
         if interrupted: return None
             

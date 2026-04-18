@@ -54,24 +54,41 @@ def log_dataset_examples(logger, from_data_list, to_data_list, edge_attrs, targe
     
     # 表格内容
     for i in range(num_examples):
+        from_item = from_data_list[i]
+        to_item = to_data_list[i]
+
+        # 跳过 None 数据
+        if from_item is None or to_item is None:
+            logger.warning(f"  样本 {i+1}: 数据为 None，跳过")
+            continue
+
         # 检查数据格式（PyG Data对象还是字典）
-        if hasattr(from_data_list[i], 'x'):
-            # PyG Data对象格式
-            from_nodes = from_data_list[i].x.size(0)
-            from_edges = from_data_list[i].edge_index.size(1)
+        if hasattr(from_item, 'x') and from_item.x is not None:
+            from_nodes = from_item.x.size(0)
+            from_edges = from_item.edge_index.size(1) if hasattr(from_item, 'edge_index') and from_item.edge_index is not None else 0
+        elif hasattr(from_item, 'z') and from_item.z is not None:
+            # Visnet 等模型使用 z (原子序数) 和 pos
+            from_nodes = from_item.z.size(0)
+            from_edges = from_item.edge_index.size(1) if hasattr(from_item, 'edge_index') and from_item.edge_index is not None else 0
+        elif isinstance(from_item, dict):
+            from_nodes = from_item.get('x_atoms', torch.tensor([])).size(0)
+            from_edges = from_item.get('edge_index', torch.tensor([[]])).size(1)
         else:
-            # 字典格式（如FragNet）
-            from_nodes = from_data_list[i]['x_atoms'].size(0)
-            from_edges = from_data_list[i]['edge_index'].size(1)
-            
-        if hasattr(to_data_list[i], 'x'):
-            # PyG Data对象格式
-            to_nodes = to_data_list[i].x.size(0)
-            to_edges = to_data_list[i].edge_index.size(1)
+            from_nodes = '?'
+            from_edges = '?'
+
+        if hasattr(to_item, 'x') and to_item.x is not None:
+            to_nodes = to_item.x.size(0)
+            to_edges = to_item.edge_index.size(1) if hasattr(to_item, 'edge_index') and to_item.edge_index is not None else 0
+        elif hasattr(to_item, 'z') and to_item.z is not None:
+            to_nodes = to_item.z.size(0)
+            to_edges = to_item.edge_index.size(1) if hasattr(to_item, 'edge_index') and to_item.edge_index is not None else 0
+        elif isinstance(to_item, dict):
+            to_nodes = to_item.get('x_atoms', torch.tensor([])).size(0)
+            to_edges = to_item.get('edge_index', torch.tensor([[]])).size(1)
         else:
-            # 字典格式（如FragNet）
-            to_nodes = to_data_list[i]['x_atoms'].size(0)
-            to_edges = to_data_list[i]['edge_index'].size(1)
+            to_nodes = '?'
+            to_edges = '?'
             
         # 检查edge_attrs是否为空
         if edge_attrs.size(0) > 0:

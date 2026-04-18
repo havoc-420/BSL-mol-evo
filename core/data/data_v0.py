@@ -7,19 +7,21 @@ from torch_geometric.data import Data
 from typing import List, Tuple, Dict
 
 
-def smiles_to_graph_data(smiles, cache):
+def smiles_to_graph_data(smiles, cache, types=None):
     """
     将SMILES字符串转换为图数据（使用项目中的实际函数）
     
     Args:
         smiles (str): SMILES字符串
         cache (MoleculeCache): 分子缓存实例
+        types (dict, optional): 原子类型映射字典，如果为None则使用默认映射
     
     Returns:
         Data: PyTorch Geometric Data对象
     """
-    # 定义原子类型映射
-    types = {'H': 0, 'C': 1, 'N': 2, 'O': 3, 'F': 4}
+    # 定义原子类型映射（仅在未传入types时使用默认值）
+    if types is None:
+        types = {'H': 0, 'C': 1, 'N': 2, 'O': 3, 'F': 4}
     
     # 使用项目中的函数将SMILES转换为图结构
     x, z, pos, edge_index, edge_attr = cache.process_smiles(smiles, types)  # UPDATE 存在无法处理的 SMILES

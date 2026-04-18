@@ -198,6 +198,27 @@ class TestMCTSConstraints(unittest.TestCase):
         self.assertIn("actual_simulations", stats)
         self.assertIn("unique_states_expanded", stats)
 
+    def test_nan_predictions_are_filtered_without_crash(self):
+        evolver = MolecularEvolutionExpansion("CCO")
+        predictor = _make_nan_mixed_predictor(valid_change=-0.1)
+        tree = evolver.generate_expansion_tree_mcts(
+            max_depth=2,
+            max_branching=4,
+            predictor=predictor,
+            optimization_direction='decrease',
+            initial_property_value=5.0,
+            num_simulations=20,
+            value_mode='zero',
+        )
+        self.assertIn("0", tree["nodes"])
+        child_priors = [
+            node["mcts_prior"]
+            for nid, node in tree["nodes"].items()
+            if nid != "0" and "mcts_prior" in node
+        ]
+        self.assertGreater(len(child_priors), 0)
+        self.assertTrue(all(p == p and abs(p) != float("inf") for p in child_priors))
+
 
 class TestMCTSTopKCompat(unittest.TestCase):
     """MCTS 结果应能被 get_topK_results 消费"""
@@ -256,6 +277,67 @@ class TestMCTSInterrupt(unittest.TestCase):
         # 根节点应该几乎没有被访问（第一轮就中断）
         root = tree["nodes"]["0"]
         self.assertLess(root["mcts_visits"], 5)
+
+
+class TestMCTSAblationModes(unittest.TestCase):
+    """验证新增的 prior/value/expansion ablation 模式可用。"""
+
+    def setUp(self):
+        self.evolver = MolecularEvolutionExpansion("CCO")
+        self.predictor = _make_mock_predictor(default_change=-0.2)
+
+    def test_uniform_prior_sets_equal_child_priors(self):
+        tree = self.evolver.generate_expansion_tree_mcts(
+            max_depth=2,
+            max_branching=3,
+            predictor=self.predictor,
+            optimization_direction='decrease',
+            initial_property_value=5.0,
+            num_simulations=20,
+            prior_mode='uniform',
+        )
+        priors = [
+            node["mcts_prior"]
+            for nid, node in tree["nodes"].items()
+            if nid != "0" and node.get("depth") == 1
+        ]
+        self.assertGreater(len(priors), 0)
+        self.assertTrue(all(abs(p - priors[0]) < 1e-6 for p in priors))
+        self.assertEqual(tree["mcts_stats"]["prior_mode"], "uniform")
+
+    def test_zero_value_mode_makes_q_values_zero(self):
+        tree = self.evolver.generate_expansion_tree_mcts(
+            max_depth=2,
+            max_branching=3,
+            predictor=self.predictor,
+            optimization_direction='decrease',
+            initial_property_value=5.0,
+            num_simulations=20,
+            value_mode='zero',
+        )
+        q_values = [node.get("mcts_q_value", 0.0) for node in tree["nodes"].values()]
+        self.assertTrue(all(abs(q) < 1e-8 for q in q_values))
+        self.assertEqual(tree["mcts_stats"]["value_mode"], "zero")
+
+    def test_random_topk_mode_records_stats(self):
+        tree = self.evolver.generate_expansion_tree_mcts(
+            max_depth=2,
+            max_branching=2,
+            predictor=self.predictor,
+            optimization_direction='decrease',
+            initial_property_value=5.0,
+            num_simulations=10,
+            expansion_mode='random_topk',
+            random_seed=42,
+        )
+        depth1_nodes = [
+            node for nid, node in tree["nodes"].items()
+            if nid != "0" and node.get("depth") == 1
+        ]
+        self.assertGreater(len(depth1_nodes), 0)
+        self.assertLessEqual(len(depth1_nodes), 2)
+        self.assertEqual(tree["mcts_stats"]["expansion_mode"], "random_topk")
+        self.assertEqual(tree["mcts_stats"]["random_seed"], 42)
 
 
 if __name__ == '__main__':

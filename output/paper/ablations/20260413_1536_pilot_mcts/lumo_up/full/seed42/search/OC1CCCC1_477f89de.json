@@ -1,0 +1,273 @@
+{
+  "initial_smiles": "OC1CCCC1",
+  "max_depth": 10,
+  "max_branching": 20,
+  "search_mode": "mcts",
+  "mcts_stats": {
+    "num_simulations": 400,
+    "actual_simulations": 400,
+    "exploration_weight": 2.0,
+    "prior_mode": "softmax",
+    "value_mode": "accumulated",
+    "expansion_mode": "topk",
+    "random_seed": 42,
+    "unique_states_expanded": 3,
+    "root_visits": 400
+  },
+  "nodes": {
+    "0": {
+      "id": "0",
+      "smiles": "OC1CCCC1",
+      "depth": 0,
+      "parent_id": null,
+      "operation": null,
+      "details": {},
+      "logP": 0.9213,
+      "logP_in_range": true,
+      "mcts_visits": 400,
+      "mcts_prior": 0.0,
+      "mcts_q_value": 3.378031,
+      "property_value": 2.008200168609619,
+      "accumulated_change": 0.0,
+      "property_change": 0.0
+    },
+    "1": {
+      "id": "1",
+      "smiles": "C1CC2OC2C1",
+      "depth": 1,
+      "parent_id": "0",
+      "operation": "form_ring",
+      "details": {
+        "atom_idx": 0,
+        "atom2_idx": 2
+      },
+      "logP": 0.9377,
+      "logP_in_range": true,
+      "mcts_visits": 400,
+      "mcts_prior": 0.067725,
+      "mcts_q_value": 3.378031,
+      "property_value": 2.5630587935447693,
+      "accumulated_change": 0.5548586249351501,
+      "property_change": 0.5548586249351501
+    },
+    "2": {
+      "id": "2",
+      "smiles": "CCC1OC1C",
+      "depth": 2,
+      "parent_id": "1",
+      "operation": "remove_form_ring",
+      "details": {
+        "atom_idx": 0,
+        "atom2_idx": 1
+      },
+      "logP": 1.1837,
+      "logP_in_range": true,
+      "mcts_visits": 399,
+      "mcts_prior": 0.062967,
+      "mcts_q_value": 3.385107,
+      "property_value": 2.5842271596193314,
+      "accumulated_change": 0.5760269910097122,
+      "property_change": 0.021168366074562073
+    },
+    "3": {
+      "id": "3",
+      "smiles": "CC1OC1C[C@@H3]",
+      "depth": 3,
+      "parent_id": "2",
+      "operation": "add_stereo",
+      "details": {},
+      "logP": 1.1837,
+      "logP_in_range": true,
+      "mcts_visits": 398,
+      "mcts_prior": 0.058865,
+      "mcts_q_value": 3.392165,
+      "property_value": 2.9393675178289413,
+      "accumulated_change": 0.9311673492193222,
+      "property_change": 0.35514035820961
+    },
+    "4": {
+      "id": "4",
+      "smiles": "CC1OC1C[C@@H3]",
+      "depth": 4,
+      "parent_id": "3",
+      "operation": "add_stereo",
+      "details": {},
+      "logP": 1.1837,
+      "logP_in_range": true,
+      "mcts_visits": 397,
+      "mcts_prior": 0.058865,
+      "mcts_q_value": 3.398364,
+      "property_value": 3.2945078760385513,
+      "accumulated_change": 1.2863077074289322,
+      "property_change": 0.35514035820961
+    },
+    "5": {
+      "id": "5",
+      "smiles": "CC1OC1C[C@@H3]",
+      "depth": 5,
+      "parent_id": "4",
+      "operation": "add_stereo",
+      "details": {},
+      "logP": 1.1837,
+      "logP_in_range": true,
+      "mcts_visits": 396,
+      "mcts_prior": 0.058865,
+      "mcts_q_value": 3.403698,
+      "property_value": 3.6496482342481613,
+      "accumulated_change": 1.6414480656385422,
+      "property_change": 0.35514035820961
+    },
+    "6": {
+      "id": "6",
+      "smiles": "CC1OC1C[C@@H3]",
+      "depth": 6,
+      "parent_id": "5",
+      "operation": "add_stereo",
+      "details": {},
+      "logP": 1.1837,
+      "logP_in_range": true,
+      "mcts_visits": 395,
+      "mcts_prior": 0.058865,
+      "mcts_q_value": 3.408159,
+      "property_value": 4.004788592457771,
+      "accumulated_change": 1.9965884238481522,
+      "property_change": 0.35514035820961
+    },
+    "7": {
+      "id": "7",
+      "smiles": "CC1OC1C[C@@H3]",
+      "depth": 7,
+      "parent_id": "6",
+      "operation": "add_stereo",
+      "details": {},
+      "logP": 1.1837,
+      "logP_in_range": true,
+      "mcts_visits": 394,
+      "mcts_prior": 0.058865,
+      "mcts_q_value": 3.411742,
+      "property_value": 4.359928950667381,
+      "accumulated_change": 2.351728782057762,
+      "property_change": 0.35514035820961
+    },
+    "8": {
+      "id": "8",
+      "smiles": "CC1OC1C[C@@H3]",
+      "depth": 8,
+      "parent_id": "7",
+      "operation": "add_stereo",
+      "details": {},
+      "logP": 1.1837,
+      "logP_in_range": true,
+      "mcts_visits": 393,
+      "mcts_prior": 0.058865,
+      "mcts_q_value": 3.414439,
+      "property_value": 4.715069308876991,
+      "accumulated_change": 2.706869140267372,
+      "property_change": 0.35514035820961
+    },
+    "9": {
+      "id": "9",
+      "smiles": "CC1OC1C[C@@H3]",
+      "depth": 9,
+      "parent_id": "8",
+      "operation": "add_stereo",
+      "details": {},
+      "logP": 1.1837,
+      "logP_in_range": true,
+      "mcts_visits": 392,
+      "mcts_prior": 0.058865,
+      "mcts_q_value": 3.416244,
+      "property_value": 5.070209667086601,
+      "accumulated_change": 3.062009498476982,
+      "property_change": 0.35514035820961
+    },
+    "10": {
+      "id": "10",
+      "smiles": "CC1OC1C[C@@H3]",
+      "depth": 10,
+      "parent_id": "9",
+      "operation": "add_stereo",
+      "details": {},
+      "logP": 1.1837,
+      "logP_in_range": true,
+      "mcts_visits": 391,
+      "mcts_prior": 0.058865,
+      "mcts_q_value": 3.41715,
+      "property_value": 5.425350025296211,
+      "accumulated_change": 3.417149856686592,
+      "property_change": 0.35514035820961
+    }
+  },
+  "edges": [
+    {
+      "from": "0",
+      "to": "1",
+      "operation": "form_ring",
+      "details": {
+        "atom_idx": 0,
+        "atom2_idx": 2
+      }
+    },
+    {
+      "from": "1",
+      "to": "2",
+      "operation": "remove_form_ring",
+      "details": {
+        "atom_idx": 0,
+        "atom2_idx": 1
+      }
+    },
+    {
+      "from": "2",
+      "to": "3",
+      "operation": "add_stereo",
+      "details": {}
+    },
+    {
+      "from": "3",
+      "to": "4",
+      "operation": "add_stereo",
+      "details": {}
+    },
+    {
+      "from": "4",
+      "to": "5",
+      "operation": "add_stereo",
+      "details": {}
+    },
+    {
+      "from": "5",
+      "to": "6",
+      "operation": "add_stereo",
+      "details": {}
+    },
+    {
+      "from": "6",
+      "to": "7",
+      "operation": "add_stereo",
+      "details": {}
+    },
+    {
+      "from": "7",
+      "to": "8",
+      "operation": "add_stereo",
+      "details": {}
+    },
+    {
+      "from": "8",
+      "to": "9",
+      "operation": "add_stereo",
+      "details": {}
+    },
+    {
+      "from": "9",
+      "to": "10",
+      "operation": "add_stereo",
+      "details": {}
+    }
+  ],
+  "statistics": {
+    "generation_time": 1.1205451488494873,
+    "attempt_count": 11
+  }
+}

@@ -11,18 +11,20 @@
 | [experiments.md](./experiments.md) | 实验推进手册：Step-by-Step 路线、消融方向、结果记录模板、失败排查 |
 | [stage_scores.md](./stage_scores.md) | 分阶段实验得分台账：按阶段记录 BC、RL、网格评估与后续扩规模结果 |
 | [plan_scaleup_a.md](./plan_scaleup_a.md) | 方案 A：低风险扩规模计划，包含当前结果冻结、实验矩阵、指标与交付物 |
+| [upgrade/README.md](./upgrade/README.md) | RL 升级计划总览：闭环修正、`PPO + GAE`、search-guided policy improvement 三阶段路线 |
 
 ---
 
-## 当前状态（2026-04-11 15:53）
+## 当前状态（2026-04-11 18:16）
 
-- **离线导出桥已修复**：`export_rl_demo_transitions.py` 已修复 `property_change` / `predicted_change` 字段错读，并统一 `operation/details` 格式；因此 `2026-04-09 ~ 2026-04-10` 的早期 BFS / A1 BC 数据不再作为最新基线。
-- **fixed BFS 重跑中**：
-  - `fix-a0-bc`：holdout 原始 JSON 已写出，当前快照 `40 / 50` 分子，`top1_mean=3.1797`，`top1_median=3.1843`。
-  - `fix-a1-small-bc`：holdout 原始 JSON 已写出，当前快照 `15 / 50` 分子，`top1_mean=3.1099`，`top1_median=2.9432`。
-  - `fix-a1-main-bc`：`53269` 条 fixed transition 已导出，BC 重训进行中。
-- **MCTS 基石试跑已完成**：`A1-mcts-main` 导出 `1089` 条全非零 transition，holdout `top1_mean=3.0971`，`top1_median=3.0167`，相对参考 `win_rate=0.34`；当前判断是**数据质量正常，但树太稀、样本量偏少**。
-- **新主任务已启动**：`mcts-expand-rl` 已在 `tmux` 中启动，执行 `MCTS 扩规模 -> BC -> holdout -> RL(300 ep) -> holdout` 全流程。
+- **离线导出桥已修复**：`export_rl_demo_transitions.py` 已修复 `property_change` / `predicted_change` 字段错读，并统一 `operation/details` 格式；当前所有 go / no-go 判断已切换到 fixed 口径。
+- **fixed BFS 基线已全部完成**：
+  - `a0_fixed`：`top1_mean=3.0514`，`top1_median=3.1228`，`trimmed_mean=2.9509`
+  - `a1_small_fixed`：`top1_mean=3.0438`，`top1_median=2.9572`，`trimmed_mean=3.0420`，相对 `a0_fixed`：`win_rate=54%`，`trimmed_delta_mean=+0.1221`
+  - `a1_main_fixed`：`top1_mean=2.9425`，`top1_median=2.9894`，`trimmed_mean=2.9669`，相对 `a0_fixed`：`win_rate=54%`，`trimmed_delta_mean=+0.0457`
+- **MCTS 小规模基石结果已重对齐到 fixed A0**：`A1-mcts-main` 只有 `1089` 条 transition，但在 fixed 口径下 `top1_mean=3.0971`，`top1_median=3.0167`，相对 `a0_fixed`：`win_rate=50%`，`trimmed_delta_mean=+0.0538`。这说明它**不再明显弱于 BFS 基线**，而是“数据偏少但已经接近持平”。
+- **当前主任务仍在推进**：`mcts-expand-rl` 已跑到训练池 `376 / 983`（`38.3%`），执行 `MCTS 扩规模 -> BC -> holdout -> RL(300 ep) -> holdout` 全流程。
+- **当前判断**：修复后没有任何一条 BFS 扩规模支线对 `a0_fixed` 形成压倒性优势，因此继续推进更厚的 `MCTS` 数据源是合理的下一步。
 - **建议入口**：最新进度先看 `stage_scores.md`，实验判断看 `experiments.md`，执行计划看 `plan_scaleup_a.md`。
 
 ---

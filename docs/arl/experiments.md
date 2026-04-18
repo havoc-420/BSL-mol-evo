@@ -21,27 +21,31 @@ Step 7  论文级结果整理
 
 ---
 
-## 当前进度刷新（2026-04-11 15:53）
+## 当前进度刷新（2026-04-11 18:16）
 
 ### 本轮新增事实
 
 - **离线导出 bug 已修复**：`export_rl_demo_transitions.py` 之前把树里的 `property_change` 错读成 `predicted_change`，导致早期 BFS / A1 BC transition 中的 `property_change` 大量变成 `0.0`；目前已修复并兼容旧字段。
 - **动作编码桥已补齐**：导出侧已统一 `operation / details`，下游 `encode_action()` 也已兼容 `dict / str / None` 与 `atom_idx / atom2_idx / bond_idx` 等参数来源。
-- **历史 BFS 基线已转入 fixed 重跑**：旧版 `BFS15 / A1-small / A1-main` 结果仅保留作归档，不再直接作为最新 go / no-go 依据。
-- **MCTS 基石链已跑通**：`A1-mcts-main` 已完成 `search -> transition export -> BC -> holdout` 全链路；导出 `1089` 条 transition，且 `1089 / 1089` 的 `property_change` 非零。
+- **fixed BFS 三条重跑已全部完成**：
+  - `a0_fixed`：`top1_mean=3.0514`，`top1_median=3.1228`，`trimmed_mean=2.9509`
+  - `a1_small_fixed`：`top1_mean=3.0438`，`top1_median=2.9572`，`trimmed_mean=3.0420`
+  - `a1_main_fixed`：`top1_mean=2.9425`，`top1_median=2.9894`，`trimmed_mean=2.9669`
+- **fixed A0 口径下的新比较已经生成**：
+  - `a1_small_fixed vs a0_fixed`：`win_rate=54%`，`delta_median=+0.0100`，`trimmed_delta_mean=+0.1221`
+  - `a1_main_fixed vs a0_fixed`：`win_rate=54%`，`delta_median≈0`，`trimmed_delta_mean=+0.0457`
+  - `a1_mcts_main vs a0_fixed`：`win_rate=50%`，`delta_median=-0.0190`，`trimmed_delta_mean=+0.0538`
+- **MCTS 小规模基石链已完成且不再明显弱于 fixed BFS**：虽然 `A1-mcts-main` 仍只有 `1089` 条 transition，但在 fixed 口径下已接近 `a0_fixed` 持平。
 
 ### 当前正在运行的任务
 
-- **`fix-a0-bc`**：holdout eval 已写出原始 JSON，当前快照为 `40 / 50` 分子，`top1_mean=3.1797`，`top1_median=3.1843`，`trimmed_mean=3.0316`。
-- **`fix-a1-small-bc`**：holdout eval 已写出原始 JSON，当前快照为 `15 / 50` 分子，`top1_mean=3.1099`，`top1_median=2.9432`，`trimmed_mean=3.0435`。
-- **`fix-a1-main-bc`**：`53269` 条 fixed transition 已导出，正在重新训练 BC。
-- **`mcts-expand-rl`**：已在 `tmux` 启动，执行 `MCTS 扩规模 -> BC -> holdout -> RL(300 episodes) -> holdout` 的完整新链路。
+- **`mcts-expand-rl`**：仍在 `tmux` 中运行，当前搜索进度约 `376 / 983`（`38.3%`），执行 `MCTS 扩规模 -> BC -> holdout -> RL(300 episodes) -> holdout` 的完整新链路。
 
 ### 当前判断
 
-- **短期内必须先以 fixed BFS 结果重建参考线**，再判断 `MCTS-BC / MCTS-RL` 是否真的比 BFS 更优。
-- **当前这版 MCTS 的主要问题不是数据质量，而是数据量**：`num_simulations=200` 下树明显偏稀，`1089` 条 transition 不足以支撑一个强 BC 起点。
-- **当前扩规模方向明确**：通过更厚的 `MCTS` 搜索把树做大，再把该数据源直接接到 `BC -> RL` 冷启动链路。
+- **修复后，BFS 扩规模结论变得更保守**：`A1-small fixed` 和 `A1-main fixed` 都没有形成对 `a0_fixed` 的压倒性优势，只能算“分布略有变化、稳健指标小幅改善”。
+- **MCTS 的信号反而变得更值得继续追**：在仅 `1089` 条 transition 的情况下，`a1_mcts_main` 已经和 `a0_fixed` 大致持平，说明问题更像是“树还不够厚”，而不是“MCTS 本身不适合做 RL 基石”。
+- **因此当前最合理的推进方向不再是继续堆 BFS 树**，而是把更厚的 `MCTS` 数据源跑完，再看 `MCTS-BC / MCTS-RL` 是否能拉开差距。
 
 ---
 

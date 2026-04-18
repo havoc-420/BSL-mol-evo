@@ -28,16 +28,16 @@
 - **先做低风险扩规模**：更强 BC 起点、更大训练分子池、更多 episodes、固定 holdout eval、多 seed 复核。
 - **best checkpoint 不再只看 `episode_return`**，而应以固定 holdout 的离线指标作为主标准。
 
-## 0.1 执行进度刷新（2026-04-11 15:53）
+## 0.1 执行进度刷新（2026-04-11 18:16）
 
 - **导出桥修复已完成**：`export_rl_demo_transitions.py` 已修复 `property_change` 字段错读与 `operation/details` 归一化问题，旧版 BFS/A1 结果现只作为归档。
-- **fixed BFS 重跑状态**：
-  - `fix-a0-bc`：holdout 原始 JSON 已写出，当前快照 `40 / 50` 分子，`top1_mean=3.1797`。
-  - `fix-a1-small-bc`：holdout 原始 JSON 已写出，当前快照 `15 / 50` 分子，`top1_mean=3.1099`。
-  - `fix-a1-main-bc`：`53269` 条 fixed transition 已导出，BC 重训中。
-- **MCTS 替代 BFS 的探索支线已开启**：`A1-mcts-main` 已完成，但当前只有 `1089` 条 transition，holdout `top1_mean=3.0971`，说明**数据质量没问题，问题在树不够厚**。
-- **新的扩规模主任务已启动**：`mcts-expand-rl` 正在执行 `MCTS 扩规模 -> BC -> holdout -> RL(300 ep) -> holdout`，用于验证更厚的 `MCTS` 数据源能否直接作为 RL 基石。
-- **当前策略**：在 fixed A0 / A1 基线出齐之前，不对 `MCTS-BC / MCTS-RL` 下最终结论；但扩规模 `MCTS` 流水线可以先并行推进。
+- **fixed BFS 三条重跑已完成**：
+  - `a0_fixed`：`top1_mean=3.0514`，`top1_median=3.1228`，`trimmed_mean=2.9509`
+  - `a1_small_fixed`：`top1_mean=3.0438`，`top1_median=2.9572`，`trimmed_mean=3.0420`，相对 `a0_fixed`：`win_rate=54%`，`trimmed_delta_mean=+0.1221`
+  - `a1_main_fixed`：`top1_mean=2.9425`，`top1_median=2.9894`，`trimmed_mean=2.9669`，相对 `a0_fixed`：`win_rate=54%`，`trimmed_delta_mean=+0.0457`
+- **MCTS 替代 BFS 的探索支线更加站得住**：`A1-mcts-main` 只有 `1089` 条 transition，但相对 `a0_fixed` 已达到 `win_rate=50%`、`trimmed_delta_mean=+0.0538`，说明当前短板更像是树不够厚，而不是 MCTS 路线本身无效。
+- **新的扩规模主任务正在推进**：`mcts-expand-rl` 当前约跑到训练池 `376 / 983`（`38.3%`），执行 `MCTS 扩规模 -> BC -> holdout -> RL(300 ep) -> holdout` 全流程。
+- **当前策略**：fixed 之后没有任何 BFS 扩规模版本对 `a0_fixed` 形成压倒性优势，因此方案 A 的主风险已从“是否继续堆 BFS 树”转向“更厚的 MCTS 数据源能否提供更强 BC / RL 起点”。
 
 ---
 
@@ -162,7 +162,7 @@
 
 | 项目 | 值 |
 |------|----|
-| 起点权重 | `BC-A1-main` 最优权重 |
+| 起点权重 | 优先比较 `a0_fixed / a1_small_fixed / mcts_expand_bc`，当前不再默认旧 `BC-A1-main` |
 | `num_episodes` | `300` |
 | `seed` | `3` 个 |
 | `top_n_prefilter` | `50` |

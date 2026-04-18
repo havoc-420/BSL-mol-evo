@@ -1137,6 +1137,10 @@ class MolecularEvolutionExpansion:
         # --- MCTS 专属参数 ---
         num_simulations: int = 200,
         exploration_weight: float = 1.4,
+        prior_mode: str = 'softmax',
+        value_mode: str = 'accumulated',
+        expansion_mode: str = 'topk',
+        random_seed: Optional[int] = None,
     ) -> Dict:
         """
         使用 MCTS (Monte Carlo Tree Search) + PUCT 生成分子进化树。
@@ -1156,9 +1160,25 @@ class MolecularEvolutionExpansion:
             logp_patience: logP 连续超出范围剪枝阈值
             num_simulations: MCTS 模拟总轮数
             exploration_weight: PUCT 探索系数 c
+            prior_mode: prior 构造方式 (softmax | uniform)
+            value_mode: 叶节点价值方式 (accumulated | zero | step)
+            expansion_mode: 扩展方式 (topk | random_topk | full)
+            random_seed: 随机种子（主要用于 random_topk 可复现）
         """
         if predictor is None:
             raise NotImplementedError("[MCTS] 必须提供 predictor")
+
+        valid_prior_modes = {'softmax', 'uniform'}
+        valid_value_modes = {'accumulated', 'zero', 'step'}
+        valid_expansion_modes = {'topk', 'random_topk', 'full'}
+        if prior_mode not in valid_prior_modes:
+            raise ValueError(f"[MCTS] 不支持的 prior_mode: {prior_mode}")
+        if value_mode not in valid_value_modes:
+            raise ValueError(f"[MCTS] 不支持的 value_mode: {value_mode}")
+        if expansion_mode not in valid_expansion_modes:
+            raise ValueError(f"[MCTS] 不支持的 expansion_mode: {expansion_mode}")
+
+        rng = random.Random(random_seed) if random_seed is not None else random
 
         # ---------- 内部 MCTS 节点 ----------
         class _MCTSNode:
@@ -1287,26 +1307,38 @@ class MolecularEvolutionExpansion:
                 node.is_terminal = True
                 return
 
-            # --- 按预测值排序，取 top max_branching ---
+            # --- 候选选择：排序截断 / 随机截断 / 全展开 ---
             if optimization_direction == 'increase':
                 sorted_cands = sorted(candidates, key=lambda x: x[2], reverse=True)
             else:
                 sorted_cands = sorted(candidates, key=lambda x: x[2])
 
-            top_cands = sorted_cands[:max_branching]
+            if expansion_mode == 'topk':
+                selected_cands = sorted_cands[:max_branching]
+            elif expansion_mode == 'random_topk':
+                if len(candidates) <= max_branching:
+                    selected_cands = list(candidates)
+                else:
+                    selected_cands = rng.sample(candidates, max_branching)
+            else:  # full
+                selected_cands = sorted_cands
 
-            # --- 计算 prior（softmax 归一化） ---
-            raw_scores = [c[2] for c in top_cands]
-            if optimization_direction == 'decrease':
-                raw_scores = [-s for s in raw_scores]
-            max_score = max(raw_scores) if raw_scores else 0
-            exp_scores = [math.exp(s - max_score) for s in raw_scores]
-            sum_exp = sum(exp_scores) or 1.0
-            priors = [e / sum_exp for e in exp_scores]
+            # --- 计算 prior（softmax / uniform） ---
+            if prior_mode == 'uniform':
+                denom = len(selected_cands) or 1
+                priors = [1.0 / denom] * len(selected_cands)
+            else:
+                raw_scores = [c[2] for c in selected_cands]
+                if optimization_direction == 'decrease':
+                    raw_scores = [-s for s in raw_scores]
+                max_score = max(raw_scores) if raw_scores else 0
+                exp_scores = [math.exp(s - max_score) for s in raw_scores]
+                sum_exp = sum(exp_scores) or 1.0
+                priors = [e / sum_exp for e in exp_scores]
 
             # --- 创建子节点 ---
             seen_children_smiles = set()
-            for (op, new_smi, prop_change), prior in zip(top_cands, priors):
+            for (op, new_smi, prop_change), prior in zip(selected_cands, priors):
                 c_smi = Chem.MolToSmiles(Chem.MolFromSmiles(new_smi))
                 if c_smi in seen_children_smiles:
                     continue
@@ -1334,19 +1366,31 @@ class MolecularEvolutionExpansion:
             if not node.children:
                 node.is_terminal = True
 
-        def _select_child(node: _MCTSNode) -> _MCTSNode:
-            """PUCT 选择最佳子节点"""
+        def _select_child(node: _MCTSNode) -> Optional[_MCTSNode]:
+            """PUCT 选择最佳子节点；跳过异常分数并在必要时回退。"""
             best, best_score = None, -float('inf')
+            fallback = node.children[0] if node.children else None
             for ch in node.children:
                 sc = ch.ucb_score(exploration_weight)
+                if not math.isfinite(sc):
+                    continue
                 if sc > best_score:
                     best_score = sc
                     best = ch
-            return best
+            return best if best is not None else fallback
 
         def _evaluate_leaf(node: _MCTSNode) -> float:
-            """叶节点估值：直接使用累积属性变化量"""
-            val = node.accumulated_change
+            """叶节点估值：支持累计值 / 零值 / 单步值三种模式。"""
+            if value_mode == 'zero':
+                val = 0.0
+            elif value_mode == 'step':
+                if node.parent is None:
+                    val = 0.0
+                else:
+                    val = node.accumulated_change - node.parent.accumulated_change
+            else:
+                val = node.accumulated_change
+
             if optimization_direction == 'decrease':
                 val = -val
             return val
@@ -1372,7 +1416,8 @@ class MolecularEvolutionExpansion:
 
         # ---------- MCTS 主循环 ----------
         print(f"\n[MCTS] 开始搜索: simulations={num_simulations}, c={exploration_weight}, "
-              f"max_depth={max_depth}, max_branching={max_branching}")
+              f"max_depth={max_depth}, max_branching={max_branching}, "
+              f"prior_mode={prior_mode}, value_mode={value_mode}, expansion_mode={expansion_mode}, random_seed={random_seed}")
 
         for sim_idx in range(num_simulations):
             # 检查中断信号
@@ -1420,6 +1465,10 @@ class MolecularEvolutionExpansion:
                 "num_simulations": num_simulations,
                 "actual_simulations": actual_simulations,
                 "exploration_weight": exploration_weight,
+                "prior_mode": prior_mode,
+                "value_mode": value_mode,
+                "expansion_mode": expansion_mode,
+                "random_seed": random_seed,
                 "unique_states_expanded": len(expansion_cache),
                 "root_visits": root.visit_count,
             },
@@ -1789,25 +1838,36 @@ class MolecularEvolutionExpansion:
                     ])
                     state_vec_policy = state_vec_traj.to(policy_device) if policy_device is not None else state_vec_traj
                     all_action_vecs_policy = all_action_vecs.to(policy_device) if policy_device is not None else all_action_vecs
-                    # 选得分最高的作为"被选中"的动作（索引 0）
-                    selected_idx = 0
-                    log_prob = policy_net.get_log_probs(state_vec_policy, all_action_vecs_policy, selected_idx)
+                    selection_mode = getattr(rl_trainer, "action_selection_mode", "sample")
+                    selection_temperature = getattr(rl_trainer, "action_selection_temperature", 1.0)
+                    selection_epsilon = getattr(rl_trainer, "action_selection_epsilon", 0.0)
+                    selection = policy_net.select_action(
+                        state_vec_policy,
+                        all_action_vecs_policy,
+                        mode=selection_mode,
+                        temperature=selection_temperature,
+                        epsilon=selection_epsilon,
+                    )
+                    selected_idx = int(selection["selected_idx"])
+                    greedy_action_idx = int(selection["greedy_idx"])
+                    log_prob = selection["log_prob"]
+                    selected_prob = selection.get("prob")
+                    selected_op, selected_smiles, selected_pc, _, _, selected_f_score, selected_pol_logit = top_scored[selected_idx]
+                    selected_logp = self.calculate_logP(selected_smiles) or 0.0
+                    selected_logp_in_range = logp_min <= selected_logp <= logp_max
+
                     if value_net is not None:
                         value_state_vec = state_vec_traj.to(value_device) if value_device is not None else state_vec_traj
                         value_est = value_net.estimate(value_state_vec)
                     else:
                         value_est = 0.0
 
-                    # 计算 step_reward（用 property_change 和 logP 状态）
-                    best_op, best_smiles, best_pc, *_ = top_scored[0]
-                    best_logp = self.calculate_logP(best_smiles) or 0.0
-                    best_logp_in_range = logp_min <= best_logp <= logp_max
                     try:
                         from mol_evo.core.models.astar_rl.reward import compute_step_reward
                         from mol_evo.core.models.astar_rl.reward import RewardConfig
                         step_reward = compute_step_reward(
-                            property_change=best_pc,
-                            logp_in_range=best_logp_in_range,
+                            property_change=selected_pc,
+                            logp_in_range=selected_logp_in_range,
                             stagnation_count=current_node.get("stagnation_count", 0),
                             config=RewardConfig(direction=optimization_direction),
                         )
@@ -1815,12 +1875,12 @@ class MolecularEvolutionExpansion:
                         step_reward = 0.0
 
                     next_state_vec = encode_state(
-                        smiles=best_smiles,
-                        accumulated_change=current_node.get("accumulated_change", 0.0) + best_pc,
+                        smiles=selected_smiles,
+                        accumulated_change=current_node.get("accumulated_change", 0.0) + selected_pc,
                         remaining_depth=max_depth - current_depth - 1,
                         max_depth=max_depth,
-                        logp_value=best_logp,
-                        logp_in_range=best_logp_in_range,
+                        logp_value=selected_logp,
+                        logp_in_range=selected_logp_in_range,
                         stagnation_count=0,
                         direction=optimization_direction,
                         target_property_value=initial_property_value or 0.0,
@@ -1830,11 +1890,27 @@ class MolecularEvolutionExpansion:
                         state_tensor=state_vec_traj.detach().cpu(),
                         action_tensors=all_action_vecs.detach().cpu(),
                         selected_action_idx=selected_idx,
-                        log_prob=log_prob,
+                        log_prob=log_prob.detach().cpu(),
                         step_reward=step_reward,
                         next_state_tensor=next_state_vec.detach().cpu(),
                         value_estimate=float(value_est),
                         done=is_done,
+                        selection_mode=selection_mode,
+                        selected_action_rank=selected_idx,
+                        policy_entropy=float(selection["entropy"].detach().cpu().item()),
+                        selected_action_prob=(
+                            float(selected_prob.detach().cpu().item())
+                            if selected_prob is not None else None
+                        ),
+                        greedy_action_idx=greedy_action_idx,
+                        matches_policy_greedy=(selected_idx == greedy_action_idx),
+                        metadata={
+                            "selected_smiles": selected_smiles,
+                            "selected_operation": selected_op.get("type"),
+                            "selected_f_score": float(selected_f_score),
+                            "selected_policy_logit": float(selected_pol_logit),
+                            "matches_f_score_top1": (selected_idx == 0),
+                        },
                     )
                     rl_trainer.collect_step(traj_step)
                 except Exception:

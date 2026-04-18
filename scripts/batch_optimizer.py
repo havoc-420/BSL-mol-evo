@@ -67,20 +67,46 @@ except ImportError as e:
 
 def parse_args():
     """解析命令行参数"""
+    default_model_dir = os.path.join(
+        project_root,
+        'mol_evo',
+        'output',
+        'v0',
+        'MoleculeEvolutionVisnetLinearPredictor',
+        'train-20251123_192921-lumo_change-120000-200',
+    )
+    default_input_csv = os.path.join(
+        project_root,
+        'mol_evo',
+        'dataset',
+        'eval-data',
+        '20251205_131636',
+        'qm9_test_molecules.csv',
+    )
+    default_config_file = os.path.join(
+        project_root,
+        'mol_evo',
+        'dataset',
+        'data',
+        'qm9-evo-pairs-step-1-with-properties-pct-config.yaml',
+    )
+
     parser = argparse.ArgumentParser(description='批量优化分子属性')
     parser.add_argument('--input-csv', type=str,
-                        default='mol_evo/dataset/eval-data/qm9_test_molecules.csv',
+                        default=default_input_csv,
                         help='输入的CSV文件路径')
     parser.add_argument('--output-json', type=str,
                         help='输出的JSON文件路径')
+    parser.add_argument('--output-dir', type=str, default=None,
+                        help='输出目录路径；若不提供则自动创建时间戳目录')
     parser.add_argument('--model-path', type=str,
-                        default='/home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200/last.pth',
+                        default=os.path.join(default_model_dir, 'last.pth'),
                         help='模型文件路径')
     parser.add_argument('--model-dir', type=str,
-                        default='/home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200',
+                        default=default_model_dir,
                         help='模型目录路径')
     parser.add_argument('--config-file', type=str,
-                        default='/home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct-config.yaml',
+                        default=default_config_file,
                         help='配置文件路径')
     parser.add_argument('--target-property', type=str, default='lumo',
                         help='目标属性名称')
@@ -115,6 +141,14 @@ def parse_args():
                         help='MCTS 模拟轮数 (仅 mcts 模式)')
     parser.add_argument('--exploration-weight', type=float, default=1.4,
                         help='MCTS PUCT 探索系数 (仅 mcts 模式)')
+    parser.add_argument('--mcts-prior-mode', type=str, choices=['softmax', 'uniform'], default='softmax',
+                        help='MCTS prior 构造方式：softmax=默认 OFO prior，uniform=均匀先验')
+    parser.add_argument('--mcts-value-mode', type=str, choices=['accumulated', 'zero', 'step'], default='accumulated',
+                        help='MCTS 叶节点价值：accumulated=累计增益，zero=恒为0，step=仅当前步增益')
+    parser.add_argument('--mcts-expansion-mode', type=str, choices=['topk', 'random_topk', 'full'], default='topk',
+                        help='MCTS 扩展策略：topk=按 OFO 排序截断，random_topk=随机选 TopB，full=全展开')
+    parser.add_argument('--mcts-random-seed', type=int, default=None,
+                        help='MCTS 随机种子；主要用于 random_topk 的可复现采样')
     # astar_demo 参数
     parser.add_argument('--policy-path', type=str, default=None,
                         help='PolicyNet 权重路径 (仅 astar_demo 模式)')
@@ -130,8 +164,13 @@ def parse_args():
                         help='A* open set 展开预算 (仅 astar_demo 模式)')
     return parser.parse_args()
 
-def create_output_dir():
+def create_output_dir(output_dir=None):
     """创建输出目录"""
+    if output_dir:
+        base_dir = os.path.abspath(output_dir)
+        os.makedirs(base_dir, exist_ok=True)
+        return base_dir
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     # INFO 这里默认的运行根路径的上一层。
     base_dir = os.path.join(os.getcwd(), "mol_evo", "output", "evo-mo", f"batch_optimization_{timestamp}")
@@ -185,6 +224,10 @@ def run_evolution_optimizer(optimizer, smiles, property_value, args, output_dir)
             search_mode=args.search_mode,
             num_simulations=args.num_simulations,
             exploration_weight=args.exploration_weight,
+            mcts_prior_mode=args.mcts_prior_mode,
+            mcts_value_mode=args.mcts_value_mode,
+            mcts_expansion_mode=args.mcts_expansion_mode,
+            mcts_random_seed=args.mcts_random_seed,
             policy_net=getattr(args, '_policy_net', None),
             value_net=getattr(args, '_value_net', None),
             rl_trainer=getattr(args, '_rl_trainer', None),
@@ -259,8 +302,6 @@ def batch_process(data_list, args, output_dir):
         None,  # initial_property_value (will be set per molecule)
         args.optimization_mode
     )
-    optimizer.optimization_direction = args.direction
-
     # --- astar_demo 模型加载 ---
     if args.search_mode == 'astar_demo':
         try:
@@ -377,7 +418,7 @@ def save_results(results_dict, output_json, output_dir):
 def main():
     """主函数"""
     args = parse_args()
-    output_dir = create_output_dir()
+    output_dir = create_output_dir(args.output_dir)
     
     # 创建主日志文件
     main_log_file = os.path.join(output_dir, "batch_optimization_main.log")
@@ -402,6 +443,9 @@ def main():
         f.write(f"最大分支数: {args.max_branching}\n")
         f.write(f"优化方向: {args.direction}\n")
         f.write(f"剪枝耐心值: {args.pruning_patience}\n")
+        f.write(f"logP最小值: {args.logp_min}\n")
+        f.write(f"logP最大值: {args.logp_max}\n")
+        f.write(f"logP耐心值: {args.logp_patience}\n")
         f.write(f"topK值: {args.topK}\n")
         f.write(f"起始索引: {args.start_index}\n")
         f.write(f"结束索引: {args.end_index}\n")
@@ -409,6 +453,10 @@ def main():
         if args.search_mode == 'mcts':
             f.write(f"MCTS 模拟轮数: {args.num_simulations}\n")
             f.write(f"MCTS 探索系数: {args.exploration_weight}\n")
+            f.write(f"MCTS prior 模式: {args.mcts_prior_mode}\n")
+            f.write(f"MCTS value 模式: {args.mcts_value_mode}\n")
+            f.write(f"MCTS expansion 模式: {args.mcts_expansion_mode}\n")
+            f.write(f"MCTS 随机种子: {args.mcts_random_seed}\n")
         if args.search_mode == 'astar_demo':
             f.write(f"PolicyNet 权重: {args.policy_path}\n")
             f.write(f"ValueNet 权重: {args.value_path}\n")

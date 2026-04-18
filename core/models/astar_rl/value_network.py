@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
-from typing import Optional
 
 
 class ValueNet(nn.Module):
@@ -53,7 +52,7 @@ class ValueNet(nn.Module):
 
         layers: list = []
         in_dim = state_dim
-        for i in range(num_layers - 1):
+        for _ in range(num_layers - 1):
             layers.extend([
                 nn.Linear(in_dim, hidden_dim),
                 nn.ReLU(),
@@ -98,9 +97,15 @@ class ValueNet(nn.Module):
 
     def estimate(self, state: torch.Tensor) -> float:
         """推理阶段：无梯度，返回 Python float。"""
-        with torch.no_grad():
-            v = self.forward(state)
-        return v.item()
+        was_training = self.training
+        self.eval()
+        try:
+            with torch.no_grad():
+                v = self.forward(state)
+            return v.item()
+        finally:
+            if was_training:
+                self.train()
 
     # ------------------------------------------------------------------
     # Loss helpers（供 RLTrainer 使用）

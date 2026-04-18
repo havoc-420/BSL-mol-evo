@@ -201,6 +201,25 @@ class EvolutionTreeOptimizer:
             print(f"成功加载 {len(self.initial_properties)} 个分子的初始属性")
         except Exception as e:
             print(f"加载初始属性时出错: {e}")
+
+    @staticmethod
+    def _prediction_tensor_to_list(predictions: torch.Tensor):
+        """将模型输出稳定转换为一维浮点列表，避免单样本批次退化成 float。"""
+        if not isinstance(predictions, torch.Tensor):
+            raise TypeError(f"predictions 必须是 torch.Tensor，实际类型: {type(predictions)}")
+
+        predictions = predictions.detach().cpu()
+
+        if predictions.ndim == 0:
+            return [float(predictions.item())]
+
+        if predictions.ndim == 1:
+            return [float(x) for x in predictions.tolist()]
+
+        if predictions.ndim == 2 and predictions.shape[1] == 1:
+            return [float(x) for x in predictions[:, 0].tolist()]
+
+        raise ValueError(f"不支持的预测张量形状: {tuple(predictions.shape)}")
             
     def predict_batch(self, from_smiles_list, to_smiles_list, operation_details_list, batch_size=64):
         """
@@ -342,12 +361,8 @@ class EvolutionTreeOptimizer:
                 if self.property_stats and self.target_property in self.property_stats:
                     mean, std = self.property_stats[self.target_property]
                     predictions = predictions * std + mean
-                
-                # 确保返回的是一维浮点数列表，即使模型返回的是二维张量
-                if len(predictions.shape) > 1:
-                    predictions = predictions.squeeze()
-                    
-                batch_predictions = predictions.cpu().numpy().tolist()
+
+                batch_predictions = self._prediction_tensor_to_list(predictions)
                 all_predictions.extend(batch_predictions)
             except Exception as e:
                 print(f"批量预测时出错: start_idx={start_idx}, end_idx={end_idx}, error={e}")
@@ -698,6 +713,10 @@ class EvolutionTreeOptimizer:
                                search_mode='bfs',
                                num_simulations=200,
                                exploration_weight=1.4,
+                               mcts_prior_mode='softmax',
+                               mcts_value_mode='accumulated',
+                               mcts_expansion_mode='topk',
+                               mcts_random_seed=None,
                                # --- astar_demo 专属参数 ---
                                policy_net=None,
                                value_net=None,
@@ -718,6 +737,10 @@ class EvolutionTreeOptimizer:
             search_mode: 搜索模式 ('bfs', 'mcts', 或 'astar_demo')
             num_simulations: MCTS 模拟总轮数 (仅 mcts 模式)
             exploration_weight: MCTS PUCT 探索系数 (仅 mcts 模式)
+            mcts_prior_mode: MCTS prior 构造模式 (softmax | uniform)
+            mcts_value_mode: MCTS 叶节点价值模式 (accumulated | zero | step)
+            mcts_expansion_mode: MCTS 扩展模式 (topk | random_topk | full)
+            mcts_random_seed: MCTS 随机种子（主要用于 random_topk 可复现）
             policy_net: PolicyNet 实例 (仅 astar_demo 模式)
             value_net: ValueNet 实例 (仅 astar_demo 模式)
             rl_trainer: RLTrainer 实例 (仅 astar_demo 在线训练模式)
@@ -738,6 +761,10 @@ class EvolutionTreeOptimizer:
         if search_mode == 'mcts':
             print(f"MCTS 模拟轮数: {num_simulations}")
             print(f"MCTS 探索系数: {exploration_weight}")
+            print(f"MCTS prior 模式: {mcts_prior_mode}")
+            print(f"MCTS value 模式: {mcts_value_mode}")
+            print(f"MCTS expansion 模式: {mcts_expansion_mode}")
+            print(f"MCTS 随机种子: {mcts_random_seed}")
         if search_mode == 'astar_demo':
             print(f"A* PolicyNet 预筛: {top_n_prefilter}, open_set_budget: {open_set_budget}")
             print(f"PolicyNet: {'已加载' if policy_net is not None else '未加载（无预筛）'}")
@@ -778,6 +805,10 @@ class EvolutionTreeOptimizer:
                 logp_patience=logp_patience,
                 num_simulations=num_simulations,
                 exploration_weight=exploration_weight,
+                prior_mode=mcts_prior_mode,
+                value_mode=mcts_value_mode,
+                expansion_mode=mcts_expansion_mode,
+                random_seed=mcts_random_seed,
             )
         elif search_mode == 'astar_demo':
             evolution_tree = evolver.generate_expansion_tree_astar_demo(
@@ -1089,6 +1120,14 @@ def run():
                         help='MCTS 模拟轮数 (仅 mcts 模式)')
     parser.add_argument('--exploration-weight', type=float, default=1.4,
                         help='MCTS PUCT 探索系数 (仅 mcts 模式)')
+    parser.add_argument('--mcts-prior-mode', type=str, choices=['softmax', 'uniform'], default='softmax',
+                        help='MCTS prior 构造方式：softmax=默认 OFO prior，uniform=均匀先验')
+    parser.add_argument('--mcts-value-mode', type=str, choices=['accumulated', 'zero', 'step'], default='accumulated',
+                        help='MCTS 叶节点价值：accumulated=累计增益，zero=恒为0，step=仅当前步增益')
+    parser.add_argument('--mcts-expansion-mode', type=str, choices=['topk', 'random_topk', 'full'], default='topk',
+                        help='MCTS 扩展策略：topk=按 OFO 排序截断，random_topk=随机选 TopB，full=全展开')
+    parser.add_argument('--mcts-random-seed', type=int, default=None,
+                        help='MCTS 随机种子；主要用于 random_topk 的可复现采样')
     
     args = parser.parse_args()
     
@@ -1114,6 +1153,10 @@ def run():
         search_mode=args.search_mode,
         num_simulations=args.num_simulations,
         exploration_weight=args.exploration_weight,
+        mcts_prior_mode=args.mcts_prior_mode,
+        mcts_value_mode=args.mcts_value_mode,
+        mcts_expansion_mode=args.mcts_expansion_mode,
+        mcts_random_seed=args.mcts_random_seed,
     )
     
     # 保存到文件（如果指定了输出文件）

@@ -503,10 +503,18 @@ def predict_batch(model, valid_operations, current_smiles, device='cuda:0'):
     # 执行批量预测
     # 模型现在支持真正的批量处理，可以一次性预测所有操作
     with torch.no_grad():
-        predicted_changes = model(batched_graph, ops_batch)
-        predictions = predicted_changes.squeeze().tolist()
-    
-    return predictions
+        predicted_changes = model(batched_graph, ops_batch).detach().cpu()
+
+    if predicted_changes.ndim == 0:
+        return [float(predicted_changes.item())]
+
+    if predicted_changes.ndim == 1:
+        return [float(x) for x in predicted_changes.tolist()]
+
+    if predicted_changes.ndim == 2 and predicted_changes.shape[1] == 1:
+        return [float(x) for x in predicted_changes[:, 0].tolist()]
+
+    raise ValueError(f"不支持的预测张量形状: {tuple(predicted_changes.shape)}")
 
 # --- 4. 主函数示例 ---
 def main():
