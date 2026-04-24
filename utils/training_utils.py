@@ -265,6 +265,83 @@ def plot_training_trends(train_losses, val_losses, val_r2s, val_maes, model_dir,
     logger.info(f"指标趋势图已保存: {metrics_plot_path}")
 
 
+def plot_test_scatter(predictions, targets, model_dir, target_property, r2, pcc, rmse, mae):
+    """
+    绘制测试集散点图 (Predicted vs Actual)
+
+    Args:
+        predictions: 测试集预测值张量 (1D)
+        targets: 测试集真实值张量 (1D)
+        model_dir: 模型目录路径
+        target_property: 目标属性名称
+        r2: R²值
+        pcc: PCC值
+        rmse: RMSE值
+        mae: MAE值
+    """
+    import matplotlib
+    matplotlib.use('Agg')
+
+    preds_np = predictions.numpy().flatten()
+    targets_np = targets.numpy().flatten()
+
+    # 保存散点图数据为 JSON，方便后续重绘
+    scatter_data = {
+        'target_property': target_property,
+        'metrics': {
+            'r2': float(r2),
+            'pcc': float(pcc),
+            'rmse': float(rmse),
+            'mae': float(mae),
+            'n_samples': int(len(preds_np))
+        },
+        'data': {
+            'actual': targets_np.tolist(),
+            'predicted': preds_np.tolist()
+        }
+    }
+    json_path = os.path.join(model_dir, "test_scatter_data.json")
+    with open(json_path, 'w') as f:
+        json.dump(scatter_data, f, indent=2)
+    logger = logging.getLogger('training')
+    logger.info(f"测试集散点数据已保存: {json_path}")
+
+    fig, ax = plt.subplots(figsize=(7, 7))
+
+    # 散点图
+    ax.scatter(targets_np, preds_np, alpha=0.3, s=8, c='#4C72B0', edgecolors='none', label='Test samples')
+
+    # 对角线 (y=x)
+    min_val = min(targets_np.min(), preds_np.min())
+    max_val = max(targets_np.max(), preds_np.max())
+    margin = (max_val - min_val) * 0.05
+    ax.plot([min_val - margin, max_val + margin], [min_val - margin, max_val + margin],
+            'r--', linewidth=1.5, label='y = x')
+
+    ax.set_xlim(min_val - margin, max_val + margin)
+    ax.set_ylim(min_val - margin, max_val + margin)
+    ax.set_xlabel(f'Actual {target_property}', fontsize=12)
+    ax.set_ylabel(f'Predicted {target_property}', fontsize=12)
+    ax.set_title(f'Test Set: Predicted vs Actual ({target_property})', fontsize=14)
+    ax.legend(loc='upper left', fontsize=10)
+    ax.set_aspect('equal', adjustable='box')
+
+    # 添加指标文本框
+    textstr = f'R² = {r2:.4f}\nPCC = {pcc:.4f}\nRMSE = {rmse:.4f}\nMAE = {mae:.4f}\nN = {len(preds_np)}'
+    props = dict(boxstyle='round', facecolor='wheat', alpha=0.8)
+    ax.text(0.05, 0.95, textstr, transform=ax.transAxes, fontsize=10,
+            verticalalignment='top', bbox=props)
+
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+
+    scatter_path = os.path.join(model_dir, "test_scatter_plot.png")
+    plt.savefig(scatter_path, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+
+    logger.info(f"测试集散点图已保存: {scatter_path}")
+
+
 def print_table_accuracy(accuracies, thresholds, property_names, logger=None):
     """
     以表格形式打印各维度阈值准确率，并添加颜色分区效果

@@ -40,6 +40,7 @@ try:
         split_data_indices, 
         save_training_data_as_json, 
         plot_training_trends,
+        plot_test_scatter,
         log_training_completion,
         log_training_start,
         log_model_creation,
@@ -722,6 +723,9 @@ def train_model(data_file: str, max_pairs: int = None, epochs: int = 100,
                 with open(training_process_path, 'w', encoding='utf-8') as f:
                     json.dump(training_process_data, f, ensure_ascii=False, indent=2)
                 
+                
+                # 生成测试集散点图 (Predicted vs Actual)
+                plot_test_scatter(test_predictions.cpu(), test_targets.cpu(), model_dir, TARGET_PROPERTY, r2, pcc, rmse.item(), mae.item())
                 
                 # 生成训练趋势图
                 plot_training_trends(
