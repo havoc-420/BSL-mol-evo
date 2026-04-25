@@ -9,20 +9,20 @@
 Usage:
     # 默认只评估测试集
     conda activate mol-ofo && cd /home/ubuntu/mol_opt && \
-    python mol-ofo/mol_evo/scripts/test_scatter_plot.py
+    python mol-ofo/mol_evo/scripts/visualization/test_scatter_plot.py
 
     # 评估 train + val + test 三个分割
     conda activate mol-ofo && cd /home/ubuntu/mol_opt && \
-    python mol-ofo/mol_evo/scripts/test_scatter_plot.py --splits train val test
+    python mol-ofo/mol_evo/scripts/visualization/test_scatter_plot.py --splits train val test
 
     # 只测试 lumo_change，使用 100 个样本
     conda activate mol-ofo && cd /home/ubuntu/mol_opt && \
-    python mol-ofo/mol_evo/scripts/test_scatter_plot.py \
+    python mol-ofo/mol_evo/scripts/visualization/test_scatter_plot.py \
         --num-samples 100 --properties lumo_change
 
     # 全量测试（默认使用全部样本）
     conda activate mol-ofo && cd /home/ubuntu/mol_opt && \
-    python mol-ofo/mol_evo/scripts/test_scatter_plot.py --num-samples 0 --splits train val test
+    python mol-ofo/mol_evo/scripts/visualization/test_scatter_plot.py --num-samples 0 --splits train val test
 """
 
 import sys

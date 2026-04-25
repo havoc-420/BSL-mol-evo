@@ -5,16 +5,16 @@
 
 Usage:
     conda activate plot_env && cd /home/ubuntu/mol_opt && \
-    python mol-ofo/mol_evo/scripts/plot_scatter_grid.py \
+    python mol-ofo/mol_evo/scripts/visualization/plot_scatter_grid.py \
         --input-dir mol-ofo/mol_evo/output/scatter_plots/20260417_075604
 
     # 指定属性
-    python mol-ofo/mol_evo/scripts/plot_scatter_grid.py \
+    python mol-ofo/mol_evo/scripts/visualization/plot_scatter_grid.py \
         --input-dir mol-ofo/mol_evo/output/scatter_plots/20260417_075604 \
         --properties lumo_change homo_change
 
     # 指定输出路径
-    python mol-ofo/mol_evo/scripts/plot_scatter_grid.py \
+    python mol-ofo/mol_evo/scripts/visualization/plot_scatter_grid.py \
         --input-dir mol-ofo/mol_evo/output/scatter_plots/20260417_075604 \
         --output scatter_grid.png
 """

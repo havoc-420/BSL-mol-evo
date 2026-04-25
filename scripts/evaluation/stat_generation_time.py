@@ -5,11 +5,11 @@
 `statistics.generation_time`（单位：秒）。
 
 Usage:
-    python mol_evo/scripts/stat_generation_time.py \
+    python mol_evo/scripts/evaluation/stat_generation_time.py \
         --input-dir mol_evo/output/evo-mo/batch_optimization_20260418_010636
 
     # 同时导出逐文件明细到 CSV
-    python mol_evo/scripts/stat_generation_time.py \
+    python mol_evo/scripts/evaluation/stat_generation_time.py \
         --input-dir mol_evo/output/evo-mo/batch_optimization_20260418_010636 \
         --output-csv gen_time_stats.csv
 """

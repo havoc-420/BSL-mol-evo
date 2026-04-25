@@ -13,12 +13,12 @@ scatter_plots 目录下的 results_*_test.json 来获取模型预测值。
 
 Usage:
     conda activate plot_env && cd /home/ubuntu/mol_opt && \\
-    python mol-ofo/mol_evo/scripts/plot_test_cases_2d.py \\
+    python mol-ofo/mol_evo/scripts/visualization/plot_test_cases_2d.py \\
         --scatter-dir mol-ofo/mol_evo/output/scatter_plots/20260417_075604 \\
         --num-cases 10
 
     # 指定随机种子
-    python mol-ofo/mol_evo/scripts/plot_test_cases_2d.py \\
+    python mol-ofo/mol_evo/scripts/visualization/plot_test_cases_2d.py \\
         --scatter-dir mol-ofo/mol_evo/output/scatter_plots/20260417_075604 \\
         --num-cases 10 --seed 42
 """

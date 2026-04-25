@@ -163,7 +163,7 @@ def maybe_run_batch_optimizer(args: argparse.Namespace, output_dir: Path) -> Pat
     cmd = [
         sys.executable,
         "-m",
-        "mol_evo.scripts.batch_optimizer",
+        "mol_evo.scripts.optimization.batch_optimizer",
         "--input-csv",
         str(Path(args.input_csv).resolve()),
         "--output-json",

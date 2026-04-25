@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 cd "$REPO"
 
 CONDA_ENV="${CONDA_ENV:-mol-tdc}"

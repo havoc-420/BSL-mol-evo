@@ -14,7 +14,7 @@ set -euo pipefail
 # 4. 如需自定义取值，可通过 `*_VALUES_CSV` 环境变量覆盖默认数组。
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 cd "$REPO"
 
 if [[ -n "${CONDA_ENV:-}" ]]; then

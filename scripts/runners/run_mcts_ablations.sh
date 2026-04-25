@@ -241,7 +241,7 @@ run_unit() {
   local status="success"
 
   local -a search_cmd=(
-    "$PYTHON_BIN" -m mol_evo.scripts.batch_optimizer
+    "$PYTHON_BIN" -m mol_evo.scripts.optimization.batch_optimizer
     --input-csv "$INPUT_CSV"
     --output-dir "$search_dir"
     --output-json "$batch_json"

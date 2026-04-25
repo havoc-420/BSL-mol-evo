@@ -12,11 +12,11 @@
 
 Usage:
     conda activate plot_env && cd /home/ubuntu/mol_opt && \
-    python mol-ofo/mol_evo/scripts/reassemble_selected_cases.py \
+    python mol-ofo/mol_evo/scripts/visualization/reassemble_selected_cases.py \
         --temp-dir mol-ofo/mol_evo/output/scatter_plots/20260417_075604/test_cases_2d/temp
 
     # 指定输出目录（默认: <temp-dir>/../assembled/）
-    python mol-ofo/mol_evo/scripts/reassemble_selected_cases.py \
+    python mol-ofo/mol_evo/scripts/visualization/reassemble_selected_cases.py \
         --temp-dir mol-ofo/mol_evo/output/scatter_plots/20260417_075604/test_cases_2d/temp \
         --output-dir mol-ofo/mol_evo/output/scatter_plots/20260417_075604/test_cases_2d/assembled
 

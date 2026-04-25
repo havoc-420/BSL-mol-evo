@@ -42,7 +42,7 @@ try:
     from mol_evo.core.models.astar_rl.reward import RewardConfig
     from mol_evo.core.data.rl_demo_processing import STATE_DIM, ACTION_DIM
     from mol_evo.core.evolution_optimizer import EvolutionTreeOptimizer
-    from mol_evo.scripts.eval_astar_rl_holdout import (
+    from mol_evo.scripts.evaluation.eval_astar_rl_holdout import (
         summarize_eval_json,
         summarize_against_reference,
         write_outputs,
@@ -395,7 +395,7 @@ def run_holdout_evaluation(
     cmd = [
         sys.executable,
         "-m",
-        "mol_evo.scripts.batch_optimizer",
+        "mol_evo.scripts.optimization.batch_optimizer",
         "--input-csv",
         str(Path(holdout_csv).resolve()),
         "--output-json",
