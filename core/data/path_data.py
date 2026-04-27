@@ -73,6 +73,7 @@ def path_collate(batch: List[Dict]) -> Dict[str, Any]:
         - node_valid_mask: Tensor (B, max_num_nodes) bool
         - edge_features: Tensor (B, max_steps, edge_dim)
         - step_valid_mask: Tensor (B, max_steps) bool
+        - step_invalid_types: List[List[str]], 长度 = B, 每条路径的步骤非法原因列表
         - path_padding_mask: Tensor (B, max_steps) bool, True 表示有效位置
         - path_targets: Tensor (B, 1)
         - step_targets: Tensor (B, max_steps) 或 None
@@ -147,11 +148,20 @@ def path_collate(batch: List[Dict]) -> Dict[str, Any]:
     # ====== 步数列表 ======
     num_steps_list = [p['num_steps'] for p in batch]
     
+    # ====== 步骤非法原因（字符串列表，供日志和分析使用）======
+    step_invalid_types_list = []
+    for p in batch:
+        types = p.get('step_invalid_types', ['valid'] * p['num_steps'])
+        # padding 位用 'padding' 填充
+        padded_types = list(types) + ['padding'] * (max_steps - len(types))
+        step_invalid_types_list.append(padded_types)
+    
     return {
         'node_batch_list': node_batch_list,
         'node_valid_mask': node_valid_mask,
         'edge_features': edge_features,
         'step_valid_mask': step_valid_mask,
+        'step_invalid_types': step_invalid_types_list,
         'path_padding_mask': path_padding_mask,
         'path_targets': path_targets,
         'step_targets': step_targets,

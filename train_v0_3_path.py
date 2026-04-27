@@ -3,7 +3,8 @@
 """
 v0.3 长链路路径训练脚本
 
-支持路径级 + 步骤级联合训练。
+路径级主监督训练，步骤级损失默认关闭。
+支持课程学习（short-to-long）、长度分桶、弱幅度正则、辅助合法性损失。
 输入为路径 JSON 文件，每条样本包含完整演化路径。
 兼容非法中间节点容错、可变长度路径 padding。
 
@@ -12,7 +13,7 @@ v0.3 长链路路径训练脚本
         -d mol_evo/dataset/data/paths.json \
         -p lumo_change \
         -e 200 \
-        --step-loss-weight 0.3
+        --step-loss-weight 0.0
 """
 
 import sys
@@ -28,6 +29,7 @@ import random
 import json
 
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 # 设置项目根目录路径
@@ -78,54 +80,101 @@ def compute_path_loss(
     output: dict,
     batch_dict: dict,
     criterion: nn.Module,
-    step_loss_weight: float = 0.3,
+    step_loss_weight: float = 0.0,
+    validity_loss_weight: float = 0.0,
+    magnitude_reg_weight: float = 0.0,
 ) -> tuple:
     """
-    计算路径级 + 步骤级联合损失。
+    计算路径级主损失，可选步骤辅助损失、合法性辅助损失和弱幅度正则。
     
     Args:
-        output: 模型输出 dict {'path_pred': (B,1), 'step_pred': (B,S,1) or None}
+        output: 模型输出 dict {
+            'path_pred': (B,1),
+            'step_pred': (B,S,1) or None,
+            'validity_pred': (B,S,1) or None,
+        }
         batch_dict: path_collate 返回的 batch dict
         criterion: 损失函数 (L1Loss)
-        step_loss_weight: 步骤辅助损失的权重
+        step_loss_weight: 步骤辅助损失权重（默认 0，即仅路径主监督）
+        validity_loss_weight: 合法性辅助损失权重
+        magnitude_reg_weight: 弱幅度 L2 正则权重
         
     Returns:
-        (total_loss, path_loss_value, step_loss_value)
+        (total_loss, loss_details_dict)
+        loss_details_dict 包含各分项的 float 值，供日志使用
     """
     path_pred = output['path_pred']      # (B, output_dim)
     path_targets = batch_dict['path_targets']  # (B, 1)
     
-    # 路径级损失
+    # 路径级主损失
     path_loss = criterion(path_pred, path_targets)
+    total_loss = path_loss
     
-    # 步骤级损失（可选）
-    step_loss_value = 0.0
+    loss_details = {
+        'path_loss': path_loss.item(),
+        'step_loss': 0.0,
+        'validity_loss': 0.0,
+        'magnitude_reg': 0.0,
+    }
+    
+    # ====== 步骤级辅助损失（可选，默认关闭）======
     step_pred = output.get('step_pred')
-    
-    if step_pred is not None and batch_dict.get('has_step_targets') and batch_dict['step_targets'] is not None:
+    if (step_loss_weight > 0
+            and step_pred is not None
+            and batch_dict.get('has_step_targets')
+            and batch_dict['step_targets'] is not None):
         step_targets = batch_dict['step_targets']  # (B, S)
         step_valid_mask = batch_dict['step_valid_mask']  # (B, S)
         
-        # step_pred: (B, S, output_dim) → squeeze 到 (B, S)
         if step_pred.dim() == 3 and step_pred.size(-1) == 1:
-            step_pred_flat = step_pred.squeeze(-1)  # (B, S)
+            step_pred_flat = step_pred.squeeze(-1)
         else:
             step_pred_flat = step_pred
         
-        # 只对有效步骤计算损失
         if step_valid_mask.any():
             valid_pred = step_pred_flat[step_valid_mask]
             valid_target = step_targets[step_valid_mask]
             step_loss = criterion(valid_pred, valid_target)
-            step_loss_value = step_loss.item()
-            
-            total_loss = path_loss + step_loss_weight * step_loss
-        else:
-            total_loss = path_loss
-    else:
-        total_loss = path_loss
+            loss_details['step_loss'] = step_loss.item()
+            total_loss = total_loss + step_loss_weight * step_loss
     
-    return total_loss, path_loss.item(), step_loss_value
+    # ====== 合法性辅助损失（可选）======
+    validity_pred = output.get('validity_pred')
+    if (validity_loss_weight > 0
+            and validity_pred is not None
+            and 'step_valid_mask' in batch_dict):
+        step_valid_mask = batch_dict['step_valid_mask']  # (B, S) bool — True 表示该步合法
+        path_padding_mask = batch_dict['path_padding_mask']  # (B, S) bool — True 表示有效位置
+        
+        if validity_pred.dim() == 3 and validity_pred.size(-1) == 1:
+            validity_pred_flat = validity_pred.squeeze(-1)  # (B, S)
+        else:
+            validity_pred_flat = validity_pred
+        
+        # 仅在非 padding 位置计算合法性损失
+        if path_padding_mask.any():
+            valid_positions = path_padding_mask
+            pred_at_valid = validity_pred_flat[valid_positions]  # logits
+            target_at_valid = step_valid_mask[valid_positions].float()  # 0/1
+            validity_loss = F.binary_cross_entropy_with_logits(pred_at_valid, target_at_valid)
+            loss_details['validity_loss'] = validity_loss.item()
+            total_loss = total_loss + validity_loss_weight * validity_loss
+    
+    # ====== 弱幅度 L2 正则（可选）======
+    if magnitude_reg_weight > 0 and step_pred is not None:
+        if step_pred.dim() == 3 and step_pred.size(-1) == 1:
+            step_vals = step_pred.squeeze(-1)  # (B, S)
+        else:
+            step_vals = step_pred
+        
+        path_padding_mask = batch_dict['path_padding_mask']
+        mask_float = path_padding_mask.float()
+        # L2 正则: mean of squared step predictions at valid positions
+        mag_reg = (step_vals ** 2 * mask_float).sum() / mask_float.sum().clamp(min=1.0)
+        loss_details['magnitude_reg'] = mag_reg.item()
+        total_loss = total_loss + magnitude_reg_weight * mag_reg
+    
+    return total_loss, loss_details
 
 
 def train_path_model(
@@ -137,9 +186,14 @@ def train_path_model(
     learning_rate: float = 0.001,
     model_type: str = "visnet_path_v0_3",
     model_config: dict = None,
-    step_loss_weight: float = 0.3,
+    step_loss_weight: float = 0.0,
+    validity_loss_weight: float = 0.0,
+    magnitude_reg_weight: float = 0.0,
     max_path_length: int = 20,
     keep_invalid_middle: bool = True,
+    enable_curriculum: bool = False,
+    curriculum_schedule: list = None,
+    enable_length_bucket: bool = False,
 ):
     """
     v0.3 路径训练主函数。
@@ -166,8 +220,13 @@ def train_path_model(
         learning_rate = train_config.get('learning_rate', learning_rate)
         max_paths = train_config.get('max_paths', max_paths)
         step_loss_weight = train_config.get('step_loss_weight', step_loss_weight)
+        validity_loss_weight = train_config.get('validity_loss_weight', validity_loss_weight)
+        magnitude_reg_weight = train_config.get('magnitude_reg_weight', magnitude_reg_weight)
         max_path_length = train_config.get('max_path_length', max_path_length)
         keep_invalid_middle = train_config.get('keep_invalid_middle', keep_invalid_middle)
+        enable_curriculum = train_config.get('enable_curriculum', enable_curriculum)
+        curriculum_schedule = train_config.get('curriculum_schedule', curriculum_schedule)
+        enable_length_bucket = train_config.get('enable_length_bucket', enable_length_bucket)
         final_model_config = model_config.get('model', {}).copy()
     else:
         try:
@@ -188,8 +247,14 @@ def train_path_model(
     logger.info(f"目标属性: {TARGET_PROPERTY}")
     logger.info(f"模型类型: {model_type}")
     logger.info(f"步骤损失权重: {step_loss_weight}")
+    logger.info(f"合法性损失权重: {validity_loss_weight}")
+    logger.info(f"幅度正则权重: {magnitude_reg_weight}")
     logger.info(f"最大路径长度: {max_path_length}")
     logger.info(f"保留非法中间节点: {keep_invalid_middle}")
+    logger.info(f"课程学习: {enable_curriculum}")
+    if enable_curriculum and curriculum_schedule:
+        logger.info(f"课程学习计划: {curriculum_schedule}")
+    logger.info(f"长度分桶: {enable_length_bucket}")
     
     # 早停参数
     patience_limit = 50
@@ -244,9 +309,18 @@ def train_path_model(
             logger.info(f"更新边特征维度: {final_model_config.get('edge_feature_dim', 15)} -> {sample_edge_dim}")
             final_model_config['edge_feature_dim'] = sample_edge_dim
         
-        # 设置步骤头开关
+        # 设置步骤头开关（默认关闭，除非数据有步骤标签且用户配置了 step_loss_weight > 0）
         has_any_step_targets = any(p['step_targets'] is not None for p in processed_paths)
-        final_model_config.setdefault('enable_step_head', has_any_step_targets)
+        if step_loss_weight > 0 and has_any_step_targets:
+            final_model_config.setdefault('enable_step_head', True)
+        else:
+            final_model_config.setdefault('enable_step_head', False)
+        
+        # 设置合法性头开关
+        if validity_loss_weight > 0:
+            final_model_config.setdefault('enable_validity_head', True)
+        else:
+            final_model_config.setdefault('enable_validity_head', False)
         
         model = ModelFactory.create(model_type, **final_model_config)
         logger.info(f"模型创建成功: {model.__class__.__name__}")
@@ -276,8 +350,13 @@ def train_path_model(
             "batch_size": batch_size,
             "learning_rate": learning_rate,
             "step_loss_weight": step_loss_weight,
+            "validity_loss_weight": validity_loss_weight,
+            "magnitude_reg_weight": magnitude_reg_weight,
             "max_path_length": max_path_length,
             "keep_invalid_middle": keep_invalid_middle,
+            "enable_curriculum": enable_curriculum,
+            "curriculum_schedule": curriculum_schedule,
+            "enable_length_bucket": enable_length_bucket,
         })
         metrics_recorder.set_property_stats(property_stats)
         
@@ -294,14 +373,44 @@ def train_path_model(
                 "batch_size": batch_size,
                 "learning_rate": learning_rate,
                 "step_loss_weight": step_loss_weight,
+                "validity_loss_weight": validity_loss_weight,
+                "magnitude_reg_weight": magnitude_reg_weight,
                 "max_path_length": max_path_length,
                 "keep_invalid_middle": keep_invalid_middle,
+                "enable_curriculum": enable_curriculum,
+                "curriculum_schedule": curriculum_schedule,
+                "enable_length_bucket": enable_length_bucket,
             },
             "build_stats": build_stats,
             "property_stats": {k: list(v) for k, v in property_stats.items()},
         }
         with open(os.path.join(model_dir, "model_config.json"), 'w', encoding='utf-8') as f:
             json.dump(config_save, f, ensure_ascii=False, indent=2)
+        
+        # ====== 课程学习计划 ======
+        # 默认 schedule: [(0, 2), (epoch//4, 5), (epoch//2, 10), (epoch*3//4, max_path_length)]
+        if enable_curriculum:
+            if curriculum_schedule is None:
+                curriculum_schedule = [
+                    [0, 2],
+                    [epochs // 4, 5],
+                    [epochs // 2, 10],
+                    [epochs * 3 // 4, max_path_length],
+                ]
+            logger.info(f"课程学习计划（自动生成）: {curriculum_schedule}")
+        
+        # ====== 路径长度分布日志 ======
+        length_dist = {}
+        for p in train_paths:
+            l = p['num_steps']
+            length_dist[l] = length_dist.get(l, 0) + 1
+        logger.info(f"训练集路径长度分布: {dict(sorted(length_dist.items()))}")
+        
+        # 非法步骤比例
+        total_steps_train = sum(p['num_steps'] for p in train_paths)
+        valid_steps_train = sum(sum(p['step_valid_mask']) for p in train_paths)
+        invalid_ratio = 1.0 - valid_steps_train / max(total_steps_train, 1)
+        logger.info(f"训练集非法步骤比例: {invalid_ratio:.4f}")
         
         # ====== 训练循环 ======
         best_val_loss = float('inf')
@@ -313,12 +422,34 @@ def train_path_model(
         
         model.train()
         for epoch in tqdm(range(epochs), desc="Training Epochs"):
+            # ---- 课程学习：动态决定当前 epoch 的最大允许路径长度 ----
+            curr_max_len = max_path_length
+            if enable_curriculum and curriculum_schedule:
+                for stage_epoch, stage_max_len in curriculum_schedule:
+                    if epoch >= stage_epoch:
+                        curr_max_len = stage_max_len
+            
+            # 如果课程学习限制了长度，需要过滤训练数据并重建 loader
+            if enable_curriculum and curr_max_len < max_path_length:
+                filtered_train = [p for p in train_paths if p['num_steps'] <= curr_max_len]
+                if len(filtered_train) == 0:
+                    filtered_train = train_paths  # fallback
+                curr_train_dataset = MoleculePathDataset(filtered_train)
+                curr_train_loader = DataLoader(
+                    curr_train_dataset, batch_size=batch_size, shuffle=True,
+                    num_workers=0, collate_fn=path_collate, pin_memory=True
+                )
+            else:
+                curr_train_loader = train_loader
+            
+            epoch_total_loss = 0.0
             epoch_path_loss = 0.0
             epoch_step_loss = 0.0
-            epoch_total_loss = 0.0
+            epoch_validity_loss = 0.0
+            epoch_mag_reg = 0.0
             epoch_samples = 0
             
-            for batch_dict in train_loader:
+            for batch_dict in curr_train_loader:
                 optimizer.zero_grad()
                 
                 batch_dict = move_path_batch_to_device(batch_dict, device)
@@ -327,8 +458,11 @@ def train_path_model(
                 output = model(batch_dict)
                 
                 # 计算损失
-                total_loss, path_loss_val, step_loss_val = compute_path_loss(
-                    output, batch_dict, criterion, step_loss_weight
+                total_loss, loss_details = compute_path_loss(
+                    output, batch_dict, criterion,
+                    step_loss_weight=step_loss_weight,
+                    validity_loss_weight=validity_loss_weight,
+                    magnitude_reg_weight=magnitude_reg_weight,
                 )
                 
                 if math.isnan(total_loss.item()) or math.isinf(total_loss.item()):
@@ -342,8 +476,10 @@ def train_path_model(
                 
                 bs = batch_dict['batch_size']
                 epoch_total_loss += total_loss.item() * bs
-                epoch_path_loss += path_loss_val * bs
-                epoch_step_loss += step_loss_val * bs
+                epoch_path_loss += loss_details['path_loss'] * bs
+                epoch_step_loss += loss_details['step_loss'] * bs
+                epoch_validity_loss += loss_details['validity_loss'] * bs
+                epoch_mag_reg += loss_details['magnitude_reg'] * bs
                 epoch_samples += bs
             
             if should_stop:
@@ -352,6 +488,8 @@ def train_path_model(
             epoch_total_loss /= max(epoch_samples, 1)
             epoch_path_loss /= max(epoch_samples, 1)
             epoch_step_loss /= max(epoch_samples, 1)
+            epoch_validity_loss /= max(epoch_samples, 1)
+            epoch_mag_reg /= max(epoch_samples, 1)
             metrics_recorder.record_train_loss(epoch_total_loss)
             
             # ====== 验证 ======
@@ -365,8 +503,11 @@ def train_path_model(
                     for batch_dict in val_loader:
                         batch_dict = move_path_batch_to_device(batch_dict, device)
                         output = model(batch_dict)
-                        total_loss_val, _, _ = compute_path_loss(
-                            output, batch_dict, criterion, step_loss_weight
+                        total_loss_val, _ = compute_path_loss(
+                            output, batch_dict, criterion,
+                            step_loss_weight=step_loss_weight,
+                            validity_loss_weight=validity_loss_weight,
+                            magnitude_reg_weight=magnitude_reg_weight,
                         )
                         bs = batch_dict['batch_size']
                         val_total += total_loss_val.item() * bs
@@ -400,9 +541,18 @@ def train_path_model(
             
             # 日志
             if (epoch + 1) % 10 == 0:
-                msg = f"Epoch {epoch+1}/{epochs} | Total: {epoch_total_loss:.6f} | Path: {epoch_path_loss:.6f} | Step: {epoch_step_loss:.6f}"
+                msg = (f"Epoch {epoch+1}/{epochs} | Total: {epoch_total_loss:.6f} "
+                       f"| Path: {epoch_path_loss:.6f}")
+                if step_loss_weight > 0:
+                    msg += f" | Step: {epoch_step_loss:.6f}"
+                if validity_loss_weight > 0:
+                    msg += f" | Valid: {epoch_validity_loss:.6f}"
+                if magnitude_reg_weight > 0:
+                    msg += f" | MagReg: {epoch_mag_reg:.6f}"
                 if val_loss is not None:
                     msg += f" | Val: {val_loss:.6f}"
+                if enable_curriculum:
+                    msg += f" | CurrMaxLen: {curr_max_len}"
                 logger.info(msg)
         
         if should_stop:
@@ -503,14 +653,22 @@ def main():
                        help='模型类型')
     parser.add_argument('-c', '--config-file', type=str, default=None,
                        help='YAML 配置文件路径')
-    parser.add_argument('--step-loss-weight', type=float, default=0.3,
-                       help='步骤辅助损失权重')
+    parser.add_argument('--step-loss-weight', type=float, default=0.0,
+                       help='步骤辅助损失权重（默认 0，即仅路径主监督）')
+    parser.add_argument('--validity-loss-weight', type=float, default=0.0,
+                       help='合法性辅助损失权重')
+    parser.add_argument('--magnitude-reg-weight', type=float, default=0.0,
+                       help='弱幅度 L2 正则权重')
     parser.add_argument('--max-path-length', type=int, default=20,
                        help='最大路径步数')
     parser.add_argument('--keep-invalid-middle', action='store_true', default=True,
                        help='保留含非法中间节点的路径')
     parser.add_argument('--drop-invalid-middle', action='store_true', default=False,
                        help='丢弃含非法中间节点的路径')
+    parser.add_argument('--enable-curriculum', action='store_true', default=False,
+                       help='启用课程学习（short-to-long）')
+    parser.add_argument('--enable-length-bucket', action='store_true', default=False,
+                       help='启用按路径长度分桶')
     
     args = parser.parse_args()
     
@@ -541,8 +699,12 @@ def main():
         model_type=args.model_type,
         model_config=model_config if model_config else None,
         step_loss_weight=args.step_loss_weight,
+        validity_loss_weight=args.validity_loss_weight,
+        magnitude_reg_weight=args.magnitude_reg_weight,
         max_path_length=args.max_path_length,
         keep_invalid_middle=keep_invalid,
+        enable_curriculum=args.enable_curriculum,
+        enable_length_bucket=args.enable_length_bucket,
     )
 
 

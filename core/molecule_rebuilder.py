@@ -611,7 +611,7 @@ class MoleculeRebuilder:
         
         return output
     
-    def visualize_with_mpl(self, output_file: str = None, cols: int = 4, figsize: tuple = (20, 15)):
+    def visualize_with_mpl(self, output_file: str = None, cols: int = 4, figsize: tuple = (20, 15), hspace: float = 0.3):
         """
         使用 matplotlib 可视化每一步的分子结构。
         
@@ -619,6 +619,7 @@ class MoleculeRebuilder:
             output_file: 输出图像文件路径
             cols: 每行显示的分子数量
             figsize: 图像大小 (width, height)
+            hspace: 子图行间距（归一化值，默认0.3，越小行间距越小）
         """        
         if not self.steps:
             self.rebuild_step_by_step()
@@ -671,7 +672,7 @@ class MoleculeRebuilder:
                 ax.text(0.5, 0.5, "Invalid\nMolecule", 
                        ha='center', va='center', fontsize=12, color='red')
             
-            ax.set_title(legends[idx], fontsize=10)
+            ax.set_title(legends[idx], fontsize=18, fontweight='bold')
             ax.axis('off')
         
         # 隐藏多余的子图
@@ -680,12 +681,16 @@ class MoleculeRebuilder:
             col = idx % cols
             axes[row, col].axis('off')
         
-        plt.tight_layout()
+        plt.tight_layout(h_pad=hspace, w_pad=0.5)
+        plt.subplots_adjust(hspace=hspace)
         
         if output_file:
             # 确保目录存在
             os.makedirs(os.path.dirname(output_file) if os.path.dirname(output_file) else ".", exist_ok=True)
             plt.savefig(output_file, dpi=150, bbox_inches='tight')
+            # 同时生成 PDF 文件
+            pdf_file = os.path.splitext(output_file)[0] + '.pdf'
+            plt.savefig(pdf_file, bbox_inches='tight')
 
 
 class PairMoleculeRebuilder(MoleculeRebuilder):
@@ -1056,12 +1061,12 @@ class PairMoleculeRebuilder(MoleculeRebuilder):
                 ax.imshow(np.array(img))
                 
                 # 添加步骤标记
-                ax.set_xlabel(all_steps[i], fontsize=7, wrap=True)
+                ax.set_xlabel(all_steps[i], fontsize=12, wrap=True)
             else:
                 ax.text(0.5, 0.5, "无效分子", ha='center', va='center', fontsize=12)
-                ax.set_xlabel(all_steps[i], fontsize=7, wrap=True)
+                ax.set_xlabel(all_steps[i], fontsize=12, wrap=True)
             
-            ax.set_title(f"步骤 {i+1}: {all_legends[i]}", fontsize=9, fontweight='bold')
+            ax.set_title(f"步骤 {i+1}: {all_legends[i]}", fontsize=14, fontweight='bold')
             ax.axis('off')
         
         # 隐藏多余的子图
@@ -1213,12 +1218,12 @@ class PairMoleculeRebuilder(MoleculeRebuilder):
                 ax.imshow(np.array(img))
                 
                 # 添加步骤标记
-                ax.set_xlabel(all_steps[i], fontsize=7, wrap=True)
+                ax.set_xlabel(all_steps[i], fontsize=12, wrap=True)
             else:
                 ax.text(0.5, 0.5, "无效分子", ha='center', va='center', fontsize=12)
-                ax.set_xlabel(all_steps[i], fontsize=7, wrap=True)
+                ax.set_xlabel(all_steps[i], fontsize=12, wrap=True)
             
-            ax.set_title(f"步骤 {i+1}: {all_legends[i]}", fontsize=9, fontweight='bold')
+            ax.set_title(f"步骤 {i+1}: {all_legends[i]}", fontsize=14, fontweight='bold')
             ax.axis('off')
         
         # 隐藏多余的子图

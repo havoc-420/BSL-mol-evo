@@ -13,6 +13,8 @@ import time
 import pandas as pd
 import uuid
 import traceback
+import glob
+import torch
 from rdkit import RDLogger
 import signal
 from datetime import datetime
@@ -177,8 +179,39 @@ def create_output_dir(output_dir=None):
     os.makedirs(base_dir, exist_ok=True)
     return base_dir
 
-def read_csv_data(csv_path, start_idx=0, end_idx=-1, target_property='lumo'):
-    """读取CSV数据"""
+def scan_completed_smiles(output_dir):
+    """扫描输出目录，返回已成功完成的分子smiles集合。
+    
+    判断标准：有json文件 + 有对应的topK.csv文件，且json中包含有效的nodes。
+    """
+    completed = set()
+    if not output_dir or not os.path.isdir(output_dir):
+        return completed
+    
+    # 找到所有 _topK.csv 文件，说明该分子已完整处理
+    topk_files = glob.glob(os.path.join(output_dir, "*_topK.csv"))
+    for topk_file in topk_files:
+        # topK文件名格式: {smiles_prefix}_{run_id}_topK.csv
+        # 对应的json: {smiles_prefix}_{run_id}.json
+        json_file = topk_file.replace("_topK.csv", ".json")
+        if not os.path.exists(json_file):
+            continue
+        # 验证json文件有效性
+        try:
+            with open(json_file, 'r') as f:
+                data = json.load(f)
+            initial_smiles = data.get('initial_smiles')
+            nodes = data.get('nodes', {})
+            if initial_smiles and nodes:
+                completed.add(initial_smiles)
+        except (json.JSONDecodeError, IOError):
+            continue
+    
+    return completed
+
+
+def read_csv_data(csv_path, start_idx=0, end_idx=-1, target_property='lumo', completed_smiles=None):
+    """读取CSV数据，可跳过已完成的分子"""
     df = pd.read_csv(csv_path)
     if end_idx > 0:
         df = df.iloc[start_idx:end_idx]
@@ -186,9 +219,16 @@ def read_csv_data(csv_path, start_idx=0, end_idx=-1, target_property='lumo'):
         df = df.iloc[start_idx:]
     
     data_list = []
+    skipped = 0
     for _, row in df.iterrows():
         # 从smiles列获取分子结构
         smiles = row['smiles']
+        
+        # 断点续传：跳过已完成的分子
+        if completed_smiles is not None and smiles in completed_smiles:
+            skipped += 1
+            continue
+        
         # 根据目标属性动态获取属性值
         property_value = row[target_property]
         
@@ -197,6 +237,10 @@ def read_csv_data(csv_path, start_idx=0, end_idx=-1, target_property='lumo'):
             'property_value': property_value,
             'original_row': row.to_dict()
         })
+    
+    if skipped > 0:
+        print(f"断点续传: 跳过 {skipped} 个已完成的分子，剩余 {len(data_list)} 个待处理")
+    
     return data_list
 
 def run_evolution_optimizer(optimizer, smiles, property_value, args, output_dir):
@@ -278,15 +322,88 @@ def run_evolution_optimizer(optimizer, smiles, property_value, args, output_dir)
             'error': error_msg
         }
 
-def batch_process(data_list, args, output_dir):
+def load_existing_results(output_dir):
+    """从已有的json结果文件加载已完成分子的结果，用于断点续传合并"""
+    existing_results = {}
+    if not output_dir or not os.path.isdir(output_dir):
+        return existing_results
+    
+    json_files = glob.glob(os.path.join(output_dir, "*.json"))
+    # 排除 batch_results.json 等汇总文件
+    for jf in json_files:
+        basename = os.path.basename(jf)
+        if basename.startswith("batch_") or basename.startswith("batch_optimization_"):
+            continue
+        try:
+            with open(jf, 'r') as f:
+                data = json.load(f)
+            initial_smiles = data.get('initial_smiles')
+            nodes = data.get('nodes', {})
+            if initial_smiles and nodes:
+                existing_results[initial_smiles] = {
+                    'json_file': jf,
+                    'data': data
+                }
+        except (json.JSONDecodeError, IOError):
+            continue
+    
+    return existing_results
+
+
+def batch_process(data_list, args, output_dir, existing_results=None):
     """批量处理数据"""
     results_dict = {}    
     total_count = len(data_list)
     
+    # 如果有已有结果，先加载到 results_dict 中
+    if existing_results:
+        for smiles, info in existing_results.items():
+            results_dict[smiles] = {
+                'original_data': None,  # 原始行数据不在已有json中，后续补充
+                'optimization_result': {
+                    'status': 'success',
+                    'smiles': smiles,
+                    'initial_property': info['data'].get('nodes', {}).get('0', {}).get('property_value'),
+                    'optimized_result': info['data'],
+                    'topk_results': None,  # topK在csv中，不需要加载
+                    'runtime': 0
+                }
+            }
+        print(f"断点续传: 已加载 {len(existing_results)} 个已完成的结果")
+    
     # 创建总日志文件
     total_log_file = os.path.join(output_dir, "batch_optimization_total.log")
     
-    print(f"=== 开始批量处理，共 {total_count} 个分子 ===")
+    # 保存一份 config.json 到输出目录，记录本次运行的完整 CLI 参数
+    config_path = os.path.join(output_dir, "config.json")
+    if not os.path.exists(config_path):
+        run_config = {
+            "input_csv": args.input_csv,
+            "model_path": args.model_path,
+            "model_dir": args.model_dir,
+            "config_file": args.config_file,
+            "target_property": args.target_property,
+            "optimization_mode": args.optimization_mode,
+            "optimization_direction": args.direction,
+            "max_depth": args.max_depth,
+            "max_branching": args.max_branching,
+            "pruning_patience": args.pruning_patience,
+            "logp_range": [args.logp_min, args.logp_max],
+            "logp_patience": args.logp_patience,
+            "topK": args.topK,
+            "batch_size": args.batch_size,
+            "search_mode": args.search_mode,
+            "num_simulations": args.num_simulations if args.search_mode == 'mcts' else None,
+            "exploration_weight": args.exploration_weight if args.search_mode == 'mcts' else None,
+            "start_index": args.start_index,
+            "end_index": args.end_index,
+        }
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(run_config, f, indent=2, ensure_ascii=False)
+    else:
+        print(f"config.json 已存在，跳过写入（断点续传）")
+    
+    print(f"=== 开始批量处理，共 {total_count} 个分子待处理 ===")
     print(f"总日志文件: {total_log_file}")
     
     # 记录开始时间
@@ -352,6 +469,11 @@ def batch_process(data_list, args, output_dir):
             args._rl_trainer = None
     
     for i, data in enumerate(data_list):
+        # 检查中断标志
+        if interrupted:
+            print(f"\n=== 检测到中断信号，正在保存已有结果... ===")
+            break
+        
         smiles = data['smiles']
         property_value = data['property_value']
         
@@ -380,6 +502,13 @@ def batch_process(data_list, args, output_dir):
             'optimization_result': result
         }
         
+        # 每个分子处理完后主动 del 优化器内部可能残留的大对象，
+        # 然后每 10 个分子低频清一次 GPU cache，在"nvidia-smi 显存好看"
+        # 和"不频繁触发 CUDA malloc/free 开销"之间取平衡。
+        # gc.collect() 开销大且不必要（del + 引用计数已足够），不调用。
+        if (i + 1) % 10 == 0 and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
         # 记录到总日志
         with open(total_log_file, 'a') as f:
             f.write(f"状态: {result['status']}\n")
@@ -401,7 +530,7 @@ def batch_process(data_list, args, output_dir):
     with open(total_log_file, 'a') as f:
         f.write(f"\n=== 批量处理完成 ===\n")
         f.write(f"总耗时: {total_time:.2f} 秒\n")
-        f.write(f"平均每个分子耗时: {total_time/total_count:.2f} 秒\n")
+        f.write(f"平均每个分子耗时: {total_time/max(total_count,1):.2f} 秒\n")
     
     return results_dict
 
@@ -414,6 +543,25 @@ def save_results(results_dict, output_json, output_dir):
         json.dump(results_dict, f, indent=2, ensure_ascii=False)
     
     return output_json
+
+
+def save_results_from_existing(existing_results, output_json, output_dir):
+    """从已有结果文件合并保存汇总结果（用于所有分子都已完成的续传场景）"""
+    results_dict = {}
+    for smiles, info in existing_results.items():
+        data = info['data']
+        results_dict[smiles] = {
+            'original_data': None,
+            'optimization_result': {
+                'status': 'success',
+                'smiles': smiles,
+                'initial_property': data.get('nodes', {}).get('0', {}).get('property_value'),
+                'optimized_result': data,
+                'topk_results': None,
+                'runtime': 0
+            }
+        }
+    return save_results(results_dict, output_json, output_dir)
 
 def main():
     """主函数"""
@@ -428,11 +576,25 @@ def main():
     print(f"主日志文件: {main_log_file}")
     print(f"读取CSV文件: {args.input_csv}")
     
-    # 记录配置信息到主日志
-    with open(main_log_file, 'w') as f:
-        f.write(f"=== 批量分子优化配置 ===\n")
+    # 断点续传：扫描已完成的分子
+    completed_smiles = scan_completed_smiles(output_dir)
+    existing_results = load_existing_results(output_dir) if resume_dir else None
+    
+    if completed_smiles:
+        print(f"断点续传: 发现 {len(completed_smiles)} 个已完成的分子")
+    
+    # 记录配置信息到主日志（续传模式追加，非续传模式覆盖）
+    log_mode = 'a' if resume_dir else 'w'
+    with open(main_log_file, log_mode) as f:
+        f.write(f"\n{'===' * 20}\n")
+        f.write(f"=== 批量分子优化{'(续传)' if resume_dir else '配置'} ===\n")
+        f.write(f"{'===' * 20}\n")
         f.write(f"启动时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"输出目录: {output_dir}\n")
+        if resume_dir:
+            f.write(f"续传目录: {output_dir}\n")
+            f.write(f"已完成分子数: {len(completed_smiles)}\n")
+        else:
+            f.write(f"输出目录: {output_dir}\n")
         f.write(f"输入CSV文件: {args.input_csv}\n")
         f.write(f"模型路径: {args.model_path}\n")
         f.write(f"模型目录: {args.model_dir}\n")
@@ -465,18 +627,26 @@ def main():
             f.write(f"open_set_budget: {args.open_set_budget}\n")
         f.write("\n")
     
-    # 读取数据
-    data_list = read_csv_data(args.input_csv, args.start_index, args.end_index, args.target_property)
-    print(f"读取到 {len(data_list)} 个分子数据")
+    # 读取数据（跳过已完成的分子）
+    data_list = read_csv_data(args.input_csv, args.start_index, args.end_index, args.target_property, completed_smiles)
+    print(f"待处理分子数: {len(data_list)}")
     
     # 更新主日志
     with open(main_log_file, 'a') as f:
-        f.write(f"读取到 {len(data_list)} 个分子数据\n")
+        f.write(f"待处理分子数: {len(data_list)}\n")
+    
+    if not data_list:
+        print("所有分子已处理完毕，无需继续。")
+        # 仍然保存合并后的结果
+        if existing_results:
+            final_output = save_results_from_existing(existing_results, args.output_json, output_dir)
+            print(f"合并结果已保存到: {final_output}")
+        return
     
     # 执行批量处理
     start_time = time.time()
     # TAG core
-    results_dict = batch_process(data_list, args, output_dir)
+    results_dict = batch_process(data_list, args, output_dir, existing_results)
     end_time = time.time()
     
     # 保存最终结果
@@ -484,23 +654,24 @@ def main():
     
     # 统计结果
     success_count = sum(1 for r in results_dict.values() 
-                       if r['optimization_result']['status'] == 'success')
+                       if r.get('optimization_result', {}).get('status') == 'success')
     failure_count = len(results_dict) - success_count
     
     # 更新主日志
     with open(main_log_file, 'a') as f:
         f.write(f"\n=== 批量处理完成 ===\n")
         f.write(f"结束时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"总耗时: {end_time - start_time:.2f} 秒\n")
-        f.write(f"成功: {success_count}, 失败: {failure_count}\n")
-        f.write(f"成功率: {success_count/len(results_dict)*100:.1f}%\n")
+        f.write(f"本轮耗时: {end_time - start_time:.2f} 秒\n")
+        f.write(f"总成功: {success_count}, 失败: {failure_count}\n")
+        total = max(len(results_dict), 1)
+        f.write(f"成功率: {success_count/total*100:.1f}%\n")
         f.write(f"结果文件: {final_output}\n")
     
     # 打印最终统计信息
     print(f"\n=== 批量处理完成！ ===")
-    print(f"总耗时: {end_time - start_time:.2f} 秒")
-    print(f"成功: {success_count}, 失败: {failure_count}")
-    print(f"成功率: {success_count/len(results_dict)*100:.1f}%")
+    print(f"本轮耗时: {end_time - start_time:.2f} 秒")
+    print(f"总成功: {success_count}, 失败: {failure_count}")
+    print(f"成功率: {success_count/max(len(results_dict),1)*100:.1f}%")
     print(f"结果文件: {final_output}")
     print(f"详细日志已保存到: {output_dir}")
 

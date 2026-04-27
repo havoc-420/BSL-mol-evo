@@ -9,8 +9,9 @@ v0.3 长链路路径基座模型 — VisNet 节点编码 + Step Token 融合 + P
 - 步骤编码层：每步组合 from_feat / to_feat / diff_feat / edge_feat → step token
 - 路径编码层：Transformer Encoder 建模长链路上下文 (带 padding mask)
 - 输出头：
-  - path_head: 路径总属性变化回归
-  - step_head: 每步属性变化回归 (辅助)
+  - path_head: 路径总属性变化回归（主输出）
+  - step_head: 每步属性变化回归（可选辅助，默认关闭）
+  - validity_head: 每步合法性预测（可选辅助，利用节点合法性白送的监督信号）
 
 输入约定 (由 path_collate 提供的 batch dict):
 - node_batch_list: List[Batch], 长度 = max_num_nodes
@@ -22,6 +23,7 @@ v0.3 长链路路径基座模型 — VisNet 节点编码 + Step Token 融合 + P
 输出:
 - path_pred: (B, output_dim)
 - step_pred: (B, max_steps, output_dim) 或 None
+- validity_pred: (B, max_steps, 1) 或 None  — 每步合法性 logit
 """
 
 import torch
@@ -47,8 +49,9 @@ class MoleculeEvolutionVisnetPathPredictorV03(nn.Module):
         2. 非法节点 → 可学习 invalid_node_embedding (512 维)
         3. Step Encoder: [from_feat, to_feat, diff_feat, edge_feat] → step_dim
         4. Path Transformer Encoder: step_dim → 上下文 step 表示
-        5. path_head: 首尾特征 + 路径全局表示 → 总变化预测
-        6. step_head: 每步上下文表示 → 步级变化预测
+        5. path_head: 首尾特征 + 路径全局表示 → 总变化预测（主输出）
+        6. step_head: 每步上下文表示 → 步级变化预测（可选辅助，默认关闭）
+        7. validity_head: 每步上下文表示 → 步级合法性预测（可选辅助）
     """
 
     def __init__(
@@ -64,8 +67,10 @@ class MoleculeEvolutionVisnetPathPredictorV03(nn.Module):
         path_dropout: float = 0.1,
         # 步骤编码参数
         step_hidden_dim: int = 256,
-        # 辅助步骤头开关
-        enable_step_head: bool = True,
+        # 辅助步骤头开关（默认关闭，与路径级主监督设计一致）
+        enable_step_head: bool = False,
+        # 辅助合法性预测头开关
+        enable_validity_head: bool = False,
     ):
         """
         Args:
@@ -78,7 +83,8 @@ class MoleculeEvolutionVisnetPathPredictorV03(nn.Module):
             path_dim_feedforward: Transformer FFN 中间维度
             path_dropout: Transformer dropout
             step_hidden_dim: 步骤编码器输出维度
-            enable_step_head: 是否启用步骤级辅助输出头
+            enable_step_head: 是否启用步骤级辅助输出头（默认关闭）
+            enable_validity_head: 是否启用步骤合法性辅助预测头
         """
         super().__init__()
         
@@ -90,6 +96,7 @@ class MoleculeEvolutionVisnetPathPredictorV03(nn.Module):
         self.hidden_dims = hidden_dims
         self.output_dim = output_dim
         self.enable_step_head = enable_step_head
+        self.enable_validity_head = enable_validity_head
         
         # ====== 1. 节点编码器 (共享权重) ======
         # VisNet 输出 = hidden_dims[-1] * 2 = 512
@@ -150,7 +157,7 @@ class MoleculeEvolutionVisnetPathPredictorV03(nn.Module):
             nn.Linear(256, output_dim),
         )
         
-        # ====== 6. 步骤级辅助输出头 (可选) ======
+        # ====== 6. 步骤级辅助输出头 (可选，默认关闭) ======
         if enable_step_head:
             self.step_head = nn.Sequential(
                 nn.Linear(step_hidden_dim, 128),
@@ -159,6 +166,16 @@ class MoleculeEvolutionVisnetPathPredictorV03(nn.Module):
             )
         else:
             self.step_head = None
+        
+        # ====== 7. 步骤合法性辅助预测头 (可选) ======
+        if enable_validity_head:
+            self.validity_head = nn.Sequential(
+                nn.Linear(step_hidden_dim, 64),
+                nn.ReLU(),
+                nn.Linear(64, 1),
+            )
+        else:
+            self.validity_head = None
     
     def forward(self, batch_dict: dict) -> dict:
         """
@@ -176,6 +193,7 @@ class MoleculeEvolutionVisnetPathPredictorV03(nn.Module):
             dict:
                 - path_pred: (B, output_dim) 路径总变化预测
                 - step_pred: (B, max_steps, output_dim) 步骤变化预测, 或 None
+                - validity_pred: (B, max_steps, 1) 步骤合法性 logit, 或 None
         """
         node_batch_list = batch_dict['node_batch_list']
         node_valid_mask = batch_dict['node_valid_mask']
@@ -248,9 +266,15 @@ class MoleculeEvolutionVisnetPathPredictorV03(nn.Module):
         if self.enable_step_head and self.step_head is not None:
             step_pred = self.step_head(path_encoded)  # (B, S, output_dim)
         
+        # ====== Step 7: 步骤合法性预测 (可选) ======
+        validity_pred = None
+        if self.enable_validity_head and self.validity_head is not None:
+            validity_pred = self.validity_head(path_encoded)  # (B, S, 1)
+        
         return {
             'path_pred': path_pred,
             'step_pred': step_pred,
+            'validity_pred': validity_pred,
         }
     
     def _encode_nodes(
@@ -310,4 +334,5 @@ class MoleculeEvolutionVisnetPathPredictorV03(nn.Module):
             'edge_feat_dim': self.edge_feat_dim,
             'step_dim': self.step_dim,
             'enable_step_head': self.enable_step_head,
+            'enable_validity_head': self.enable_validity_head,
         }

@@ -6,6 +6,7 @@ v0.3 长链路路径数据构建模块
 负责：
 - 读取长链路 JSON 路径文件
 - 节点合法性检查与容错（非法中间节点 fallback，非法首尾丢弃）
+- 非法步骤显式标记：生成 step_invalid_types 记录每步的非法原因
 - 路径级 & 步骤级标签提取
 - 节点有效性掩码 & 步骤有效性掩码生成
 - 与现有 MoleculeCache / prepare_edge_features / smiles_to_graph_data 的复用
@@ -272,6 +273,7 @@ def _process_single_path(
     - operations: List[Dict]
     - edge_features: List[List[float]]
     - step_valid_mask: List[bool]
+    - step_invalid_types: List[str]  (每步非法原因: 'valid'/'from_invalid'/'to_invalid'/'both_invalid')
     - num_steps: int
     - path_target: float (标准化后)
     - step_targets: List[float] or None (标准化后)
@@ -319,8 +321,9 @@ def _process_single_path(
         if not all(node_valid_mask):
             return {'_drop_reason': 'all_invalid'}
     
-    # ====== 步骤有效性 & 边特征 ======
+    # ====== 步骤有效性 & 非法类型标记 & 边特征 ======
     step_valid_mask = []
+    step_invalid_types = []
     edge_features_list = []
     
     for step_i in range(num_steps):
@@ -328,6 +331,16 @@ def _process_single_path(
         to_valid = node_valid_mask[step_i + 1]
         step_valid = from_valid and to_valid
         step_valid_mask.append(step_valid)
+        
+        # 记录非法原因
+        if step_valid:
+            step_invalid_types.append('valid')
+        elif not from_valid and not to_valid:
+            step_invalid_types.append('both_invalid')
+        elif not from_valid:
+            step_invalid_types.append('from_invalid')
+        else:
+            step_invalid_types.append('to_invalid')
         
         # 构建边特征（即使步骤无效也构建，用零填充）
         op = operations[step_i]
@@ -393,6 +406,7 @@ def _process_single_path(
         'operations': operations,
         'edge_features': edge_features_list,
         'step_valid_mask': step_valid_mask,
+        'step_invalid_types': step_invalid_types,
         'num_steps': num_steps,
         'path_target': path_target,
         'step_targets': step_targets,
