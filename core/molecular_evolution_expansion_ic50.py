@@ -1175,13 +1175,17 @@ class MolecularEvolutionExpansion:
                         continue
 
                 candidates = []
-                if batch_from:
+                if valid_pairs:
                     try:
-                        predictions = predictor.predict_batch(batch_from, batch_to, batch_ops)
+                        # IC50 版 predict_batch 签名为 (valid_operations, current_smiles)
+                        # 其中 valid_operations 是 [(op, new_smiles), ...]；一个节点内 from_smiles 恒等于 node.smiles
+                        predictions = predictor.predict_batch(valid_pairs, node.smiles)
                         for idx, (op, new_smi) in enumerate(valid_pairs):
                             if idx < len(predictions) and predictions[idx] is not None:
                                 candidates.append((op, new_smi, predictions[idx]))
                     except Exception as e:
+                        import traceback
+                        traceback.print_exc()
                         print(f"[MCTS] 批量预测出错: {e}")
 
                 expansion_cache[canonical] = candidates
