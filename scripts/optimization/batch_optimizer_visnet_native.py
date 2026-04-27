@@ -495,6 +495,11 @@ def run_evolution_optimizer(optimizer, smiles, property_value, args, output_dir)
     """运行分子优化"""
     run_id = str(uuid.uuid4())[:8]
 
+    # 如果 CSV 中没有目标属性列，用 ViSNet 预测初始值
+    if property_value is None:
+        property_value = optimizer._predict_true_value(smiles)
+        print(f"[NativeVisnetAdapter] CSV 中缺少 {args.target_property}，使用 ViSNet 预测初始值: {property_value}")
+
     print(f"\n=== 开始处理分子: {smiles} ===")
     print(f"初始属性值: {property_value}")
 
