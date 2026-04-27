@@ -14,6 +14,7 @@ import pandas as pd
 import uuid
 import traceback
 import glob
+import torch
 from rdkit import RDLogger
 import signal
 from datetime import datetime
@@ -298,6 +299,35 @@ def batch_process(data_list, args, output_dir, existing_results=None):
     # 创建总日志文件
     total_log_file = os.path.join(output_dir, "batch_optimization_total.log")
     
+    # 保存一份 config.json 到输出目录，记录本次运行的完整 CLI 参数
+    config_path = os.path.join(output_dir, "config.json")
+    if not os.path.exists(config_path):
+        run_config = {
+            "input_csv": args.input_csv,
+            "model_path": args.model_path,
+            "model_dir": args.model_dir,
+            "config_file": args.config_file,
+            "target_property": args.target_property,
+            "optimization_mode": args.optimization_mode,
+            "optimization_direction": args.direction,
+            "max_depth": args.max_depth,
+            "max_branching": args.max_branching,
+            "pruning_patience": args.pruning_patience,
+            "logp_range": [args.logp_min, args.logp_max],
+            "logp_patience": args.logp_patience,
+            "topK": args.topK,
+            "batch_size": args.batch_size,
+            "search_mode": args.search_mode,
+            "num_simulations": args.num_simulations if args.search_mode == 'mcts' else None,
+            "exploration_weight": args.exploration_weight if args.search_mode == 'mcts' else None,
+            "start_index": args.start_index,
+            "end_index": args.end_index,
+        }
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(run_config, f, indent=2, ensure_ascii=False)
+    else:
+        print(f"config.json 已存在，跳过写入（断点续传）")
+    
     print(f"=== 开始批量处理，共 {total_count} 个分子待处理 ===")
     print(f"总日志文件: {total_log_file}")
     
@@ -349,6 +379,13 @@ def batch_process(data_list, args, output_dir, existing_results=None):
             'original_data': data['original_row'],
             'optimization_result': result
         }
+        
+        # 每个分子处理完后主动 del 优化器内部可能残留的大对象，
+        # 然后每 10 个分子低频清一次 GPU cache，在"nvidia-smi 显存好看"
+        # 和"不频繁触发 CUDA malloc/free 开销"之间取平衡。
+        # gc.collect() 开销大且不必要（del + 引用计数已足够），不调用。
+        if (i + 1) % 10 == 0 and torch.cuda.is_available():
+            torch.cuda.empty_cache()
         
         # 记录到总日志
         with open(total_log_file, 'a') as f:

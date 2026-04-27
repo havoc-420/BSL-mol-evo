@@ -13,7 +13,7 @@ from tqdm import tqdm
 # 添加对HOMO/LUMO计算模块的导入
 sys.path.append('/home/data2/rhj/project/mol_optimzation/utils')
 try:
-    from calculate_homo_lumo import calculate_homo_lumo_gap_qm9
+    from calculate_homo_lumo import calculate_homo_lumo_gap_qm9, calculate_mu
 except ImportError as e:
     tqdm.write(f"无法导入必要的模块: {e}")
     tqdm.write("请确保calculate_homo_lumo.py文件存在于指定路径")
@@ -68,6 +68,18 @@ def evaluate_molecule(smiles, source_csv=None):
         result['lumo'] = None
         result['gap'] = None
         result['calculation_time'] = None
+    
+    # 计算偶极矩 mu (Debye)
+    try:
+        mu_result = calculate_mu(smiles, quiet=True)
+        if "error" in mu_result:
+            tqdm.write(f"计算mu时出错 ({smiles}): {mu_result['error']}")
+            result['mu'] = None
+        else:
+            result['mu'] = mu_result.get('mu', None)
+    except Exception as e:
+        tqdm.write(f"计算mu时出错 ({smiles}): {e}")
+        result['mu'] = None
     
     # 计算类药性(QED)和logP
     try:
@@ -150,7 +162,7 @@ def evaluate_batch_mo(output_dir, target_prop='gap', direction='decrease', item_
     """
     评估批量分子优化的结果
     :param output_dir: 包含优化结果的目录
-    :param target_prop: 目标属性，可选值：'homo', 'lumo', 'gap'
+    :param target_prop: 目标属性，可选值：'homo', 'lumo', 'gap', 'mu'
     :param direction: 优化方向，可选值：'increase', 'decrease'
     """
     
@@ -276,7 +288,7 @@ if __name__ == "__main__":
     # 解析命令行参数
     parser = argparse.ArgumentParser(description='评估批量分子优化的结果')
     parser.add_argument('output_dir', type=str, help='包含批量优化结果的目录路径')
-    parser.add_argument('--target-prop', type=str, default='gap', choices=['lumo', 'homo', 'gap'],
+    parser.add_argument('--target-prop', type=str, default='gap', choices=['lumo', 'homo', 'gap', 'mu'],
                         help='目标属性 (默认: gap)')
     parser.add_argument('--direction', type=str, default='decrease', choices=['increase', 'decrease'],
                         help='优化方向 (默认: decrease)')

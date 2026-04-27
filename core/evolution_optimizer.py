@@ -301,6 +301,7 @@ class EvolutionTreeOptimizer:
         # 分批处理数据
         all_predictions = []
         num_samples = len(from_data_list)
+        is_cuda = self.device.type == 'cuda'
         
         for start_idx in range(0, num_samples, batch_size):
             end_idx = min(start_idx + batch_size, num_samples)
@@ -319,24 +320,37 @@ class EvolutionTreeOptimizer:
             
             # 执行批量预测
             try:
-                with torch.no_grad():
+                with torch.inference_mode():
                     predictions = self.model(from_batch, to_batch, edge_attr_batch)
                 
-                # 反标准化处理
-                if self.property_stats and self.target_property in self.property_stats:
-                    mean, std = self.property_stats[self.target_property]
-                    predictions = predictions * std + mean
-                
-                # 确保返回的是一维浮点数列表，即使模型返回的是二维张量
-                if len(predictions.shape) > 1:
-                    predictions = predictions.squeeze()
+                    # 反标准化处理
+                    if self.property_stats and self.target_property in self.property_stats:
+                        mean, std = self.property_stats[self.target_property]
+                        predictions = predictions * std + mean
                     
-                batch_predictions = predictions.cpu().numpy().tolist()
+                    # 确保返回的是一维浮点数列表，即使模型返回的是二维张量
+                    if len(predictions.shape) > 1:
+                        predictions = predictions.squeeze()
+                
+                # 尽早搬到 CPU 并切断对 GPU 张量的引用
+                batch_predictions = predictions.detach().cpu().numpy().tolist()
                 all_predictions.extend(batch_predictions)
             except Exception as e:
                 print(f"批量预测时出错: start_idx={start_idx}, end_idx={end_idx}, error={e}")
                 # 为该批次的所有预测返回 None
                 all_predictions.extend([None] * (end_idx - start_idx))
+            finally:
+                # 主动释放本轮 batch 的 GPU 张量引用，避免 caching allocator 因为
+                # 不同 batch shape 导致的显存峰值单调增长
+                del from_batch, to_batch, edge_attr_batch
+                if 'predictions' in locals():
+                    del predictions
+        
+        # 注意：不在这里调用 empty_cache()。
+        # del 已确保 GPU 张量释放回 PyTorch 缓存池可复用，真实显存不会无限增长。
+        # empty_cache() 只是让 nvidia-smi 数字下降，但会强制重新向 CUDA 申请内存，
+        # 在 predict_batch 这种高频调用中代价不可接受。
+        # 改为在 batch_optimizer 每隔若干分子低频调用。
         
         # 构建与输入长度相同的预测结果列表，无效索引返回 None
         result = []
