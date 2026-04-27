@@ -496,7 +496,14 @@ class EvolutionTreeOptimizer:
         
     def optimize_evolution_tree(self, initial_smiles, max_depth=2, max_branching=3, 
                                optimization_direction='increase', pruning_patience=3, 
-                               logp_range=(0, 5), logp_patience=3):
+                               logp_range=(0, 5), logp_patience=3,
+                               search_mode='bfs',
+                               num_simulations=200,
+                               exploration_weight=1.4,
+                               mcts_prior_mode='softmax',
+                               mcts_value_mode='accumulated',
+                               mcts_expansion_mode='topk',
+                               mcts_random_seed=None):
         """
         优化分子进化树
         
@@ -508,17 +515,32 @@ class EvolutionTreeOptimizer:
             pruning_patience: 剪枝耐心值，连续多少代没有改善就剪枝
             logp_range: logP值的有效范围，默认(0, 5)
             logp_patience: logP剪枝耐心值，连续多少代logP超出范围就剪枝
+            search_mode: 搜索模式 ('bfs' 或 'mcts')
+            num_simulations: MCTS 模拟总轮数 (仅 mcts 模式)
+            exploration_weight: MCTS PUCT 探索系数 (仅 mcts 模式)
+            mcts_prior_mode: MCTS prior 构造模式 (softmax | uniform)
+            mcts_value_mode: MCTS 叶节点价值模式 (accumulated | zero | step)
+            mcts_expansion_mode: MCTS 扩展模式 (topk | random_topk | full)
+            mcts_random_seed: MCTS 随机种子（主要用于 random_topk 可复现）
             
         Returns:
             带有预测属性变化值的进化树
         """
         print(f"开始优化分子进化树: {initial_smiles}")
+        print(f"搜索模式: {search_mode}")
         print(f"最大演化深度: {max_depth}")
         print(f"最大分支数: {max_branching}")
         print(f"优化方向: {optimization_direction}")
         print(f"剪枝耐心值: {pruning_patience}")
         print(f"logP有效范围: {logp_range}")
         print(f"logP剪枝耐心值: {logp_patience}")
+        if search_mode == 'mcts':
+            print(f"MCTS 模拟轮数: {num_simulations}")
+            print(f"MCTS 探索系数: {exploration_weight}")
+            print(f"MCTS prior 模式: {mcts_prior_mode}")
+            print(f"MCTS value 模式: {mcts_value_mode}")
+            print(f"MCTS expansion 模式: {mcts_expansion_mode}")
+            print(f"MCTS 随机种子: {mcts_random_seed}")
         
         # 获取初始分子的属性值
         initial_property_value = self.initial_property_value
@@ -541,17 +563,36 @@ class EvolutionTreeOptimizer:
         evolver.interrupted = hasattr(self, 'interrupted') and self.interrupted
         
         # TAG 传入预测器和相关参数，实现生成过程中的预测和剪枝
-        evolution_tree = evolver.generate_expansion_tree(
-            max_depth=max_depth, 
-            max_branching=max_branching,
-            predictor=self, # INFO 关键预测器
-            optimization_direction=optimization_direction,
-            pruning_patience=pruning_patience,
-            initial_property_value=initial_property_value,
-            optimization_mode=self.optimization_mode,
-            logp_range=logp_range,
-            logp_patience=logp_patience
-        )
+        if search_mode == 'mcts':
+            evolution_tree = evolver.generate_expansion_tree_mcts(
+                max_depth=max_depth,
+                max_branching=max_branching,
+                predictor=self,
+                optimization_direction=optimization_direction,
+                pruning_patience=pruning_patience,
+                initial_property_value=initial_property_value,
+                optimization_mode=self.optimization_mode,
+                logp_range=logp_range,
+                logp_patience=logp_patience,
+                num_simulations=num_simulations,
+                exploration_weight=exploration_weight,
+                prior_mode=mcts_prior_mode,
+                value_mode=mcts_value_mode,
+                expansion_mode=mcts_expansion_mode,
+                random_seed=mcts_random_seed,
+            )
+        else:
+            evolution_tree = evolver.generate_expansion_tree(
+                max_depth=max_depth, 
+                max_branching=max_branching,
+                predictor=self, # INFO 关键预测器
+                optimization_direction=optimization_direction,
+                pruning_patience=pruning_patience,
+                initial_property_value=initial_property_value,
+                optimization_mode=self.optimization_mode,
+                logp_range=logp_range,
+                logp_patience=logp_patience
+            )
         
         # 更新尝试次数（这里简单地使用节点数量作为尝试次数）
         self.attempt_count = len(evolution_tree.get("nodes", {}))

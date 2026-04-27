@@ -113,6 +113,21 @@ def parse_args():
                         help='批处理大小')
     parser.add_argument('--resume-from', type=str, default=None,
                         help='从指定的输出目录恢复之前的运行，继续处理未完成的分子')
+    # MCTS 搜索相关
+    parser.add_argument('--search-mode', type=str, choices=['bfs', 'mcts'], default='bfs',
+                        help='搜索模式：bfs 为原广度优先 + 剪枝，mcts 为蒙特卡洛树搜索')
+    parser.add_argument('--num-simulations', type=int, default=200,
+                        help='MCTS 模拟总轮数（仅 mcts 模式）')
+    parser.add_argument('--exploration-weight', type=float, default=1.4,
+                        help='MCTS PUCT 探索系数 c（仅 mcts 模式）')
+    parser.add_argument('--mcts-prior-mode', type=str, choices=['softmax', 'uniform'],
+                        default='softmax', help='MCTS prior 构造模式')
+    parser.add_argument('--mcts-value-mode', type=str, choices=['accumulated', 'zero', 'step'],
+                        default='accumulated', help='MCTS 叶节点价值模式')
+    parser.add_argument('--mcts-expansion-mode', type=str, choices=['topk', 'random_topk', 'full'],
+                        default='topk', help='MCTS 扩展策略')
+    parser.add_argument('--mcts-random-seed', type=int, default=None,
+                        help='MCTS 随机种子（主要用于 random_topk 可复现）')
     return parser.parse_args()
 
 def create_output_dir():
@@ -281,7 +296,14 @@ def run_evolution_optimizer(optimizer, smiles, property_value, args, output_dir)
             args.direction,
             pruning_patience=args.pruning_patience,
             logp_range=(args.logp_min, args.logp_max),
-            logp_patience=args.logp_patience
+            logp_patience=args.logp_patience,
+            search_mode=args.search_mode,
+            num_simulations=args.num_simulations,
+            exploration_weight=args.exploration_weight,
+            mcts_prior_mode=args.mcts_prior_mode,
+            mcts_value_mode=args.mcts_value_mode,
+            mcts_expansion_mode=args.mcts_expansion_mode,
+            mcts_random_seed=args.mcts_random_seed,
         )
         
         # 保存优化结果
@@ -487,6 +509,14 @@ def main():
         f.write(f"优化方向: {args.direction}\n")
         f.write(f"剪枝耐心值: {args.pruning_patience}\n")
         f.write(f"topK值: {args.topK}\n")
+        f.write(f"搜索模式: {args.search_mode}\n")
+        if args.search_mode == 'mcts':
+            f.write(f"MCTS 模拟轮数: {args.num_simulations}\n")
+            f.write(f"MCTS 探索系数: {args.exploration_weight}\n")
+            f.write(f"MCTS prior 模式: {args.mcts_prior_mode}\n")
+            f.write(f"MCTS value 模式: {args.mcts_value_mode}\n")
+            f.write(f"MCTS expansion 模式: {args.mcts_expansion_mode}\n")
+            f.write(f"MCTS 随机种子: {args.mcts_random_seed}\n")
         f.write("\n")
     
     # 读取数据

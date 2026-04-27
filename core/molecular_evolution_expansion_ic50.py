@@ -1,6 +1,7 @@
 import argparse
 import json
 import sys
+import math
 import random
 from collections import deque
 from typing import List, Dict, Tuple, Optional, Set, Any
@@ -1003,6 +1004,414 @@ class MolecularEvolutionExpansion:
                     continue
         
         return all_results
+
+    # MARK: MCTS 搜索模式 (IC50)
+    def generate_expansion_tree_mcts(
+        self,
+        max_depth: int = 5,
+        max_branching: int = 8,
+        predictor=None,
+        optimization_direction: str = 'increase',
+        pruning_patience: int = 3,
+        initial_property_value=None,
+        optimization_mode=None,
+        logp_range=(0, 5),
+        logp_patience: int = 3,
+        # --- MCTS 专属参数 ---
+        num_simulations: int = 200,
+        exploration_weight: float = 1.4,
+        prior_mode: str = 'softmax',
+        value_mode: str = 'accumulated',
+        expansion_mode: str = 'topk',
+        random_seed: Optional[int] = None,
+    ) -> Dict:
+        """
+        使用 MCTS (Monte Carlo Tree Search) + PUCT 生成分子进化树（IC50 版）。
+
+        与 BFS 版 generate_expansion_tree 共享同一输出结构 (nodes / edges)，
+        以兼容下游的 save / print / topK 链路。
+
+        Args:
+            max_depth: 最大搜索深度
+            max_branching: 每个状态最多展开的子节点数
+            predictor: 预测器，需要提供 predict_batch()
+            optimization_direction: 'increase' | 'decrease'
+            pruning_patience: 连续无改善剪枝阈值
+            initial_property_value: 根节点属性初始值（IC50 原始值）
+            optimization_mode: 优化模式
+            logp_range: logP 有效范围
+            logp_patience: logP 连续超出范围剪枝阈值
+            num_simulations: MCTS 模拟总轮数
+            exploration_weight: PUCT 探索系数 c
+            prior_mode: prior 构造方式 (softmax | uniform)
+            value_mode: 叶节点价值方式 (accumulated | zero | step)
+            expansion_mode: 扩展方式 (topk | random_topk | full)
+            random_seed: 随机种子（主要用于 random_topk 可复现）
+        """
+        if predictor is None:
+            raise NotImplementedError("[MCTS] 必须提供 predictor")
+
+        valid_prior_modes = {'softmax', 'uniform'}
+        valid_value_modes = {'accumulated', 'zero', 'step'}
+        valid_expansion_modes = {'topk', 'random_topk', 'full'}
+        if prior_mode not in valid_prior_modes:
+            raise ValueError(f"[MCTS] 不支持的 prior_mode: {prior_mode}")
+        if value_mode not in valid_value_modes:
+            raise ValueError(f"[MCTS] 不支持的 value_mode: {value_mode}")
+        if expansion_mode not in valid_expansion_modes:
+            raise ValueError(f"[MCTS] 不支持的 expansion_mode: {expansion_mode}")
+
+        rng = random.Random(random_seed) if random_seed is not None else random
+
+        # ---------- 内部 MCTS 节点 ----------
+        class _MCTSNode:
+            __slots__ = (
+                'smiles', 'depth', 'parent', 'children',
+                'visit_count', 'total_value', 'prior',
+                'property_value', 'accumulated_change', 'logp',
+                'logp_in_range', 'operation', 'operation_params',
+                'is_expanded', 'is_terminal',
+            )
+
+            def __init__(self, smiles, depth, parent=None, prior=0.0,
+                         property_value=None, accumulated_change=0.0,
+                         operation=None, operation_params=None):
+                self.smiles = smiles
+                self.depth = depth
+                self.parent = parent
+                self.children: List['_MCTSNode'] = []
+                self.visit_count = 0
+                self.total_value = 0.0
+                self.prior = prior
+                self.property_value = property_value
+                self.accumulated_change = accumulated_change
+                self.logp = None
+                self.logp_in_range = True
+                self.operation = operation
+                self.operation_params = operation_params or {}
+                self.is_expanded = False
+                self.is_terminal = False
+
+            def q_value(self):
+                """平均价值"""
+                if self.visit_count == 0:
+                    return 0.0
+                return self.total_value / self.visit_count
+
+            def ucb_score(self, c: float):
+                """PUCT 得分"""
+                if self.parent is None:
+                    return 0.0
+                exploration = c * self.prior * math.sqrt(self.parent.visit_count) / (1 + self.visit_count)
+                return self.q_value() + exploration
+
+        # ---------- 扩展缓存 ----------
+        # key=canonical SMILES, value=List of (operation, new_smiles, property_change)
+        expansion_cache: Dict[str, List[Tuple]] = {}
+
+        def _expand_node(node: _MCTSNode):
+            """首次展开一个节点：生成候选、批量预测、创建子节点。"""
+            if node.is_expanded or node.is_terminal:
+                return
+
+            node.is_expanded = True
+
+            if node.depth >= max_depth:
+                node.is_terminal = True
+                return
+
+            # --- 检查 pruning patience (property) ---
+            if pruning_patience > 0 and node.parent is not None:
+                stagnation = 0
+                cur = node
+                while cur is not None and cur.parent is not None:
+                    change = cur.accumulated_change - cur.parent.accumulated_change
+                    improved = (change > 0) if optimization_direction == 'increase' else (change < 0)
+                    if improved:
+                        break
+                    stagnation += 1
+                    cur = cur.parent
+                if stagnation >= pruning_patience:
+                    node.is_terminal = True
+                    return
+
+            # --- 检查 logP patience ---
+            if logp_patience > 0 and node.parent is not None:
+                logp_out = 0
+                cur = node
+                while cur is not None:
+                    if cur.logp_in_range:
+                        break
+                    logp_out += 1
+                    cur = cur.parent
+                if logp_out >= logp_patience:
+                    node.is_terminal = True
+                    return
+
+            # --- 使用缓存或新生成候选 ---
+            canonical = Chem.MolToSmiles(Chem.MolFromSmiles(node.smiles))
+            if canonical in expansion_cache:
+                candidates = expansion_cache[canonical]
+            else:
+                mol = Chem.MolFromSmiles(node.smiles)
+                if mol is None:
+                    node.is_terminal = True
+                    return
+
+                possible_ops = self._get_possible_operations(mol)
+
+                # 应用操作，收集有效候选
+                batch_from, batch_to, batch_ops, valid_pairs = [], [], [], []
+                for op in possible_ops:
+                    try:
+                        new_mol = self._apply_operation(mol, op["type"], **op.get("params", {}))
+                        if new_mol and self.validate_molecule(new_mol):
+                            new_smiles = Chem.MolToSmiles(new_mol)
+                            batch_from.append(node.smiles)
+                            batch_to.append(new_smiles)
+                            batch_ops.append(op)
+                            valid_pairs.append((op, new_smiles))
+                    except Exception:
+                        continue
+
+                candidates = []
+                if batch_from:
+                    try:
+                        predictions = predictor.predict_batch(batch_from, batch_to, batch_ops)
+                        for idx, (op, new_smi) in enumerate(valid_pairs):
+                            if idx < len(predictions) and predictions[idx] is not None:
+                                candidates.append((op, new_smi, predictions[idx]))
+                    except Exception as e:
+                        print(f"[MCTS] 批量预测出错: {e}")
+
+                expansion_cache[canonical] = candidates
+
+            if not candidates:
+                node.is_terminal = True
+                return
+
+            # --- 候选选择：排序截断 / 随机截断 / 全展开 ---
+            if optimization_direction == 'increase':
+                sorted_cands = sorted(candidates, key=lambda x: x[2], reverse=True)
+            else:
+                sorted_cands = sorted(candidates, key=lambda x: x[2])
+
+            if expansion_mode == 'topk':
+                selected_cands = sorted_cands[:max_branching]
+            elif expansion_mode == 'random_topk':
+                if len(candidates) <= max_branching:
+                    selected_cands = list(candidates)
+                else:
+                    selected_cands = rng.sample(candidates, max_branching)
+            else:  # full
+                selected_cands = sorted_cands
+
+            # --- 计算 prior（softmax / uniform） ---
+            if prior_mode == 'uniform':
+                denom = len(selected_cands) or 1
+                priors = [1.0 / denom] * len(selected_cands)
+            else:
+                raw_scores = [c[2] for c in selected_cands]
+                if optimization_direction == 'decrease':
+                    raw_scores = [-s for s in raw_scores]
+                max_score = max(raw_scores) if raw_scores else 0
+                exp_scores = [math.exp(s - max_score) for s in raw_scores]
+                sum_exp = sum(exp_scores) or 1.0
+                priors = [e / sum_exp for e in exp_scores]
+
+            # --- 创建子节点 ---
+            seen_children_smiles = set()
+            for (op, new_smi, prop_change), prior in zip(selected_cands, priors):
+                c_smi = Chem.MolToSmiles(Chem.MolFromSmiles(new_smi))
+                if c_smi in seen_children_smiles:
+                    continue
+                seen_children_smiles.add(c_smi)
+
+                new_acc = node.accumulated_change + prop_change
+                new_val = (node.property_value + prop_change) if node.property_value is not None else None
+                new_logp = self.calculate_logP(new_smi)
+                in_range = new_logp is not None and logp_range[0] <= new_logp <= logp_range[1]
+
+                child = _MCTSNode(
+                    smiles=new_smi,
+                    depth=node.depth + 1,
+                    parent=node,
+                    prior=prior,
+                    property_value=new_val,
+                    accumulated_change=new_acc,
+                    operation=op["type"],
+                    operation_params=op.get("params", {}),
+                )
+                child.logp = new_logp
+                child.logp_in_range = in_range
+                node.children.append(child)
+
+            if not node.children:
+                node.is_terminal = True
+
+        def _select_child(node: _MCTSNode) -> Optional[_MCTSNode]:
+            """PUCT 选择最佳子节点；跳过异常分数并在必要时回退。"""
+            best, best_score = None, -float('inf')
+            fallback = node.children[0] if node.children else None
+            for ch in node.children:
+                sc = ch.ucb_score(exploration_weight)
+                if not math.isfinite(sc):
+                    continue
+                if sc > best_score:
+                    best_score = sc
+                    best = ch
+            return best if best is not None else fallback
+
+        def _evaluate_leaf(node: _MCTSNode) -> float:
+            """叶节点估值：支持累计值 / 零值 / 单步值三种模式。"""
+            if value_mode == 'zero':
+                val = 0.0
+            elif value_mode == 'step':
+                if node.parent is None:
+                    val = 0.0
+                else:
+                    val = node.accumulated_change - node.parent.accumulated_change
+            else:
+                val = node.accumulated_change
+
+            if optimization_direction == 'decrease':
+                val = -val
+            return val
+
+        def _backpropagate(node: _MCTSNode, value: float):
+            """回传价值"""
+            cur = node
+            while cur is not None:
+                cur.visit_count += 1
+                cur.total_value += value
+                cur = cur.parent
+
+        # ---------- 构造根节点 ----------
+        root_logp = self.calculate_logP(self.initial_smiles)
+        root = _MCTSNode(
+            smiles=self.initial_smiles,
+            depth=0,
+            property_value=initial_property_value,
+            accumulated_change=0.0,
+        )
+        root.logp = root_logp
+        root.logp_in_range = root_logp is not None and logp_range[0] <= root_logp <= logp_range[1]
+
+        # ---------- MCTS 主循环 ----------
+        print(f"\n[MCTS] 开始搜索: simulations={num_simulations}, c={exploration_weight}, "
+              f"max_depth={max_depth}, max_branching={max_branching}, "
+              f"prior_mode={prior_mode}, value_mode={value_mode}, expansion_mode={expansion_mode}, random_seed={random_seed}")
+
+        for sim_idx in range(num_simulations):
+            # 检查中断信号
+            if getattr(self, 'interrupted', False):
+                print(f"[MCTS] 收到中断信号，在第 {sim_idx+1} 轮停止")
+                break
+
+            # 1. Selection: 从根沿 PUCT 向下
+            node = root
+            while node.is_expanded and node.children and not node.is_terminal:
+                node = _select_child(node)
+
+            # 2. Expansion
+            if not node.is_terminal and not node.is_expanded:
+                _expand_node(node)
+
+            # 3. Evaluation + 4. Backpropagation
+            if node.children:
+                eval_node = _select_child(node)
+                if eval_node is not None:
+                    value = _evaluate_leaf(eval_node)
+                    _backpropagate(eval_node, value)
+                else:
+                    value = _evaluate_leaf(node)
+                    _backpropagate(node, value)
+            else:
+                value = _evaluate_leaf(node)
+                _backpropagate(node, value)
+
+            # 定期日志
+            if (sim_idx + 1) % max(1, num_simulations // 5) == 0:
+                print(f"[MCTS] simulation {sim_idx+1}/{num_simulations}, "
+                      f"root visits={root.visit_count}, "
+                      f"unique states cached={len(expansion_cache)}")
+
+        # ---------- 将 MCTS 树转换为兼容的 nodes/edges 结构 ----------
+        actual_simulations = root.visit_count
+        expansion_tree = {
+            "initial_smiles": self.initial_smiles,
+            "max_depth": max_depth,
+            "max_branching": max_branching,
+            "search_mode": "mcts",
+            "mcts_stats": {
+                "num_simulations": num_simulations,
+                "actual_simulations": actual_simulations,
+                "exploration_weight": exploration_weight,
+                "prior_mode": prior_mode,
+                "value_mode": value_mode,
+                "expansion_mode": expansion_mode,
+                "random_seed": random_seed,
+                "unique_states_expanded": len(expansion_cache),
+                "root_visits": root.visit_count,
+            },
+            "nodes": {},
+            "edges": [],
+        }
+
+        node_counter = [0]
+        seen_smiles_set: Set[str] = set()
+
+        def _traverse(mcts_node: _MCTSNode, parent_tree_id: Optional[str]):
+            nid = str(node_counter[0])
+            node_counter[0] += 1
+
+            tree_node = {
+                "id": nid,
+                "smiles": mcts_node.smiles,
+                "depth": mcts_node.depth,
+                "parent_id": parent_tree_id,
+                "operation": mcts_node.operation,
+                "details": mcts_node.operation_params,
+                "logP": mcts_node.logp,
+                "logP_in_range": mcts_node.logp_in_range,
+                # MCTS 统计
+                "mcts_visits": mcts_node.visit_count,
+                "mcts_prior": round(mcts_node.prior, 6),
+                "mcts_q_value": round(mcts_node.q_value(), 6),
+            }
+            if mcts_node.property_value is not None:
+                tree_node["property_value"] = mcts_node.property_value
+                tree_node["accumulated_change"] = mcts_node.accumulated_change
+                if mcts_node.parent is not None:
+                    tree_node["property_change"] = mcts_node.accumulated_change - mcts_node.parent.accumulated_change
+                else:
+                    tree_node["property_change"] = 0.0
+
+            expansion_tree["nodes"][nid] = tree_node
+            seen_smiles_set.add(mcts_node.smiles)
+
+            if parent_tree_id is not None:
+                expansion_tree["edges"].append({
+                    "from": parent_tree_id,
+                    "to": nid,
+                    "operation": mcts_node.operation,
+                    "details": mcts_node.operation_params,
+                })
+
+            # 只输出被访问过的子节点（按访问次数降序）
+            visited_children = [ch for ch in mcts_node.children if ch.visit_count > 0]
+            visited_children.sort(key=lambda c: c.visit_count, reverse=True)
+            for child in visited_children:
+                _traverse(child, nid)
+
+        _traverse(root, None)
+
+        total_nodes = len(expansion_tree["nodes"])
+        total_edges = len(expansion_tree["edges"])
+        print(f"[MCTS] 搜索完成: 树节点={total_nodes}, 边={total_edges}, "
+              f"唯一状态={len(expansion_cache)}")
+
+        return expansion_tree
 
     # MARK
     def generate_expansion_tree(self, max_depth: int = 3, max_branching: int = 5, 
