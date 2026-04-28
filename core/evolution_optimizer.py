@@ -730,6 +730,7 @@ class EvolutionTreeOptimizer:
                                logp_range=(0, 5), logp_patience=3,
                                search_mode='bfs',
                                num_simulations=200,
+                               step_budget=None,
                                exploration_weight=1.4,
                                mcts_prior_mode='softmax',
                                mcts_value_mode='accumulated',
@@ -754,6 +755,7 @@ class EvolutionTreeOptimizer:
             logp_patience: logP剪枝耐心值，连续多少代logP超出范围就剪枝
             search_mode: 搜索模式 ('bfs', 'mcts', 或 'astar_demo')
             num_simulations: MCTS 模拟总轮数 (仅 mcts 模式)
+            step_budget: MCTS 总步数预算（节点展开次数上限）；None = 不限制 (仅 mcts 模式)
             exploration_weight: MCTS PUCT 探索系数 (仅 mcts 模式)
             mcts_prior_mode: MCTS prior 构造模式 (softmax | uniform)
             mcts_value_mode: MCTS 叶节点价值模式 (accumulated | zero | step)
@@ -778,6 +780,8 @@ class EvolutionTreeOptimizer:
         print(f"logP剪枝耐心值: {logp_patience}")
         if search_mode == 'mcts':
             print(f"MCTS 模拟轮数: {num_simulations}")
+            if step_budget is not None:
+                print(f"MCTS 步数预算: {step_budget}")
             print(f"MCTS 探索系数: {exploration_weight}")
             print(f"MCTS prior 模式: {mcts_prior_mode}")
             print(f"MCTS value 模式: {mcts_value_mode}")
@@ -822,6 +826,7 @@ class EvolutionTreeOptimizer:
                 logp_range=logp_range,
                 logp_patience=logp_patience,
                 num_simulations=num_simulations,
+                step_budget=step_budget,
                 exploration_weight=exploration_weight,
                 prior_mode=mcts_prior_mode,
                 value_mode=mcts_value_mode,

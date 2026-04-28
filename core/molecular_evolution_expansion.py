@@ -1136,6 +1136,7 @@ class MolecularEvolutionExpansion:
         logp_patience: int = 3,
         # --- MCTS 专属参数 ---
         num_simulations: int = 200,
+        step_budget: Optional[int] = None,
         exploration_weight: float = 1.4,
         prior_mode: str = 'softmax',
         value_mode: str = 'accumulated',
@@ -1159,6 +1160,7 @@ class MolecularEvolutionExpansion:
             logp_range: logP 有效范围
             logp_patience: logP 连续超出范围剪枝阈值
             num_simulations: MCTS 模拟总轮数
+            step_budget: 总步数预算（节点展开次数上限）；None = 不限制
             exploration_weight: PUCT 探索系数 c
             prior_mode: prior 构造方式 (softmax | uniform)
             value_mode: 叶节点价值方式 (accumulated | zero | step)
@@ -1225,6 +1227,7 @@ class MolecularEvolutionExpansion:
         # ---------- 扩展缓存 ----------
         # key=canonical SMILES, value=List of (operation, new_smiles, property_change)
         expansion_cache: Dict[str, List[Tuple]] = {}
+        step_counter = [0]   # 用列表以便闭包内修改；每次 _expand_node 首次进入主逻辑时 +1
 
         def _expand_node(node: _MCTSNode):
             """首次展开一个节点：生成候选、批量预测、创建子节点。"""
@@ -1232,6 +1235,7 @@ class MolecularEvolutionExpansion:
                 return
 
             node.is_expanded = True
+            step_counter[0] += 1   # 计步：每次节点首次展开均计入（含缓存命中）
 
             if node.depth >= max_depth:
                 node.is_terminal = True
@@ -1417,12 +1421,18 @@ class MolecularEvolutionExpansion:
         # ---------- MCTS 主循环 ----------
         print(f"\n[MCTS] 开始搜索: simulations={num_simulations}, c={exploration_weight}, "
               f"max_depth={max_depth}, max_branching={max_branching}, "
-              f"prior_mode={prior_mode}, value_mode={value_mode}, expansion_mode={expansion_mode}, random_seed={random_seed}")
+              f"prior_mode={prior_mode}, value_mode={value_mode}, expansion_mode={expansion_mode}, random_seed={random_seed}"
+              + (f", step_budget={step_budget}" if step_budget is not None else ""))
 
         for sim_idx in range(num_simulations):
             # 检查中断信号
             if getattr(self, 'interrupted', False):
                 print(f"[MCTS] 收到中断信号，在第 {sim_idx+1} 轮停止")
+                break
+
+            # 检查步数预算
+            if step_budget is not None and step_counter[0] >= step_budget:
+                print(f"[MCTS] 达到 step_budget={step_budget}，在第 {sim_idx+1} 轮停止")
                 break
 
             # 1. Selection: 从根沿 PUCT 向下
@@ -1451,7 +1461,9 @@ class MolecularEvolutionExpansion:
             # 定期日志
             if (sim_idx + 1) % max(1, num_simulations // 5) == 0:
                 print(f"[MCTS] simulation {sim_idx+1}/{num_simulations}, "
-                      f"root visits={root.visit_count}, "
+                      f"steps={step_counter[0]}"
+                      + (f"/{step_budget}" if step_budget is not None else "")
+                      + f", root visits={root.visit_count}, "
                       f"unique states cached={len(expansion_cache)}")
 
         # ---------- 将 MCTS 树转换为兼容的 nodes/edges 结构 ----------
@@ -1464,6 +1476,8 @@ class MolecularEvolutionExpansion:
             "mcts_stats": {
                 "num_simulations": num_simulations,
                 "actual_simulations": actual_simulations,
+                "step_budget": step_budget,
+                "actual_steps": step_counter[0],
                 "exploration_weight": exploration_weight,
                 "prior_mode": prior_mode,
                 "value_mode": value_mode,

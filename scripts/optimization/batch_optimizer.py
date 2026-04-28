@@ -141,6 +141,8 @@ def parse_args():
                         default='bfs', help='搜索模式: bfs(广度优先)、mcts(蒙特卡洛树搜索) 或 astar_demo(A* RL Demo)')
     parser.add_argument('--num-simulations', type=int, default=200,
                         help='MCTS 模拟轮数 (仅 mcts 模式)')
+    parser.add_argument('--step-budget', type=int, default=None,
+                        help='MCTS 总步数预算（节点展开次数上限）；None=不限制，仅 mcts 模式有效')
     parser.add_argument('--exploration-weight', type=float, default=1.4,
                         help='MCTS PUCT 探索系数 (仅 mcts 模式)')
     parser.add_argument('--mcts-prior-mode', type=str, choices=['softmax', 'uniform'], default='softmax',
@@ -267,6 +269,7 @@ def run_evolution_optimizer(optimizer, smiles, property_value, args, output_dir)
             logp_patience=args.logp_patience,
             search_mode=args.search_mode,
             num_simulations=args.num_simulations,
+            step_budget=args.step_budget,
             exploration_weight=args.exploration_weight,
             mcts_prior_mode=args.mcts_prior_mode,
             mcts_value_mode=args.mcts_value_mode,
@@ -394,6 +397,7 @@ def batch_process(data_list, args, output_dir, existing_results=None):
             "batch_size": args.batch_size,
             "search_mode": args.search_mode,
             "num_simulations": args.num_simulations if args.search_mode == 'mcts' else None,
+            "step_budget": args.step_budget if args.search_mode == 'mcts' else None,
             "exploration_weight": args.exploration_weight if args.search_mode == 'mcts' else None,
             "start_index": args.start_index,
             "end_index": args.end_index,
@@ -614,6 +618,8 @@ def main():
         f.write(f"搜索模式: {args.search_mode}\n")
         if args.search_mode == 'mcts':
             f.write(f"MCTS 模拟轮数: {args.num_simulations}\n")
+            if args.step_budget is not None:
+                f.write(f"MCTS 步数预算: {args.step_budget}\n")
             f.write(f"MCTS 探索系数: {args.exploration_weight}\n")
             f.write(f"MCTS prior 模式: {args.mcts_prior_mode}\n")
             f.write(f"MCTS value 模式: {args.mcts_value_mode}\n")
