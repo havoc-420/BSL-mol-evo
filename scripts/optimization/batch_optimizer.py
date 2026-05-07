@@ -426,7 +426,6 @@ def batch_process(data_list, args, output_dir, existing_results=None):
     # --- astar_demo 模型加载 ---
     if args.search_mode == 'astar_demo':
         try:
-            import torch
             from mol_evo.core.models.astar_rl import PolicyNet, ValueNet, RLTrainer
             from mol_evo.core.models.astar_rl.reward import RewardConfig
             from mol_evo.core.data.rl_demo_processing import STATE_DIM, ACTION_DIM
@@ -506,11 +505,12 @@ def batch_process(data_list, args, output_dir, existing_results=None):
             'optimization_result': result
         }
         
-        # 每个分子处理完后主动 del 优化器内部可能残留的大对象，
-        # 然后每 10 个分子低频清一次 GPU cache，在"nvidia-smi 显存好看"
-        # 和"不频繁触发 CUDA malloc/free 开销"之间取平衡。
-        # gc.collect() 开销大且不必要（del + 引用计数已足够），不调用。
-        if (i + 1) % 10 == 0 and torch.cuda.is_available():
+        # 每个分子处理完后立即清理 GPU cache，防止显存碎片累积导致
+        # nvidia-smi 看到的已分配显存持续上升（尤其是 wo_leaf_value 等
+        # 搜索树较大的消融实验）。gc.collect() 确保循环引用的张量被释放。
+        if torch.cuda.is_available():
+            import gc
+            gc.collect()
             torch.cuda.empty_cache()
         
         # 记录到总日志
@@ -581,9 +581,12 @@ def main():
     print(f"读取CSV文件: {args.input_csv}")
     
     # 断点续传：扫描已完成的分子
+    # 约定：只要 output_dir 里已经存在已完成的分子，就视为断点续传模式
+    # （parse_args 目前没有独立的 --resume 开关，之前用的裸 `resume_dir` 变量未定义，这里用本地布尔代替）
     completed_smiles = scan_completed_smiles(output_dir)
+    resume_dir = bool(completed_smiles)
     existing_results = load_existing_results(output_dir) if resume_dir else None
-    
+
     if completed_smiles:
         print(f"断点续传: 发现 {len(completed_smiles)} 个已完成的分子")
     

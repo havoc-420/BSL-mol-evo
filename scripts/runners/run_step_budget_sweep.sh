@@ -8,6 +8,8 @@ set -euo pipefail
 #   CONDA_ENV=mol-ofo CUDA_VISIBLE_DEVICES=0 bash mol_evo/scripts/runners/run_step_budget_sweep.sh
 #   TASKS=lumo_up,homo_down SWEEP_PRESET=pilot bash mol_evo/scripts/runners/run_step_budget_sweep.sh
 #   STEP_BUDGET_VALUES_CSV=50,100,200,500 bash mol_evo/scripts/runners/run_step_budget_sweep.sh
+#   # 只跑 baseline 摸 actual_steps：
+#   STEP_BUDGET_VALUES_CSV=" " SWEEP_PRESET=pilot TASKS=lumo_up bash mol_evo/scripts/runners/run_step_budget_sweep.sh
 #
 # 说明：
 # 1. 扫描多个 step_budget 取值，同时保留一组 baseline（不设 step_budget，仅用 num_simulations）；
@@ -36,8 +38,12 @@ fi
 
 PYTHON_BIN="${PYTHON_BIN:-python}"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
+# 输出目录默认放到 mol_evo/output（与新版代码一致，和旧版 mol_evo 的结果隔离）
 OUTPUT_ROOT="${OUTPUT_ROOT:-$REPO/mol_evo/output/evo-mo/step_budget_sweep_$TIMESTAMP}"
 mkdir -p "$OUTPUT_ROOT"
+
+# 入口模块路径（新版 batch_optimizer 支持 --step-budget 并在输出 JSON 写 mcts_stats.actual_steps）
+BATCH_OPTIMIZER_MODULE="${BATCH_OPTIMIZER_MODULE:-mol_evo.scripts.optimization.batch_optimizer}"
 
 # ===== 基础数据与模型配置 =====
 INPUT_CSV="${INPUT_CSV:-$REPO/mol_evo/dataset/eval-data/20251205_131636/qm9_test_molecules.csv}"
@@ -118,8 +124,22 @@ case "${SWEEP_PRESET}" in
 esac
 
 # 允许通过环境变量覆盖扫描取值（逗号分隔）
+# 特殊值：
+#   STEP_BUDGET_VALUES_CSV=none   → 清空（仅跑 baseline，不做 step_budget 扫描）
+#   STEP_BUDGET_VALUES_CSV=50,100,... → 常规覆盖
 if [[ -n "${STEP_BUDGET_VALUES_CSV:-}" ]]; then
-  IFS=',' read -r -a STEP_BUDGET_VALUES <<< "$STEP_BUDGET_VALUES_CSV"
+  if [[ "$STEP_BUDGET_VALUES_CSV" == "none" || "$STEP_BUDGET_VALUES_CSV" == "NONE" ]]; then
+    STEP_BUDGET_VALUES=()
+  else
+    IFS=',' read -r -a STEP_BUDGET_VALUES <<< "$STEP_BUDGET_VALUES_CSV"
+    # 过滤掉纯空白元素，防止出现 "--step-budget  " 这种非法参数
+    _filtered=()
+    for _v in "${STEP_BUDGET_VALUES[@]}"; do
+      _v_trim="${_v// /}"
+      [[ -n "$_v_trim" ]] && _filtered+=("$_v_trim")
+    done
+    STEP_BUDGET_VALUES=("${_filtered[@]}")
+  fi
 fi
 
 # ===== 辅助函数 =====
@@ -151,6 +171,7 @@ printf 'label\tcommand\n' > "$COMMANDS_TSV"
 cat > "$MANIFEST_TXT" <<EOF
 REPO=$REPO
 OUTPUT_ROOT=$OUTPUT_ROOT
+BATCH_OPTIMIZER_MODULE=$BATCH_OPTIMIZER_MODULE
 INPUT_CSV=$INPUT_CSV
 CONFIG_FILE=$CONFIG_FILE
 OPTIMIZATION_MODE=$OPTIMIZATION_MODE
@@ -171,7 +192,7 @@ BASE_LOGP_PATIENCE=$BASE_LOGP_PATIENCE
 BASE_TOPK=$BASE_TOPK
 BASELINE_NUM_SIMULATIONS=$BASELINE_NUM_SIMULATIONS
 BUDGET_NUM_SIMULATIONS=$BUDGET_NUM_SIMULATIONS
-STEP_BUDGET_VALUES=$(join_by ',' "${STEP_BUDGET_VALUES[@]}")
+STEP_BUDGET_VALUES=$(join_by ',' "${STEP_BUDGET_VALUES[@]:-}")
 EOF
 
 # ===== 任务解析 =====
@@ -222,7 +243,7 @@ run_case() {
   local started_at finished_at status exit_code
 
   local -a cmd=(
-    "$PYTHON_BIN" -m mol_evo.scripts.batch_optimizer
+    "$PYTHON_BIN" -m "$BATCH_OPTIMIZER_MODULE"
     --input-csv       "$INPUT_CSV"
     --output-json     "$output_json"
     --model-path      "$CURRENT_MODEL_PATH"
@@ -292,7 +313,7 @@ echo "commands   : $COMMANDS_TSV"
 echo "任务       : $TASKS"
 echo "预设       : $SWEEP_PRESET  (分子 ${START_INDEX}–${END_INDEX})"
 echo "基线 sims  : $BASELINE_NUM_SIMULATIONS  (无 step_budget)"
-echo "预算取值   : $(join_by ', ' "${STEP_BUDGET_VALUES[@]}")"
+echo "预算取值   : $(join_by ', ' "${STEP_BUDGET_VALUES[@]:-}")"
 echo "  num_simulations 上限: $BUDGET_NUM_SIMULATIONS（让 step_budget 生效）"
 echo "======================================================"
 
@@ -315,38 +336,90 @@ for task in $aTasks; do
     --num-simulations "$BASELINE_NUM_SIMULATIONS"
 
   # ------------------------------------------------------------------
-  # 第 1.5 步：从 baseline 日志读取 actual_steps，提示合理的 step_budget 范围
+  # 第 1.5 步：从 baseline 日志 + 独立分子 JSON 读取 actual_steps，提示合理的 step_budget 范围
   # ------------------------------------------------------------------
   baseline_log="$CURRENT_TASK_ROOT/${CURRENT_TASK}_baseline_sims${BASELINE_NUM_SIMULATIONS}.log"
   if [[ -f "$baseline_log" ]]; then
     echo
-    echo "--- [calibration] 从 baseline 日志提取 actual_steps ---"
-    # 提取最后一次出现的 actual_steps 字段（来自 mcts_stats 的 JSON 输出）
-    actual_steps_sample=$(grep -oP '"actual_steps"\s*:\s*\K[0-9]+' "$baseline_log" | tail -5 | sort -n)
-    if [[ -n "$actual_steps_sample" ]]; then
-      echo "  各分子 actual_steps（最后 5 个）: $(echo "$actual_steps_sample" | tr '\n' ' ')"
-      max_steps=$(echo "$actual_steps_sample" | tail -1)
-      echo "  最大 actual_steps = $max_steps"
-      echo "  → 建议 step_budget 上限至少设为 ${max_steps}（等价于 baseline）"
-      echo "  → sweep 区间建议覆盖 [max_steps×0.1, max_steps×1.5]"
-    else
-      echo "  （未在日志中找到 actual_steps 字段，请手动检查 $baseline_log）"
-    fi
+    echo "--- [calibration] 从 baseline 提取 actual_steps ---"
+    # 新版 mol_evo 会把每个分子独立 JSON 路径打印到日志（"进化树已保存到: xxx.json"）
+    # 这些独立 JSON 顶层包含 mcts_stats.actual_steps
+    "$PYTHON_BIN" - "$baseline_log" <<'PYEOF'
+import sys, os, re, json, statistics
+
+log_path = sys.argv[1]
+json_paths = []
+pat = re.compile(r'进化树已保存到:\s*(\S+\.json)')
+with open(log_path, 'r', errors='ignore') as f:
+    for line in f:
+        m = pat.search(line)
+        if m:
+            json_paths.append(m.group(1))
+
+# 去重保序
+seen = set()
+json_paths = [p for p in json_paths if not (p in seen or seen.add(p))]
+
+if not json_paths:
+    print("  （日志中未找到独立分子 JSON 路径；可能是旧版代码或日志格式变化）")
+    sys.exit(0)
+
+steps_list = []
+for p in json_paths:
+    if not os.path.exists(p):
+        continue
+    try:
+        with open(p) as f:
+            data = json.load(f)
+    except Exception:
+        continue
+    stats = data.get("mcts_stats") or {}
+    s = stats.get("actual_steps")
+    if s is not None:
+        steps_list.append(int(s))
+
+if not steps_list:
+    print(f"  （从 {len(json_paths)} 个独立 JSON 中未读到 mcts_stats.actual_steps，请确认用的是 mol_evo 版本）")
+    sys.exit(0)
+
+steps_list.sort()
+n = len(steps_list)
+p50 = steps_list[n // 2]
+p90 = steps_list[min(n - 1, int(n * 0.9))]
+mx = steps_list[-1]
+mn = steps_list[0]
+mean = sum(steps_list) / n
+print(f"  n={n}  min={mn}  median={p50}  mean={mean:.1f}  p90={p90}  max={mx}")
+print(f"  明细: {steps_list}")
+print(f"  → 建议 step_budget 区间: [{max(1, mx//10)}, {int(mx*1.5)}]")
+# 推荐 6 档对数间隔
+import math
+lo = max(1, mx // 10)
+hi = max(lo + 1, int(mx * 1.5))
+k = 6
+vals = sorted(set(int(round(lo * (hi/lo) ** (i/(k-1)))) for i in range(k)))
+print(f"  → 推荐 STEP_BUDGET_VALUES_CSV={','.join(map(str, vals))}")
+PYEOF
     echo
   fi
 
   # ------------------------------------------------------------------
-  # 第 2 步：step_budget 扫描组
+  # 第 2 步：step_budget 扫描组（若 STEP_BUDGET_VALUES 为空则跳过，仅跑 baseline）
   # ------------------------------------------------------------------
-  for budget in "${STEP_BUDGET_VALUES[@]}"; do
+  if [[ ${#STEP_BUDGET_VALUES[@]} -eq 0 ]]; then
     echo
-    echo "--- [step_budget] step_budget=${budget} ---"
-    run_case \
-      "step_budget" "step_budget" "$budget" \
-      "${CURRENT_TASK}_step_budget_$(slugify "$budget")" \
-      --num-simulations "$BUDGET_NUM_SIMULATIONS" \
-      --step-budget     "$budget"
-  done
+    echo "--- [step_budget] 扫描数组为空，跳过 step_budget 组（仅 baseline 摸底） ---"
+  else
+    for budget in "${STEP_BUDGET_VALUES[@]}"; do
+      echo
+      echo "--- [step_budget] step_budget=${budget} ---"
+      run_case \
+        "step_budget" "step_budget" "$budget" \
+        "${CURRENT_TASK}_step_budget_$(slugify "$budget")" \
+        --num-simulations "$BUDGET_NUM_SIMULATIONS" \
+        --step-budget     "$budget"
+    done
+  fi
 done
 
 # ===== 结束摘要 =====
@@ -370,57 +443,106 @@ import sys, os, json, glob
 
 output_root = sys.argv[1]
 
-# 收集每个 run 的关键指标
+# 只扫描 run 级 summary JSON：同名存在 .log 的才算（每次 run_case 输出一对 .json/.log）
 rows = []
 for json_path in sorted(glob.glob(os.path.join(output_root, "**", "*.json"), recursive=True)):
-    # 跳过非 batch_results 文件
     fname = os.path.basename(json_path)
-    if fname.startswith("batch_results") or fname.endswith("_topK.csv"):
+    if fname == "config.json" or fname.startswith("batch_results"):
         continue
+    log_path = os.path.splitext(json_path)[0] + ".log"
+    if not os.path.exists(log_path):
+        continue  # 不是 run 级 summary（是每分子独立 JSON）
+
     try:
         with open(json_path) as f:
             data = json.load(f)
     except Exception:
         continue
 
-    # 尝试从 mcts_stats 拿 actual_steps
-    # batch_optimizer 输出的 JSON 结构：顶层是分子列表
-    if not isinstance(data, (list, dict)):
+    # 新版 mol_evo 结构:
+    #   {smiles: {optimization_result: {optimized_result: {mcts_stats, ...}, topk_results: {...}}}}
+    # 兜底兼容旧版（list / results 键）
+    if isinstance(data, dict):
+        # 判定是否是 {smiles: {...}} 形式
+        vals = list(data.values())
+        if vals and isinstance(vals[0], dict) and (
+            "optimization_result" in vals[0] or "optimized_result" in vals[0]
+        ):
+            molecules = vals
+        else:
+            molecules = data.get("results", [])
+    elif isinstance(data, list):
+        molecules = data
+    else:
         continue
 
-    molecules = data if isinstance(data, list) else data.get("results", [])
     if not molecules:
         continue
 
     actual_steps_list = []
-    top1_scores = []
+    top1_best_changes = []   # 每个分子 topK 中「最大绝对属性变化」（方向无关）
+    top1_signed_changes = [] # 每个分子 topK 中「distance 最大那条目的原始 change」（保留符号）
     for mol in molecules:
         if not isinstance(mol, dict):
             continue
-        tree = mol.get("evolution_tree") or mol.get("result") or {}
-        stats = tree.get("mcts_stats", {})
-        if stats.get("actual_steps") is not None:
-            actual_steps_list.append(stats["actual_steps"])
-        # top1 score
-        topk = mol.get("topK_results") or mol.get("top_k_results") or []
-        if topk:
-            scores = [r.get("score", r.get("property_change", None)) for r in topk if isinstance(r, dict)]
-            scores = [s for s in scores if s is not None]
-            if scores:
-                top1_scores.append(max(scores))
+        opt_res = mol.get("optimization_result") or mol  # 兼容
+        tree = opt_res.get("optimized_result") or opt_res.get("evolution_tree") or opt_res.get("result") or {}
+        if isinstance(tree, dict):
+            stats = tree.get("mcts_stats", {}) or {}
+            s = stats.get("actual_steps")
+            if s is not None:
+                actual_steps_list.append(int(s))
+
+        # topK 评分：兼容多种字段名/容器层级
+        initial_prop = opt_res.get("initial_property")
+        topk_container = opt_res.get("topk_results") or opt_res.get("topK_results") or opt_res.get("top_k_results") or {}
+        topk = topk_container
+        if isinstance(topk_container, dict):
+            # 容器内部的列表字段兜底搜索
+            topk = (topk_container.get("topK_results")
+                    or topk_container.get("topk_results")
+                    or topk_container.get("top_k_results")
+                    or topk_container.get("results")
+                    or topk_container.get("items")
+                    or [])
+            if initial_prop is None:
+                initial_prop = topk_container.get("initial_property_value", initial_prop)
+
+        if isinstance(topk, list) and topk:
+            # 依次尝试：score / property_change / (property_value - initial_property)
+            changes = []
+            for r in topk:
+                if not isinstance(r, dict):
+                    continue
+                c = r.get("score")
+                if c is None:
+                    c = r.get("property_change")
+                if c is None and initial_prop is not None:
+                    pv = r.get("property_value")
+                    if pv is not None:
+                        c = pv - initial_prop
+                if c is not None:
+                    changes.append(float(c))
+            if changes:
+                # 方向无关：取绝对值最大的那一条
+                best = max(changes, key=lambda x: abs(x))
+                top1_best_changes.append(abs(best))
+                top1_signed_changes.append(best)
 
     run_label = os.path.splitext(fname)[0]
     avg_steps = sum(actual_steps_list) / len(actual_steps_list) if actual_steps_list else float("nan")
-    avg_top1  = sum(top1_scores) / len(top1_scores) if top1_scores else float("nan")
-    rows.append((run_label, avg_steps, avg_top1, len(molecules)))
+    max_steps = max(actual_steps_list) if actual_steps_list else float("nan")
+    avg_top1_abs = sum(top1_best_changes) / len(top1_best_changes) if top1_best_changes else float("nan")
+    avg_top1_signed = sum(top1_signed_changes) / len(top1_signed_changes) if top1_signed_changes else float("nan")
+    rows.append((run_label, avg_steps, max_steps, avg_top1_abs, avg_top1_signed, len(molecules)))
 
 if not rows:
     print("（未找到可解析的结果 JSON，请手动检查输出目录）")
 else:
-    print(f"{'run_label':<55}  {'avg_steps':>10}  {'avg_top1':>10}  {'n_mols':>6}")
-    print("-" * 90)
-    for label, steps, top1, n in rows:
-        print(f"{label:<55}  {steps:>10.1f}  {top1:>10.4f}  {n:>6}")
+    print(f"{'run_label':<55}  {'avg_steps':>10}  {'max_steps':>10}  {'avg|Δprop|':>11}  {'avgΔprop':>10}  {'n_mols':>6}")
+    print("-" * 115)
+    for label, steps, mx, top1_abs, top1_s, n in rows:
+        print(f"{label:<55}  {steps:>10.1f}  {mx:>10}  {top1_abs:>11.4f}  {top1_s:>10.4f}  {n:>6}")
 PYEOF
 fi
 
