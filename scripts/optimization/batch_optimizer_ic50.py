@@ -73,7 +73,7 @@ def parse_args():
     """解析命令行参数"""
     parser = argparse.ArgumentParser(description='批量优化分子属性')
     parser.add_argument('--input-json', type=str,
-                        default='/home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/gdcsv2/ic50_result_dict_20_30.json',
+                        default='/home/xxx/projects/mol_opt/mol-ofo/mol_evo/dataset/data/gdcsv2/ic50_result_dict_20_30.json',
                         help='输入的JSON文件路径')
     parser.add_argument('--cell-name', type=str,
                         required=True,
@@ -81,13 +81,13 @@ def parse_args():
     parser.add_argument('--output-json', type=str,
                         help='输出的JSON文件路径')
     parser.add_argument('--model-path', type=str,
-                        default='/home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200/last.pth',
+                        default='/home/xxx/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200/last.pth',
                         help='模型文件路径')
     parser.add_argument('--model-dir', type=str,
-                        default='/home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200',
+                        default='/home/xxx/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200',
                         help='模型目录路径')
     parser.add_argument('--config-file', type=str,
-                        default='/home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/drp_ic50_p/ic50.yaml',
+                        default='/home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/drp_ic50_p/ic50.yaml',
                         help='配置文件路径')
     parser.add_argument('--target-property', type=str, default='ic50',
                         help='目标属性名称')

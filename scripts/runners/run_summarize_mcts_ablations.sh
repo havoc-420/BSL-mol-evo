@@ -14,7 +14,7 @@ TASKS="${TASKS:-lumo_up,homo_down}"
 VARIANTS="${VARIANTS:-full,wo_prior,wo_leaf_value,random_topb}"
 SEEDS="${SEEDS:-42}"
 
-EVAL_SCRIPT="${EVAL_SCRIPT:-/home/rhj/projects/mol_opt/utils/evaluate_csv_results.py}"
+EVAL_SCRIPT="${EVAL_SCRIPT:-/home/xxx/projects/mol_opt/utils/evaluate_csv_results.py}"
 CONDA_ENV="${CONDA_ENV:-mol-opt-tdc}"
 MAX_OPT_MOLECULES="${MAX_OPT_MOLECULES:-10}"
 MIN_LINES="${MIN_LINES:-500}"       # CSV 行数 ≥ 此值才进行统计（否则认为 eval 未完成）

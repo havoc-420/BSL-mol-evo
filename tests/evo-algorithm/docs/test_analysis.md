@@ -2,7 +2,7 @@
 
 ## 1. 概述
 
-本报告分析了对 [MoleculeEvolverAnalysis](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/evolver.py#L25-L341) 类的测试结果，总结了发现的问题和改进建议。
+本报告分析了对 [MoleculeEvolverAnalysis](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/evolver.py#L25-L341) 类的测试结果，总结了发现的问题和改进建议。
 
 ## 2. 发现的问题
 
@@ -13,7 +13,7 @@
 **问题表现：**
 
 - 测试期望检测到"成环"操作，但实际未检测到
-- 这表明 [MoleculeEvolverAnalysis](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/evolver.py#L25-L341) 类在处理芳香族化合物时，未能正确识别芳香环的形成
+- 这表明 [MoleculeEvolverAnalysis](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/evolver.py#L25-L341) 类在处理芳香族化合物时，未能正确识别芳香环的形成
 
 **可能原因：**
 
@@ -28,7 +28,7 @@
 **问题表现：**
 
 - 测试期望检测到"形成双键"操作，但实际未检测到
-- 这表明 [MoleculeEvolverAnalysis](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/evolver.py#L25-L341) 类在处理含立体化学信息的双键时存在问题
+- 这表明 [MoleculeEvolverAnalysis](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/evolver.py#L25-L341) 类在处理含立体化学信息的双键时存在问题
 
 **可能原因：**
 
@@ -42,18 +42,18 @@
 **问题表现：**
 
 - 测试期望抛出 ValueError 异常，但实际未抛出
-- 这表明 [MoleculeEvolverAnalysis](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/evolver.py#L25-L341) 类在处理空字符串输入时缺乏适当的验证
+- 这表明 [MoleculeEvolverAnalysis](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/evolver.py#L25-L341) 类在处理空字符串输入时缺乏适当的验证
 
 **可能原因：**
 
 1. RDKit 的 Chem.MolFromSmiles 函数可能对空字符串有特殊处理
-2. [MoleculeEvolverAnalysis](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/evolver.py#L25-L341) 类的初始化验证逻辑可能不完整
+2. [MoleculeEvolverAnalysis](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/evolver.py#L25-L341) 类的初始化验证逻辑可能不完整
 
 ## 3. 改进建议
 
 ### 3.1 完善成环检测逻辑
 
-1. 修改 [\_has_rings](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/evolver.py#L117-L124) 方法和相关成环检测逻辑，确保能正确识别各种类型的环（包括芳香环）
+1. 修改 [\_has_rings](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/evolver.py#L117-L124) 方法和相关成环检测逻辑，确保能正确识别各种类型的环（包括芳香环）
 2. 区分芳香环和脂肪环的处理方式
 3. 确保成环操作检测不仅考虑骨架键，还要考虑环的类型
 
@@ -64,7 +64,7 @@
 
 ### 3.3 完善输入验证
 
-1. 在 [MoleculeEvolverAnalysis](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/evolver.py#L25-L341) 类的初始化中添加对空字符串的显式检查
+1. 在 [MoleculeEvolverAnalysis](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/evolver.py#L25-L341) 类的初始化中添加对空字符串的显式检查
 2. 确保所有无效输入都能得到适当处理
 
 ## 4. 测试覆盖范围扩展建议
@@ -89,4 +89,4 @@
 
 ## 5. 结论
 
-当前测试揭示了 [MoleculeEvolverAnalysis](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/evolver.py#L25-L341) 类在处理芳香族化合物、含立体化学的双键以及空输入等方面存在一些问题。通过针对性地修复这些问题并扩展测试覆盖范围，可以显著提高该类的稳定性和可靠性。
+当前测试揭示了 [MoleculeEvolverAnalysis](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/evolver.py#L25-L341) 类在处理芳香族化合物、含立体化学的双键以及空输入等方面存在一些问题。通过针对性地修复这些问题并扩展测试覆盖范围，可以显著提高该类的稳定性和可靠性。

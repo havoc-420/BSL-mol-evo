@@ -87,7 +87,7 @@ def main():
     ]
     
     for i, smiles in enumerate(test_cases, 1):
-        output_path = f'/home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/tests/image_aromatic/aromatic_bonds_{i}.png'
+        output_path = f'/home/xxx/projects/mol_opt/mol-ofo/mol_evo/dataset/tests/image_aromatic/aromatic_bonds_{i}.png'
         print(f"\n处理分子 {i}: {smiles}")
         visualize_aromatic_bonds(smiles, output_path)
 

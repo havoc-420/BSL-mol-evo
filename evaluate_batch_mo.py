@@ -11,7 +11,7 @@ from rdkit.Chem import Crippen
 from tqdm import tqdm
 
 # 添加对HOMO/LUMO计算模块的导入
-sys.path.append('/home/data2/rhj/project/mol_optimzation/utils')
+sys.path.append('/home/data2/xxx/project/mol_optimzation/utils')
 try:
     from calculate_homo_lumo import calculate_homo_lumo_gap_qm9, calculate_mu
 except ImportError as e:

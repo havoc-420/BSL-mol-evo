@@ -2,7 +2,7 @@
 
 ## 概述
 
-在 PyTorch Geometric (PyG)中，`batch`属性是一个重要的概念，特别是在处理多个图（分子）的批量数据时。在我们的分子编辑器项目中，[MoleculeFeatureExtractor](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/gcn.py#L15-L53)模型支持使用`batch`属性来处理批量数据。
+在 PyTorch Geometric (PyG)中，`batch`属性是一个重要的概念，特别是在处理多个图（分子）的批量数据时。在我们的分子编辑器项目中，[MoleculeFeatureExtractor](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/gcn.py#L15-L53)模型支持使用`batch`属性来处理批量数据。
 
 ## Batch 的作用
 
@@ -12,7 +12,7 @@
 
 ## 当前实现
 
-在[MoleculeFeatureExtractor](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/gcn.py#L15-L53)中，我们有以下处理逻辑：
+在[MoleculeFeatureExtractor](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/gcn.py#L15-L53)中，我们有以下处理逻辑：
 
 ```python
 batch = getattr(data, 'batch', None)
@@ -31,7 +31,7 @@ else:
 
 ## 测试脚本中的问题
 
-当前的测试脚本[test_v0_graph_feature_extractor.py](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/test_v0_graph_feature_extractor.py)只测试了单个分子的情况，没有使用 batch。这虽然可以验证基本功能，但没有完全覆盖模型的批量处理能力。
+当前的测试脚本[test_v0_graph_feature_extractor.py](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/test_v0_graph_feature_extractor.py)只测试了单个分子的情况，没有使用 batch。这虽然可以验证基本功能，但没有完全覆盖模型的批量处理能力。
 
 ## 改进建议
 

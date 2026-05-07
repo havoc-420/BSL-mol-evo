@@ -40,15 +40,15 @@ python mol_evo/predict_v0.py --csv-file mol_evo/dataset/data/qm9-evo-pairs-step-
 3. same test
 
 ```bash
-cd /home/rhj/projects/mol_opt/mol-ofo && python mol_evo/predict_v0_testset.py --model-path /home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/gcn/train-20251012_230612-mu_change-30000-500/molecule_evolution_gcn_v0_mu_predictor.pth --model-dir /home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/gcn/train-20251012_230612-mu_change-30000-500 --data-file /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.csv -mpairs 30000 --seed 12420
+cd /home/xxx/projects/mol_opt/mol-ofo && python mol_evo/predict_v0_testset.py --model-path /home/xxx/projects/mol_opt/mol-ofo/mol_evo/output/v0/gcn/train-20251012_230612-mu_change-30000-500/molecule_evolution_gcn_v0_mu_predictor.pth --model-dir /home/xxx/projects/mol_opt/mol-ofo/mol_evo/output/v0/gcn/train-20251012_230612-mu_change-30000-500 --data-file /home/xxx/projects/mol_opt/mol-ofo/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.csv -mpairs 30000 --seed 12420
 
-cd /home/rhj/projects/mol_opt/mol-ofo && python mol_evo/predict_v0_testset.py --model-path /home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/gcn/train-20251012_230616-gap_change_pct-30000-500/molecule_evolution_gcn_v0_mu_predictor.pth --model-dir /home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/gcn/train-20251012_230616-gap_change_pct-30000-500 --data-file /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.csv -mpairs 30000 --seed 42
+cd /home/xxx/projects/mol_opt/mol-ofo && python mol_evo/predict_v0_testset.py --model-path /home/xxx/projects/mol_opt/mol-ofo/mol_evo/output/v0/gcn/train-20251012_230616-gap_change_pct-30000-500/molecule_evolution_gcn_v0_mu_predictor.pth --model-dir /home/xxx/projects/mol_opt/mol-ofo/mol_evo/output/v0/gcn/train-20251012_230616-gap_change_pct-30000-500 --data-file /home/xxx/projects/mol_opt/mol-ofo/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct.csv -mpairs 30000 --seed 42
 ```
 
 # Train
 
 ```bash
-CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --epochs 200 -lr 0.0001 --data-file /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/qm9-evo-pairs-step-1-v0.json
+CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --epochs 200 -lr 0.0001 --data-file /home/xxx/projects/mol_opt/mol-ofo/mol_evo/dataset/data/qm9-evo-pairs-step-1-v0.json
 ```
 
 # Train - homo/lomo/gap
@@ -63,11 +63,11 @@ CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --max-pairs 30000 --target-pro
 # Train - new step-1 12w
 
 ```bash
-CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --epochs 200 -lr 0.0001 --data-file /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct.json --max-pairs 80000 --batch-size 64 --target-property lumo_change_pct
+CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --epochs 200 -lr 0.0001 --data-file /home/xxx/projects/mol_opt/mol-ofo/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct.json --max-pairs 80000 --batch-size 64 --target-property lumo_change_pct
 ```
 
 ## Test
 
 ```bash
-CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --epochs 50 -lr 0.001 --data-file /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct.json --max-pairs 2000 --batch-size 32
+CUDA_VISIBLE_DEVICES=2 python mol_evo/train_v0.py --epochs 50 -lr 0.001 --data-file /home/xxx/projects/mol_opt/mol-ofo/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct.json --max-pairs 2000 --batch-size 32
 ```

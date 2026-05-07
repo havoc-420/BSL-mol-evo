@@ -72,7 +72,7 @@ class QM9OptimizationPairs:
                 print(f"加载SMILES属性文件时出错: {e}")
         else:
             # 默认使用qm9_smiles_all_atoms.csv
-            default_path = '/home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/qm9_smiles_all_atoms.csv'
+            default_path = '/home/xxx/projects/mol_opt/mol-ofo/mol_evo/dataset/data/qm9_smiles_all_atoms.csv'
             try:
                 print(f"正在加载默认SMILES属性文件: {default_path}")
                 props_df = pd.read_csv(default_path)

@@ -10,7 +10,7 @@ cd "$REPO"
 
 # ===== 配置 =====
 SWEEP_DIR="${SWEEP_DIR:-$REPO/mol_evo/output/evo-mo/lumo_down_sweep_20260502_131242}"
-EVAL_SCRIPT="/home/rhj/projects/mol_opt/utils/evaluate_batch_mo.py"
+EVAL_SCRIPT="/home/xxx/projects/mol_opt/utils/evaluate_batch_mo.py"
 CONDA_ENV="${CONDA_ENV:-mol-opt-tdc}"
 TARGET_PROP="lumo"
 DIRECTION="decrease"

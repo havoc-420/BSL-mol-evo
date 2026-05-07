@@ -37,10 +37,10 @@ python test_evolution_tree.py --test-type reverse --target-smiles CCO
 python test_evolution_tree.py CC --test-type evolution --config-file /path/to/config.yaml
 
 # 使用配置文件运行进化树测试
-python test_evolution_tree.py CC --test-type tree --config-file /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct.yaml
+python test_evolution_tree.py CC --test-type tree --config-file /home/xxx/projects/mol_opt/mol-ofo/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct.yaml
 
 # 使用配置文件运行进化路径生成测试
-python test_evolution_tree.py CC --test-type evolution --config-file /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct.yaml --num-paths 5 --steps-per-path 3
+python test_evolution_tree.py CC --test-type evolution --config-file /home/xxx/projects/mol_opt/mol-ofo/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct.yaml --num-paths 5 --steps-per-path 3
 ```
 
 #### 配置文件支持
@@ -174,7 +174,7 @@ python generate_training_data.py
 ## 测试
 
 ```bash
-cd /home/rhj/projects/mol_opt/mol-ofo && python mol_evo/tests/mo-tree-gen/standalone_test_evolution.py --config-file /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct.yaml
+cd /home/xxx/projects/mol_opt/mol-ofo && python mol_evo/tests/mo-tree-gen/standalone_test_evolution.py --config-file /home/xxx/projects/mol_opt/mol-ofo/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct.yaml
 
-cd /home/rhj/projects/mol_opt/mol-ofo && python -m mol_evo.core.evolver expand CC --num-paths 2 --max-steps 3 --format json --config-file /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct.yaml
+cd /home/xxx/projects/mol_opt/mol-ofo && python -m mol_evo.core.evolver expand CC --num-paths 2 --max-steps 3 --format json --config-file /home/xxx/projects/mol_opt/mol-ofo/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct.yaml
 ```

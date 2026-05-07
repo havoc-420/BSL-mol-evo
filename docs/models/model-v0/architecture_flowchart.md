@@ -89,7 +89,7 @@ flowchart TD
 
 功能：使用 GCN 网络从分子图中提取特征表示
 
-实现类：[GCNMoleculeFeatureExtractor](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/molecule_feature_extractors/gcn.py#L18-L74)
+实现类：[GCNMoleculeFeatureExtractor](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/molecule_feature_extractors/gcn.py#L18-L74)
 
 详细结构：
 
@@ -119,8 +119,8 @@ flowchart LR
 
 实现类：
 
-- [LinearEdgeFeatureExtractor](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/edge_feature_extractors/linear.py#L15-L48)
-- [TransformerEdgeFeatureExtractor](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/edge_feature_extractors/transformer.py#L16-L82)
+- [LinearEdgeFeatureExtractor](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/edge_feature_extractors/linear.py#L15-L48)
+- [TransformerEdgeFeatureExtractor](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/edge_feature_extractors/transformer.py#L16-L82)
 
 功能：对边特征（操作信息）进行编码
 
@@ -163,8 +163,8 @@ flowchart LR
 
 实现类：
 
-- [MLPFusionPredictor](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/fusion_predictors/mlp.py#L15-L69)
-- [TransformerFusionPredictor](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/fusion_predictors/transformer.py#L16-L103)
+- [MLPFusionPredictor](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/fusion_predictors/mlp.py#L15-L69)
+- [TransformerFusionPredictor](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/fusion_predictors/transformer.py#L16-L103)
 
 功能：融合分子特征和边特征，预测属性变化
 

@@ -3,7 +3,7 @@
 > 最后更新：2026-04-28 15:50
 > 实验脚本：`mol_evo/scripts/runners/run_step_budget_sweep.sh`
 > Conda 环境：**`mol-edit`**（注意不是 `mol-ofo`）
-> 运行机：`bsl-11-rhj`
+> 运行机：`bsl-11-xxx`
 
 ## 1. 任务背景
 
@@ -83,7 +83,7 @@ bash mol_evo/scripts/runners/run_step_budget_sweep.sh
 ### 推荐命令
 
 ```bash
-cd /home/rhj/projects/mol_opt/mol-ofo
+cd /home/xxx/projects/mol_opt/mol-ofo
 
 # 方案 A（6 个点，约 30h）
 CONDA_ENV=mol-edit CUDA_VISIBLE_DEVICES=0 \

@@ -4,7 +4,7 @@
 
 ## 目录内容
 
-- [molecular_optimization_task.md](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/docs/mo/molecular_optimization_task.md) - 分子优化任务的目标与实现思路
+- [molecular_optimization_task.md](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/docs/mo/molecular_optimization_task.md) - 分子优化任务的目标与实现思路
 
 ## 任务概述
 
@@ -24,4 +24,4 @@
 
 ## 使用方法
 
-详细使用方法请参考 [molecular_optimization_task.md](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/docs/mo/molecular_optimization_task.md) 文档。
+详细使用方法请参考 [molecular_optimization_task.md](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/docs/mo/molecular_optimization_task.md) 文档。

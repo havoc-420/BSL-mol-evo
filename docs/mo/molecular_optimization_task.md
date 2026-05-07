@@ -15,7 +15,7 @@
 
 使用基于 step=1 数据集训练的模型作为基础预测器：
 
-- 模型路径: `/home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/visnet_linear_linear/train-20251022_072726-mu_change-30000-500`
+- 模型路径: `/home/xxx/projects/mol_opt/mol-ofo/mol_evo/output/v0/visnet_linear_linear/train-20251022_072726-mu_change-30000-500`
 - 目标属性: mu_change (偶极矩变化)
 - 模型架构: VisNet + Linear + Linear
 

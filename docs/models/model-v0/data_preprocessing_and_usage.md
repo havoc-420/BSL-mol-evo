@@ -2,7 +2,7 @@
 
 ## 概述
 
-本文档详细介绍了如何为 [MoleculeEvolutionGCNLinearPredictor](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/gcn.py#L79-L136) 模型预处理数据以及如何正确使用该模型进行训练和推理。该模型用于预测分子演化过程中属性的变化，需要成对的分子数据和操作信息作为输入。
+本文档详细介绍了如何为 [MoleculeEvolutionGCNLinearPredictor](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/gcn.py#L79-L136) 模型预处理数据以及如何正确使用该模型进行训练和推理。该模型用于预测分子演化过程中属性的变化，需要成对的分子数据和操作信息作为输入。
 
 ## 模型输入要求
 
@@ -204,13 +204,13 @@ for from_smiles, to_smiles, op_type, atom_type in samples:
 
 ## 注意事项
 
-1. **数据一致性**: 确保[from_data](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/gcn.py#L139-L139)、[to_data](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/gcn.py#L142-L142)和[edge_attr](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/gcn.py#L145-L145)三者在语义上一致，共同描述一个分子演化过程。
+1. **数据一致性**: 确保[from_data](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/gcn.py#L139-L139)、[to_data](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/gcn.py#L142-L142)和[edge_attr](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/gcn.py#L145-L145)三者在语义上一致，共同描述一个分子演化过程。
 
 2. **特征维度**: 确保输入数据的特征维度与模型初始化时指定的维度一致。
 
-3. **批量大小**: 当前模型的[edge_attr](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/gcn.py#L145-L145)应具有形状`[1, edge_feature_dim]`，表示处理单个分子对。
+3. **批量大小**: 当前模型的[edge_attr](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/gcn.py#L145-L145)应具有形状`[1, edge_feature_dim]`，表示处理单个分子对。
 
-4. **图数据格式**: 确保图数据符合 PyTorch Geometric 的要求，特别是[edge_index](file:///home/rhj/projects/mol_opt/mol-ofo/tests/gnn-train/cora-demo-1.py#L98-L98)的格式。
+4. **图数据格式**: 确保图数据符合 PyTorch Geometric 的要求，特别是[edge_index](file:///home/xxx/projects/mol_opt/mol-ofo/tests/gnn-train/cora-demo-1.py#L98-L98)的格式。
 
 ## 运行示例
 
@@ -233,4 +233,4 @@ for from_smiles, to_smiles, op_type, atom_type in samples:
 
 ## 总结
 
-[MoleculeEvolutionGCNLinearPredictor](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/gcn.py#L79-L136)模型通过处理成对的分子图数据和操作信息来预测分子属性的变化。正确预处理数据并确保三个输入组件的一致性是成功使用该模型的关键。在实际应用中，应优先复用项目中已有的工具函数，如`smile_to_graph_xyz`和`prepare_edge_features`，以确保数据处理的一致性和准确性。
+[MoleculeEvolutionGCNLinearPredictor](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/gcn.py#L79-L136)模型通过处理成对的分子图数据和操作信息来预测分子属性的变化。正确预处理数据并确保三个输入组件的一致性是成功使用该模型的关键。在实际应用中，应优先复用项目中已有的工具函数，如`smile_to_graph_xyz`和`prepare_edge_features`，以确保数据处理的一致性和准确性。

@@ -8,8 +8,8 @@ cd "$REPO"
 
 CONDA_ENV="${CONDA_ENV:-mol-edit}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
-EVAL_SCRIPT="${EVAL_SCRIPT:-/home/rhj/projects/mol_opt/utils/evaluate_batch_mo.py}"
-CSV_EVAL_SCRIPT="${CSV_EVAL_SCRIPT:-/home/rhj/projects/mol_opt/utils/evaluate_csv_results.py}"
+EVAL_SCRIPT="${EVAL_SCRIPT:-/home/xxx/projects/mol_opt/utils/evaluate_batch_mo.py}"
+CSV_EVAL_SCRIPT="${CSV_EVAL_SCRIPT:-/home/xxx/projects/mol_opt/utils/evaluate_csv_results.py}"
 
 # ===== 配置参数 =====
 # 输入目录（即搜索阶段的输出 root）

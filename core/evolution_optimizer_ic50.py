@@ -911,9 +911,9 @@ def run4debug():
     """
     
     # 硬编码的参数
-    model_path = "/home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/drp_ic50_p/SchNet_909729_checkpoints/0.9_N4_20260106_191804/best_model.pth"
-    model_dir = "/home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/drp_ic50_p/SchNet_909729_checkpoints/0.9_N4_20260106_191804"
-    config_file = "/home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/drp_ic50_p/ic50.yaml"
+    model_path = "/home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/drp_ic50_p/SchNet_909729_checkpoints/0.9_N4_20260106_191804/best_model.pth"
+    model_dir = "/home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/drp_ic50_p/SchNet_909729_checkpoints/0.9_N4_20260106_191804"
+    config_file = "/home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/drp_ic50_p/ic50.yaml"
     initial_smiles = "C1=C(C(=O)NC(=O)N1)F"
     initial_property_value = 0.6027509202620565  # 将由模型计算
     target_property = "ic50"

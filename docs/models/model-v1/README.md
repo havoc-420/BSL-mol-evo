@@ -378,9 +378,9 @@ MoleculeEvolutionVisnetLinearIterativePredictor(
 
 ## 相关文件
 
-- **模型实现**: [mol_evo/core/models/v1/visnet_linear_linear.py](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/models/v1/visnet_linear_linear.py)
-- **模块初始化**: [mol_evo/core/models/v1/**init**.py](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/models/v1/__init__.py)
-- **v0 版本文档**: [mol_evo/docs/model-v0/README.md](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/docs/model-v0/README.md)
+- **模型实现**: [mol_evo/core/models/v1/visnet_linear_linear.py](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/models/v1/visnet_linear_linear.py)
+- **模块初始化**: [mol_evo/core/models/v1/**init**.py](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/models/v1/__init__.py)
+- **v0 版本文档**: [mol_evo/docs/model-v0/README.md](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/docs/model-v0/README.md)
 
 ## 参考文献
 

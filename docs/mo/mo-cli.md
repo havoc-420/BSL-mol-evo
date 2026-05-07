@@ -1,10 +1,10 @@
 # Test(已废弃)
 
 ```bash
-cd /home/rhj/projects/mol_opt/mol-ofo && python -m mol_evo.core.evolution_optimizer \
-  --model-path /home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251111_191050-homo_change_pct-30000-300/last.pth \
-  --model-dir /home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251111_191050-homo_change_pct-30000-300 \
-  --config-file /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct-config.yaml \
+cd /home/xxx/projects/mol_opt/mol-ofo && python -m mol_evo.core.evolution_optimizer \
+  --model-path /home/xxx/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251111_191050-homo_change_pct-30000-300/last.pth \
+  --model-dir /home/xxx/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251111_191050-homo_change_pct-30000-300 \
+  --config-file /home/xxx/projects/mol_opt/mol-ofo/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct-config.yaml \
   --initial-smiles CCCCCCC \
   --max-depth 2 \
   --max-branching 2 \
@@ -15,10 +15,10 @@ cd /home/rhj/projects/mol_opt/mol-ofo && python -m mol_evo.core.evolution_optimi
 
 ```bash
 ## 30000
-cd /home/rhj/projects/mol_opt/mol-ofo && python -m mol_evo.core.evolution_optimizer \
-  --model-path /home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251111_191050-homo_change_pct-30000-300/last.pth \
-  --model-dir /home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251111_191050-homo_change_pct-30000-300 \
-  --config-file /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct-config.yaml \
+cd /home/xxx/projects/mol_opt/mol-ofo && python -m mol_evo.core.evolution_optimizer \
+  --model-path /home/xxx/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251111_191050-homo_change_pct-30000-300/last.pth \
+  --model-dir /home/xxx/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251111_191050-homo_change_pct-30000-300 \
+  --config-file /home/xxx/projects/mol_opt/mol-ofo/mol_evo/dataset/data/tmp/qm9-evo-pairs-step-1-pairs-v0-81005-with-properties-pct-config.yaml \
   --initial-smiles CC \
   --initial-property-value -9.211053848266602 \
   --target-property homo \
@@ -29,9 +29,9 @@ cd /home/rhj/projects/mol_opt/mol-ofo && python -m mol_evo.core.evolution_optimi
 
 # 120000
 python -m mol_evo.core.evolution_optimizer \
-  --model-path /home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200/last.pth \
-  --model-dir /home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200 \
-  --config-file /home/rhj/projects/mol_opt/mol-ofo/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct-config.yaml \
+  --model-path /home/xxx/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200/last.pth \
+  --model-dir /home/xxx/projects/mol_opt/mol-ofo/mol_evo/output/v0/MoleculeEvolutionVisnetLinearPredictor/train-20251123_192921-lumo_change-120000-200 \
+  --config-file /home/xxx/projects/mol_opt/mol-ofo/mol_evo/dataset/data/qm9-evo-pairs-step-1-with-properties-pct-config.yaml \
   --initial-smiles CCO \
   --initial-property-value 2.171468734741211 \
   --target-property lumo \
@@ -378,7 +378,7 @@ python -m mol_evo.core.evolution_optimizer \
                 ├── FC1NO1 [form_ring] (变化: 1.2726), 属性值: 0.051818 (深度: 4)
                 ├── NN(O)F [replace_atom] (变化: 0.5085), 属性值: 0.034395 (深度: 4)
                 └── NOC(N)F [add_atom] (变化: 0.2491), 属性值: 0.028481 (深度: 4)
-(mol-edit) rhj@wb-ubuntu-110-31-underground:~/project/mol_editor$
+(mol-edit) xxx@wb-ubuntu-110-31-underground:~/project/mol_editor$
 ```
 
 1. cut
@@ -387,7 +387,7 @@ python -m mol_evo.core.evolution_optimizer \
 ValueError: 无法将SMILES转换为图数据
 开始剪枝，优化方向: increase, 耐心值: 2
 剪枝完成，共剪除 909 个节点
-进化树已保存到: /home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/../../mol_evo/output/evo-mo/20251123_050316/evolution_tree_CC.json
+进化树已保存到: /home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/../../mol_evo/output/evo-mo/20251123_050316/evolution_tree_CC.json
 初始分子: CC
 目标属性: homo
 优化方向: 最大化

@@ -132,7 +132,7 @@
 ## 基本用法
 
 ```bash
-cd /home/rhj/projects/mol_opt/mol-ofo
+cd /home/xxx/projects/mol_opt/mol-ofo
 python mol_evo/train_v0.py
 ```
 
@@ -199,10 +199,10 @@ model:
 
 配置文件中的参数分为两类：
 
-1. **训练相关参数**：这些参数控制训练过程，位于[train](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/modules/equiformer/ocpmodels/common/relaxation/optimizers.py#L0-L0)部分下，如[epochs](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/gcn_transformer_transformer.py#L41-L41)、[batch_size](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/modules/equiformer/deps/fairchem/ocpmodels/common/data_parallel.py#L0-L0)、[learning_rate](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/modules/equiformer/deps/fairchem/configs/s2ef/200k/cgcnn/cgcnn.yml#L11-L11)等，不会传递给模型构造函数
-2. **模型相关参数**：这些参数会传递给模型构造函数，位于[model](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/modules/equiformer/ocpmodels/common/relaxation/optimizers.py#L0-L0)部分下，用于初始化模型，如[node_feature_dim](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/gcn_transformer_transformer.py#L31-L31)、[hidden_dims](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/gcn_transformer_transformer.py#L33-L33)等
+1. **训练相关参数**：这些参数控制训练过程，位于[train](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/modules/equiformer/ocpmodels/common/relaxation/optimizers.py#L0-L0)部分下，如[epochs](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/gcn_transformer_transformer.py#L41-L41)、[batch_size](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/modules/equiformer/deps/fairchem/ocpmodels/common/data_parallel.py#L0-L0)、[learning_rate](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/modules/equiformer/deps/fairchem/configs/s2ef/200k/cgcnn/cgcnn.yml#L11-L11)等，不会传递给模型构造函数
+2. **模型相关参数**：这些参数会传递给模型构造函数，位于[model](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/modules/equiformer/ocpmodels/common/relaxation/optimizers.py#L0-L0)部分下，用于初始化模型，如[node_feature_dim](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/gcn_transformer_transformer.py#L31-L31)、[hidden_dims](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/gcn_transformer_transformer.py#L33-L33)等
 
-当使用配置文件时，如果未指定[model_type](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/gcn_transformer_transformer.py#L32-L32)，系统会尝试根据配置文件名推断模型类型。例如，使用[gcn-tf-tf.yaml](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/configs/gcn-tf-tf.yaml)配置文件时，模型类型会被设置为`gcn-tf-tf`。
+当使用配置文件时，如果未指定[model_type](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/models/v0/gcn_transformer_transformer.py#L32-L32)，系统会尝试根据配置文件名推断模型类型。例如，使用[gcn-tf-tf.yaml](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/configs/gcn-tf-tf.yaml)配置文件时，模型类型会被设置为`gcn-tf-tf`。
 
 如果根据配置文件名无法推断出有效的模型类型，系统将使用 CLI 交互式选择方式让用户选择模型类型。
 

@@ -2,7 +2,7 @@
 
 ## 1. 测试目标
 
-为 [MoleculeEvolverAnalysis](file:///home/rhj/projects/mol_opt/mol-ofo/mol_evo/core/evolver.py#L25-L341) 类构建系统化、全面的测试方案，确保其能够正确处理各种分子结构和化学特性。
+为 [MoleculeEvolverAnalysis](file:///home/xxx/projects/mol_opt/mol-ofo/mol_evo/core/evolver.py#L25-L341) 类构建系统化、全面的测试方案，确保其能够正确处理各种分子结构和化学特性。
 
 ## 2. 测试策略
 

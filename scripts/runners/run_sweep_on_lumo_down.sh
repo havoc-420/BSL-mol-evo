@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # INFO cli
-# RESUME_DIR=/home/rhj/projects/mol_opt/mol-ofo/mol_evo/output/evo-mo/lumo_down_sweep_20260502_131242 bash mol_evo/scripts/runners/run_lumo_down_sweep.sh
+# RESUME_DIR=/home/xxx/projects/mol_opt/mol-ofo/mol_evo/output/evo-mo/lumo_down_sweep_20260502_131242 bash mol_evo/scripts/runners/run_lumo_down_sweep.sh
 
 set -euo pipefail
 
