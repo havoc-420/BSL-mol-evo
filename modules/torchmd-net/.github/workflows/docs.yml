@@ -1,0 +1,39 @@
+name: Build Documentation
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  build-docs:
+    runs-on: ubuntu-latest
+
+    defaults: # Needed for conda
+      run:
+        shell: bash -l {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          python-version: "3.10"
+          channels: conda-forge
+          conda-remove-defaults: "true"
+
+      - name: Install compiler
+        run: conda install gxx --channel conda-forge --override-channels
+
+      - name: Install docs dependencies
+        run: |
+          pip install build
+          python -m build
+          pip install dist/*.whl
+          pip install -r docs/requirements.txt
+        env:
+          ACCELERATOR: "cpu"
+
+      - name: Build Sphinx Documentation
+        run: |
+          cd docs
+          make html
