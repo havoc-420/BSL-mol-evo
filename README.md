@@ -46,6 +46,8 @@ These open-source projects provide the foundation for molecular representation l
 
 The modules are located in the `modules/` directory. Please refer to each module's original documentation for installation and usage instructions.
 
+For detailed workflow CLI commands (data generation, training, prediction, etc.), see [docs/models/model-v0/workflow-cli.md](docs/models/model-v0/workflow-cli.md).
+
 ## License
 
 Please respect the licenses of the individual modules listed above.
